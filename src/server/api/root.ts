@@ -4,6 +4,7 @@ import {
   adminRouter,
   callRouter,
   campaignRouter,
+  dashboardRouter,
   organizationRouter,
   patientRouter,
   runRouter,
@@ -21,6 +22,7 @@ export const appRouter = createTRPCRouter({
   patient: patientRouter,
   call: callRouter,
   admin: adminRouter,
+  dashboard: dashboardRouter,
 });
 
 // export type definition of API

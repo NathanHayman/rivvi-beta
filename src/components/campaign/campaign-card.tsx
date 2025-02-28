@@ -23,7 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatDistance } from "date-fns";
-import { CreateRunModal } from "./create-run-modal";
+import { CreateRunModal } from "../run/create-run-modal";
 
 interface CampaignCardProps {
   campaign: {
