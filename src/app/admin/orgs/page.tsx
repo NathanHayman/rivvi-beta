@@ -12,13 +12,6 @@ import { getAgents } from "@/lib/retell-client";
 import { Plus } from "lucide-react";
 import { Suspense } from "react";
 
-// Define the type for Retell agent
-interface RetellAgent {
-  agent_id: string;
-  agent_name?: string;
-  [key: string]: any; // Allow for other properties
-}
-
 export default async function AdminOrganizationsPage() {
   const agents = await getAgents();
   const agentsList = agents.map((agent: any) => ({
