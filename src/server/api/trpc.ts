@@ -1,3 +1,5 @@
+// src/server/api/trpc.ts
+
 /**
  * YOU PROBABLY DON'T NEED TO EDIT THIS FILE, UNLESS:
  * 1. You want to modify request context (see Part 1).
@@ -6,11 +8,15 @@
  * TL;DR - This is where all the tRPC server stuff is created and plugged in. The pieces you will
  * need to use are documented accordingly near the end.
  */
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { isSuperAdmin } from "@/lib/super-admin";
 import { db } from "@/server/db";
+import { organizations } from "@/server/db/schema";
+import { auth } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
 
 /**
  * 1. CONTEXT
@@ -25,8 +31,30 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+  // Get the user's org from Clerk
+  const { userId, orgId } = await auth();
+
+  // Determine if the user is a super admin
+  const isSuperAdminUser = orgId ? await isSuperAdmin() : false;
+
+  // If the user has an orgId, get the organization details from our DB
+  let organization = null;
+  if (orgId) {
+    const orgs = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.clerkId, orgId));
+    organization = orgs[0] || null;
+  }
+
   return {
     db,
+    auth: {
+      userId,
+      orgId,
+      organization,
+      isSuperAdmin: isSuperAdminUser,
+    },
     ...opts,
   };
 };
@@ -74,6 +102,84 @@ export const createCallerFactory = t.createCallerFactory;
 export const createTRPCRouter = t.router;
 
 /**
+ * Auth middleware - ensures the user is authenticated
+ */
+const enforceAuth = t.middleware(({ ctx, next }) => {
+  if (!ctx.auth.userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to perform this action",
+    });
+  }
+  return next({
+    ctx: {
+      auth: {
+        ...ctx.auth,
+        userId: ctx.auth.userId,
+      },
+    },
+  });
+});
+
+/**
+ * Super admin middleware - ensures the user is a super admin
+ */
+const enforceSuperAdmin = t.middleware(async ({ ctx, next }) => {
+  if (!ctx.auth.userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to perform this action",
+    });
+  }
+
+  if (!ctx.auth.isSuperAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You must be a super admin to perform this action",
+    });
+  }
+
+  return next({
+    ctx: {
+      auth: {
+        ...ctx.auth,
+        userId: ctx.auth.userId,
+      },
+    },
+  });
+});
+
+/**
+ * Organization middleware - ensures the user has an active organization
+ */
+const enforceOrganization = t.middleware(({ ctx, next }) => {
+  if (!ctx.auth.userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to perform this action",
+    });
+  }
+
+  if (!ctx.auth.orgId || !ctx.auth.organization) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You must be part of an organization to perform this action",
+    });
+  }
+
+  return next({
+    ctx: {
+      auth: {
+        ...ctx.auth,
+        userId: ctx.auth.userId,
+        orgId: ctx.auth.orgId,
+        organization: ctx.auth.organization,
+      },
+    },
+  });
+});
+
+/**
  * Middleware for timing procedure execution and adding an artificial delay in development.
  *
  * You can remove this if you don't like it, but it can help catch unwanted waterfalls by simulating
@@ -104,3 +210,30 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
  * are logged in.
  */
 export const publicProcedure = t.procedure.use(timingMiddleware);
+
+/**
+ * Protected (authenticated) procedure
+ *
+ * This procedure ensures the user is authenticated before running the procedure.
+ */
+export const protectedProcedure = t.procedure
+  .use(enforceAuth)
+  .use(timingMiddleware);
+
+/**
+ * Organization procedure
+ *
+ * This procedure ensures the user is authenticated and has an active organization.
+ */
+export const orgProcedure = t.procedure
+  .use(enforceOrganization)
+  .use(timingMiddleware);
+
+/**
+ * Super admin procedure
+ *
+ * This procedure ensures the user is authenticated and is a super admin.
+ */
+export const superAdminProcedure = t.procedure
+  .use(enforceSuperAdmin)
+  .use(timingMiddleware);
