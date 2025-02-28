@@ -1,15 +1,76 @@
 // src/lib/retell-client.ts
+import { env } from "@/env";
 import { Retell } from "retell-sdk";
 
 // Ensure API key is set in environment
-if (!process.env.RETELL_API_KEY) {
+if (!env.RETELL_API_KEY) {
   throw new Error("RETELL_API_KEY is not set in environment variables");
 }
 
 // Create the Retell API client
 export const retell = new Retell({
-  apiKey: process.env.RETELL_API_KEY,
+  apiKey: env.RETELL_API_KEY,
 });
+
+/**
+ * Get all agents from Retell
+ */
+export const getAgents = async () => {
+  try {
+    // Use fetch directly to avoid SDK issues with Turbopack
+    const response = await fetch("https://api.retellai.com/list-agents", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${env.RETELL_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Retell API error: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    console.log("Agents:", response);
+    return response.json();
+  } catch (error) {
+    console.error("Error fetching agents:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get a single agent from Retell
+ */
+export const getAgent = async (agentId: string) => {
+  try {
+    console.log("Getting agent:", agentId);
+
+    // Use fetch directly to avoid SDK issues with Turbopack
+    const response = await fetch(
+      `https://api.retellai.com/get-agent/${agentId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${env.RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Retell API error: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error getting agent:", error);
+    throw error;
+  }
+};
 
 /**
  * Updates the prompt for a Retell agent

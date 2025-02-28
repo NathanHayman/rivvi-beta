@@ -89,7 +89,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
   });
 
   // Get rows data
-  const { data, isLoading, isError, refetch } = api.run.getRows.useQuery(
+  const { data, isLoading, isError, refetch } = api.runs.getRows.useQuery(
     {
       runId,
       page: pagination.pageIndex + 1,

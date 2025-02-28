@@ -110,20 +110,21 @@ const campaignFormSchema = z.object({
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 
 interface CreateCampaignFormProps {
-  organizations: Array<{ id: string; name: string }>;
-  agents?: Array<{ agent_id: string; name: string }>;
+  agents: { agent_id: string; name: string }[];
   requestId?: string;
   onSuccess?: () => void;
 }
 
 export function CreateCampaignForm({
-  organizations,
-  agents = [],
+  agents,
   requestId,
   onSuccess,
 }: CreateCampaignFormProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("general");
+
+  const { data: organizations } =
+    api.admin.getOrganizationsIdsAndNames.useQuery();
 
   // Setup form with default values
   const form = useForm<CampaignFormValues>({
@@ -401,7 +402,7 @@ export function CreateCampaignForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {organizations.map((org) => (
+                      {organizations?.map((org) => (
                         <SelectItem key={org.id} value={org.id}>
                           {org.name}
                         </SelectItem>
@@ -422,7 +423,7 @@ export function CreateCampaignForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Retell Agent ID</FormLabel>
-                  {agents.length > 0 ? (
+                  {agents?.length > 0 ? (
                     <Select
                       onValueChange={field.onChange}
                       defaultValue={field.value}

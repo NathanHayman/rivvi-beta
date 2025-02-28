@@ -4,7 +4,8 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { loggerLink, unstable_httpBatchStreamLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import SuperJSON from "superjson";
 
 import { type AppRouter } from "@/server/api/root";
@@ -36,6 +37,51 @@ export type RouterInputs = inferRouterInputs<AppRouter>;
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
+/**
+ * Error handler component that redirects to login page on auth errors
+ */
+function TRPCErrorHandler() {
+  const router = useRouter();
+  const queryClient = getQueryClient();
+
+  useEffect(() => {
+    // Set up global error handler for React Query
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event?.query?.state.error) {
+        const error = event.query.state.error;
+
+        // Check if it's a tRPC error with authentication issues
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "data" in error &&
+          error.data &&
+          typeof error.data === "object"
+        ) {
+          const trpcError = error.data as { code?: string; message?: string };
+
+          if (
+            trpcError.code === "UNAUTHORIZED" ||
+            trpcError.code === "FORBIDDEN" ||
+            (typeof trpcError.message === "string" &&
+              (trpcError.message.includes("logged in") ||
+                trpcError.message.includes("part of an organization")))
+          ) {
+            // Redirect to login page
+            router.push("/login");
+          }
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [router, queryClient]);
+
+  return null;
+}
+
 export function TRPCReactProvider(props: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
 
@@ -63,6 +109,7 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <api.Provider client={trpcClient} queryClient={queryClient}>
+        <TRPCErrorHandler />
         {props.children}
       </api.Provider>
     </QueryClientProvider>

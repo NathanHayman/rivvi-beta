@@ -12,7 +12,6 @@ type PageProps = {
 
 export default async function OrgPage({ params }: PageProps) {
   const { orgId } = await params;
-  console.log(orgId);
 
   return (
     <AppPage>

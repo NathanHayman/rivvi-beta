@@ -1,6 +1,6 @@
 "use client";
 
-// src/components/campaigns/campaigns-table.tsx
+// src/components/admin/organizations-table.tsx
 import {
   ColumnDef,
   flexRender,
@@ -10,16 +10,15 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { formatDistance } from "date-fns";
 import {
   ArrowUpDown,
-  CalendarIcon,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
-  RefreshCw,
+  Phone,
+  Plus,
+  Search,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,104 +39,100 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api } from "@/trpc/react";
-import { CreateRunModal } from "../run/create-run-modal";
+import { formatDistance } from "date-fns";
+import { useRouter } from "next/navigation";
+import { OrganizationCreateForm } from "../forms/organization-create-form";
+import { TriggerSheet } from "../modals/trigger-sheet";
 
-interface Campaign {
-  id: string;
-  name: string;
-  type: string;
-  agentId: string;
-  createdAt: Date;
-  runCount?: number;
-  callCount?: number;
+interface Organization {
+  org: {
+    id: string;
+    name: string;
+    clerkId: string;
+    phone: string | null;
+    timezone: string | null;
+    officeHours: Record<string, unknown> | null;
+    concurrentCallLimit: number | null;
+    isSuperAdmin: boolean | null;
+    createdAt: Date;
+    updatedAt: Date | null;
+  };
+  campaignCount: number;
+  runCount: number;
+  callCount: number;
 }
 
-export function CampaignsTable() {
+export function OrganizationsTable() {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
-    null,
-  );
-  const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isCreateOrgDialogOpen, setIsCreateOrgDialogOpen] = useState(false);
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 10,
   });
 
-  // Get campaigns data
-  const { data, isLoading, refetch } = api.campaign.getAll.useQuery({
-    limit: pagination.pageSize,
-    offset: pagination.pageIndex * pagination.pageSize,
-  });
+  // Get organizations data
+  const { data, isLoading, isError, refetch } =
+    api.admin.getOrganizationsWithStats.useQuery({
+      limit: pagination.pageSize,
+      offset: pagination.pageIndex * pagination.pageSize,
+      search: searchTerm.length >= 3 ? searchTerm : undefined,
+    });
 
-  const handleCreateRun = (campaignId: string) => {
-    setSelectedCampaignId(campaignId);
-    setIsCreateRunModalOpen(true);
-  };
-
-  const columns: ColumnDef<Campaign>[] = [
+  // Define columns
+  const columns: ColumnDef<Organization>[] = [
     {
-      accessorKey: "name",
+      accessorKey: "org.name",
       header: ({ column }) => {
         return (
           <Button
             variant="ghost"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Campaign Name
+            Organization
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         );
       },
       cell: ({ row }) => (
-        <div className="font-medium">{row.getValue("name")}</div>
+        <div>
+          <div className="font-medium">{row.original.org.name}</div>
+          <div className="text-xs text-muted-foreground">
+            Created{" "}
+            {formatDistance(new Date(row.original.org.createdAt), new Date(), {
+              addSuffix: true,
+            })}
+          </div>
+        </div>
       ),
     },
     {
-      accessorKey: "type",
-      header: "Type",
-      cell: ({ row }) => {
-        const type = row.getValue("type") as string;
-
-        const campaignTypeColor =
-          type === "appointment_confirmation"
-            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-            : type === "annual_wellness"
-              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-              : type === "medication_adherence"
-                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
-
-        return (
-          <Badge variant="outline" className={campaignTypeColor}>
-            {type}
-          </Badge>
-        );
-      },
+      accessorKey: "org.phone",
+      header: "Phone",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1">
+          <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>{row.original.org.phone || "Not set"}</span>
+        </div>
+      ),
     },
     {
-      accessorKey: "createdAt",
+      accessorKey: "campaignCount",
       header: ({ column }) => {
         return (
           <Button
             variant="ghost"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Created
+            Campaigns
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         );
       },
-      cell: ({ row }) => {
-        return (
-          <div className="text-sm">
-            {formatDistance(new Date(row.getValue("createdAt")), new Date(), {
-              addSuffix: true,
-            })}
-          </div>
-        );
-      },
+      cell: ({ row }) => (
+        <Badge variant="outline">{row.original.campaignCount}</Badge>
+      ),
     },
     {
       accessorKey: "runCount",
@@ -153,9 +148,7 @@ export function CampaignsTable() {
         );
       },
       cell: ({ row }) => (
-        <div className="text-center font-medium">
-          {row.original.runCount ?? 0}
-        </div>
+        <Badge variant="outline">{row.original.runCount}</Badge>
       ),
     },
     {
@@ -172,27 +165,16 @@ export function CampaignsTable() {
         );
       },
       cell: ({ row }) => (
-        <div className="text-center font-medium">
-          {row.original.callCount ?? 0}
-        </div>
+        <Badge variant="outline">{row.original.callCount}</Badge>
       ),
     },
     {
       id: "actions",
       cell: ({ row }) => {
-        const campaign = row.original;
+        const orgId = row.original.org.id;
 
         return (
           <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleCreateRun(campaign.id)}
-              className="mr-2"
-            >
-              <CalendarIcon className="mr-1.5 h-4 w-4" />
-              Create Run
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -202,17 +184,19 @@ export function CampaignsTable() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={() => router.push(`/campaigns/${campaign.id}`)}
+                  onClick={() => router.push(`/admin/orgs/${orgId}`)}
                 >
-                  View Campaign
+                  View Details
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => router.push(`/campaigns/${campaign.id}/runs`)}
+                  onClick={() => router.push(`/admin/orgs/${orgId}/campaigns`)}
                 >
-                  View Runs
+                  View Campaigns
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleCreateRun(campaign.id)}>
-                  Create Run
+                <DropdownMenuItem
+                  onClick={() => router.push(`/admin/orgs/${orgId}/edit`)}
+                >
+                  Edit Organization
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -222,8 +206,9 @@ export function CampaignsTable() {
     },
   ];
 
-  const table = useReactTable<Campaign>({
-    data: data?.campaigns || [],
+  // Create table
+  const table = useReactTable<Organization>({
+    data: data?.organizations || [],
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -238,41 +223,41 @@ export function CampaignsTable() {
     pageCount: data ? Math.ceil(data.totalCount / pagination.pageSize) : 0,
   });
 
+  // Handle search
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    // Reset to first page when searching
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+  };
+
+  // Handle create organization success
+  const handleCreateOrgSuccess = () => {
+    setIsCreateOrgDialogOpen(false);
+    void refetch();
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex w-full max-w-sm items-center space-x-2">
-          <Input
-            placeholder="Search campaigns..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-9"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-2"
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span className="sr-only">Refresh</span>
-          </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search organizations..."
+              value={searchTerm}
+              onChange={handleSearch}
+              className="w-[250px] pl-8"
+            />
+          </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => {
-            // This would typically open a campaign request modal
-            // For now, navigate to the campaign request page
-            router.push("/campaigns/request");
-          }}
-        >
-          Request Campaign
+
+        <Button onClick={() => setIsCreateOrgDialogOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          New Organization
         </Button>
       </div>
 
-      <div className="rounded-md border">
+      <div className="rounded-md">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -297,10 +282,7 @@ export function CampaignsTable() {
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  <div className="flex items-center justify-center">
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </div>
+                  Loading organizations...
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
@@ -308,8 +290,6 @@ export function CampaignsTable() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/campaigns/${row.original.id}`)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -327,7 +307,7 @@ export function CampaignsTable() {
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  No campaigns found
+                  No organizations found.
                 </TableCell>
               </TableRow>
             )}
@@ -335,11 +315,13 @@ export function CampaignsTable() {
         </Table>
       </div>
 
+      {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           Showing {table.getRowModel().rows.length} of {data?.totalCount || 0}{" "}
-          campaigns
+          organizations
         </div>
+
         <div className="flex items-center space-x-2">
           <Button
             variant="outline"
@@ -348,9 +330,9 @@ export function CampaignsTable() {
             disabled={!table.getCanPreviousPage()}
           >
             <ChevronLeft className="h-4 w-4" />
-            <span className="sr-only">Previous page</span>
+            <span className="sr-only">Previous Page</span>
           </Button>
-          <div className="text-sm font-medium">
+          <div className="text-sm">
             Page {table.getState().pagination.pageIndex + 1} of{" "}
             {table.getPageCount()}
           </div>
@@ -361,18 +343,18 @@ export function CampaignsTable() {
             disabled={!table.getCanNextPage()}
           >
             <ChevronRight className="h-4 w-4" />
-            <span className="sr-only">Next page</span>
+            <span className="sr-only">Next Page</span>
           </Button>
         </div>
       </div>
 
-      {selectedCampaignId && (
-        <CreateRunModal
-          campaignId={selectedCampaignId}
-          open={isCreateRunModalOpen}
-          onOpenChange={setIsCreateRunModalOpen}
-        />
-      )}
+      <TriggerSheet
+        buttonIcon={<Plus />}
+        buttonText="Create Organization"
+        form={<OrganizationCreateForm />}
+        title="Create Organization"
+        onOpenChange={setIsCreateOrgDialogOpen}
+      />
     </div>
   );
 }

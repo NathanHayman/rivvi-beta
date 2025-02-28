@@ -28,7 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRunEvents } from "@/hooks/use-pusher";
 import { api } from "@/trpc/react";
-import { RunRowsTable } from "./run-rows-table";
+import { RunRowsTable } from "../../tables/run-rows-table";
 
 // Define the type for the run to properly type our props
 type RunDetailsProps = {
@@ -84,7 +84,7 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
   const status = optimisticStatus || run.status;
 
   // tRPC mutations
-  const startRunMutation = api.run.start.useMutation({
+  const startRunMutation = api.runs.start.useMutation({
     onSuccess: () => {
       toast.success("Run started successfully");
       router.refresh();
@@ -95,7 +95,7 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
     },
   });
 
-  const pauseRunMutation = api.run.pause.useMutation({
+  const pauseRunMutation = api.runs.pause.useMutation({
     onSuccess: () => {
       toast.success("Run paused successfully");
       router.refresh();

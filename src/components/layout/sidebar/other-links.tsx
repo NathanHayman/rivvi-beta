@@ -39,23 +39,23 @@ export function OtherLinks({ links }: { links: TNavLinkItem[] }) {
                     width: isActive ? 5 : 0,
                   }}
                   transition={{ duration: 0.3, ease: "circInOut" }}
-                  className="w-1 h-12 rotate-90 inset-0 z-[999] bg-primary absolute top-0 -left-1 bottom-0 self-start rounded-lg"
+                  className="absolute inset-0 -left-1 bottom-0 top-0 z-[999] h-12 w-1 rotate-90 self-start rounded-lg bg-primary"
                 />
                 <SidebarMenuButton
                   asChild
                   size="sm"
                   className={cn(
-                    "py-0 border border-transparent transition-all duration-300 ease-in-out",
-                    "focus:outline-1 focus:outline-accent-foreground/5 focus:outline-offset-0 ",
+                    "border border-transparent py-0 transition-all duration-300 ease-in-out",
+                    "focus:outline-1 focus:outline-offset-0 focus:outline-accent-foreground/5",
                     isActive
                       ? "bg-accent-foreground/[0.05] text-accent-foreground hover:bg-accent-foreground/5 hover:text-accent-foreground"
-                      : ""
+                      : "",
                   )}
                 >
                   <Link
                     prefetch={false}
                     href={link.href ?? "/"}
-                    className="flex items-center gap-2 relative transition-all duration-300 ease-in-out w-full h-full px-2.5"
+                    className="relative flex h-full w-full items-center gap-2 px-2.5 transition-all duration-300 ease-in-out"
                   >
                     {link.icon && (
                       <link.icon.icon
@@ -63,13 +63,13 @@ export function OtherLinks({ links }: { links: TNavLinkItem[] }) {
                           "group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-[1.05rem]",
                           link.icon.iconClassName,
                           "text-accent-foreground/50",
-                          isActive && "text-accent-foreground"
+                          isActive && "text-accent-foreground",
                         )}
                       />
                     )}
                     <span className="sr-only">{link.icon?.iconTitle}</span>
                     {/* hide this when collapsed */}
-                    <span className="group-data-[collapsible=icon]:hidden leading-9">
+                    <span className="leading-9 group-data-[collapsible=icon]:hidden">
                       {link.title}
                     </span>
                   </Link>

@@ -33,7 +33,7 @@ export function UpcomingRunsCard({ runs }: UpcomingRunsCardProps) {
   const utils = api.useUtils();
 
   // tRPC mutations
-  const startRunMutation = api.run.start.useMutation({
+  const startRunMutation = api.runs.start.useMutation({
     onSuccess: () => {
       toast.success("Run started successfully");
       setActioningRunId(null);
@@ -45,7 +45,7 @@ export function UpcomingRunsCard({ runs }: UpcomingRunsCardProps) {
     },
   });
 
-  const pauseRunMutation = api.run.pause.useMutation({
+  const pauseRunMutation = api.runs.pause.useMutation({
     onSuccess: () => {
       toast.success("Run paused successfully");
       setActioningRunId(null);

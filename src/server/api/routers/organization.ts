@@ -36,6 +36,13 @@ export const organizationRouter = createTRPCRouter({
     return organization;
   }),
 
+  // Check if the current user is a super admin
+  isSuperAdmin: protectedProcedure.query(({ ctx }) => {
+    return {
+      isSuperAdmin: ctx.auth.isSuperAdmin || false,
+    };
+  }),
+
   // Get all organizations (super admin only)
   getAll: superAdminProcedure
     .input(

@@ -1,5 +1,4 @@
-// src/server/api/routers/admin.ts
-import { retell } from "@/lib/retell-client";
+import { getAgent, getAgents, retell } from "@/lib/retell-client";
 import { createTRPCRouter, superAdminProcedure } from "@/server/api/trpc";
 import {
   calls,
@@ -94,9 +93,14 @@ export const adminRouter = createTRPCRouter({
   // Get all Retell agents
   getRetellAgents: superAdminProcedure.query(async () => {
     try {
-      const agents = await retell.agent.list({});
+      const retellAgents = await getAgents();
+      const agents = retellAgents.map((agent: any) => ({
+        agent_id: agent.agent_id,
+        name: agent.agent_name || agent.agent_id,
+      }));
       return agents;
     } catch (error) {
+      console.error("Error fetching Retell agents:", error);
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
         message: "Failed to fetch Retell agents",
@@ -148,6 +152,12 @@ export const adminRouter = createTRPCRouter({
         });
       }
     }),
+
+  // Get all organizations including just the id and name
+  getOrganizationsIdsAndNames: superAdminProcedure.query(async ({ ctx }) => {
+    const orgs = await ctx.db.select().from(organizations);
+    return orgs.map((org) => ({ id: org.id, name: org.name }));
+  }),
 
   // Get organizations with campaign and run counts
   getOrganizationsWithStats: superAdminProcedure
@@ -304,75 +314,159 @@ export const adminRouter = createTRPCRouter({
   createCampaign: superAdminProcedure
     .input(
       z.object({
-        orgId: z.string().uuid(),
         name: z.string().min(1),
+        description: z.string().optional(),
+        orgId: z.string().uuid(),
         agentId: z.string().min(1),
-        type: z.string().min(1),
-        config: z.object({
-          basePrompt: z.string(),
-          variables: z.object({
-            patient: z.object({
-              fields: z.array(
-                z.object({
-                  key: z.string(),
-                  label: z.string(),
-                  possibleColumns: z.array(z.string()),
-                  transform: z
-                    .enum(["text", "date", "time", "phone", "provider"])
-                    .optional(),
-                  required: z.boolean(),
-                  description: z.string().optional(),
-                }),
-              ),
-              validation: z.object({
-                requireValidPhone: z.boolean(),
-                requireValidDOB: z.boolean(),
-                requireName: z.boolean(),
+        type: z.string().min(1).default("general"),
+        config: z
+          .object({
+            basePrompt: z.string().default("You are a helpful assistant."),
+            variables: z
+              .object({
+                patient: z
+                  .object({
+                    fields: z
+                      .array(
+                        z.object({
+                          key: z.string(),
+                          label: z.string(),
+                          possibleColumns: z.array(z.string()),
+                          transform: z
+                            .enum(["text", "date", "time", "phone", "provider"])
+                            .optional(),
+                          required: z.boolean(),
+                          description: z.string().optional(),
+                        }),
+                      )
+                      .default([]),
+                    validation: z
+                      .object({
+                        requireValidPhone: z.boolean().default(true),
+                        requireValidDOB: z.boolean().default(true),
+                        requireName: z.boolean().default(true),
+                      })
+                      .default({
+                        requireValidPhone: true,
+                        requireValidDOB: true,
+                        requireName: true,
+                      }),
+                  })
+                  .default({
+                    fields: [],
+                    validation: {
+                      requireValidPhone: true,
+                      requireValidDOB: true,
+                      requireName: true,
+                    },
+                  }),
+                campaign: z
+                  .object({
+                    fields: z
+                      .array(
+                        z.object({
+                          key: z.string(),
+                          label: z.string(),
+                          possibleColumns: z.array(z.string()),
+                          transform: z
+                            .enum(["text", "date", "time", "phone", "provider"])
+                            .optional(),
+                          required: z.boolean(),
+                          description: z.string().optional(),
+                        }),
+                      )
+                      .default([]),
+                  })
+                  .default({
+                    fields: [],
+                  }),
+              })
+              .default({
+                patient: {
+                  fields: [],
+                  validation: {
+                    requireValidPhone: true,
+                    requireValidDOB: true,
+                    requireName: true,
+                  },
+                },
+                campaign: {
+                  fields: [],
+                },
               }),
-            }),
-            campaign: z.object({
-              fields: z.array(
-                z.object({
-                  key: z.string(),
-                  label: z.string(),
-                  possibleColumns: z.array(z.string()),
-                  transform: z
-                    .enum(["text", "date", "time", "phone", "provider"])
-                    .optional(),
-                  required: z.boolean(),
-                  description: z.string().optional(),
-                }),
-              ),
-            }),
+            postCall: z
+              .object({
+                standard: z
+                  .object({
+                    fields: z
+                      .array(
+                        z.object({
+                          key: z.string(),
+                          label: z.string(),
+                          type: z.enum(["boolean", "string", "date", "enum"]),
+                          options: z.array(z.string()).optional(),
+                          required: z.boolean(),
+                          description: z.string().optional(),
+                        }),
+                      )
+                      .default([]),
+                  })
+                  .default({
+                    fields: [],
+                  }),
+                campaign: z
+                  .object({
+                    fields: z
+                      .array(
+                        z.object({
+                          key: z.string(),
+                          label: z.string(),
+                          type: z.enum(["boolean", "string", "date", "enum"]),
+                          options: z.array(z.string()).optional(),
+                          required: z.boolean(),
+                          description: z.string().optional(),
+                          isMainKPI: z.boolean().optional(),
+                        }),
+                      )
+                      .default([]),
+                  })
+                  .default({
+                    fields: [],
+                  }),
+              })
+              .default({
+                standard: {
+                  fields: [],
+                },
+                campaign: {
+                  fields: [],
+                },
+              }),
+          })
+          .default({
+            basePrompt: "You are a helpful assistant.",
+            variables: {
+              patient: {
+                fields: [],
+                validation: {
+                  requireValidPhone: true,
+                  requireValidDOB: true,
+                  requireName: true,
+                },
+              },
+              campaign: {
+                fields: [],
+              },
+            },
+            postCall: {
+              standard: {
+                fields: [],
+              },
+              campaign: {
+                fields: [],
+              },
+            },
           }),
-          postCall: z.object({
-            standard: z.object({
-              fields: z.array(
-                z.object({
-                  key: z.string(),
-                  label: z.string(),
-                  type: z.enum(["boolean", "string", "date", "enum"]),
-                  options: z.array(z.string()).optional(),
-                  required: z.boolean(),
-                  description: z.string().optional(),
-                }),
-              ),
-            }),
-            campaign: z.object({
-              fields: z.array(
-                z.object({
-                  key: z.string(),
-                  label: z.string(),
-                  type: z.enum(["boolean", "string", "date", "enum"]),
-                  options: z.array(z.string()).optional(),
-                  required: z.boolean(),
-                  description: z.string().optional(),
-                  isMainKPI: z.boolean().optional(),
-                }),
-              ),
-            }),
-          }),
-        }),
         requestId: z.string().uuid().optional(),
       }),
     )
@@ -394,14 +488,17 @@ export const adminRouter = createTRPCRouter({
 
       // Verify the Retell agent ID is valid
       try {
-        const agentInfo = await retell.agent.retrieve(campaignData.agentId);
-        if (!agentInfo) {
+        const agentInfo = await getAgent(campaignData.agentId);
+        if (!agentInfo || !agentInfo.agent_id) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Invalid Retell agent ID",
           });
         }
+        // Log successful agent verification
+        console.log("Successfully verified Retell agent:", agentInfo.agent_id);
       } catch (error) {
+        console.error("Error verifying Retell agent:", error);
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Failed to verify Retell agent ID",

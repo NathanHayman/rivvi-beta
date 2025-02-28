@@ -5,7 +5,9 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { CampaignsTable } from "@/components/tables/campaigns-table";
 import { Metadata } from "next";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Calls - Rivvi",
@@ -18,7 +20,11 @@ export default async function Campaigns() {
       <AppBreadcrumbs breadcrumbs={[{ title: "Campaigns", href: "/" }]} />
       <AppBody>
         <AppHeader title="Campaigns" />
-        <AppContent className="h-full">TODO: Add campaigns table</AppContent>
+        <AppContent className="h-full">
+          <Suspense fallback={<div>Loading...</div>}>
+            <CampaignsTable />
+          </Suspense>
+        </AppContent>
       </AppBody>
     </AppPage>
   );

@@ -5,7 +5,7 @@ import { formatDistance } from "date-fns";
 import { ArrowUpRight, CalendarIcon } from "lucide-react";
 import Link from "next/link";
 
-import { CreateRunModal } from "@/components/run/create-run-modal";
+import { CreateRunModal } from "@/components/app/run/create-run-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

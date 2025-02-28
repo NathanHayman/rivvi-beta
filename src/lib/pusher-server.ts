@@ -1,22 +1,23 @@
 // src/lib/pusher-server.ts
+import { env } from "@/env";
 import Pusher from "pusher";
 
 // Ensure required environment variables are set
 if (
-  !process.env.PUSHER_APP_ID ||
-  !process.env.PUSHER_KEY ||
-  !process.env.PUSHER_SECRET ||
-  !process.env.PUSHER_CLUSTER
+  !env.PUSHER_APP_ID ||
+  !env.NEXT_PUBLIC_PUSHER_KEY ||
+  !env.PUSHER_SECRET ||
+  !env.NEXT_PUBLIC_PUSHER_CLUSTER
 ) {
   throw new Error("Required Pusher environment variables are not set");
 }
 
 // Create the Pusher server instance
 export const pusherServer = new Pusher({
-  appId: process.env.PUSHER_APP_ID,
-  key: process.env.PUSHER_KEY,
-  secret: process.env.PUSHER_SECRET,
-  cluster: process.env.PUSHER_CLUSTER,
+  appId: env.PUSHER_APP_ID,
+  key: env.NEXT_PUBLIC_PUSHER_KEY,
+  secret: env.PUSHER_SECRET,
+  cluster: env.NEXT_PUBLIC_PUSHER_CLUSTER,
   useTLS: true,
 });
 

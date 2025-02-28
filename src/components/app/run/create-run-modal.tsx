@@ -72,7 +72,7 @@ export function CreateRunModal({
   const [activeTab, setActiveTab] = useState("details");
 
   // tRPC mutations
-  const createRunMutation = api.run.create.useMutation({
+  const createRunMutation = api.runs.create.useMutation({
     onSuccess: (data) => {
       router.push(`/campaigns/${campaignId}/runs/${data?.id}`);
       onOpenChange(false);
@@ -84,7 +84,7 @@ export function CreateRunModal({
     },
   });
 
-  const uploadFileMutation = api.run.uploadFile.useMutation({
+  const uploadFileMutation = api.runs.uploadFile.useMutation({
     onSuccess: (data) => {
       toast.success(
         `File processed successfully: ${data.rowsAdded} rows added`,

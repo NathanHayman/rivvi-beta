@@ -8,6 +8,8 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import * as React from "react";
+import { ReactNode } from "react";
+import { ScrollArea } from "../ui/scroll-area";
 
 const AppPage = ({ children }: { children: React.ReactNode }) => {
   return <React.Fragment>{children}</React.Fragment>;
@@ -25,9 +27,9 @@ const AppBody = ({
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col gap-4 p-4 sm:p-6 max-w-screen-xl w-full mx-auto",
+        "mx-auto flex w-full max-w-screen-xl flex-1 flex-col gap-4 p-4 sm:p-6",
         maxWidth,
-        className
+        className,
       )}
     >
       {children}
@@ -52,23 +54,23 @@ const AppHeader = ({
     <>
       <div
         className={cn(
-          "lg:flex lg:items-center lg:justify-between py-4 relative",
-          className
+          "relative py-4 lg:flex lg:items-center lg:justify-between",
+          className,
         )}
       >
         <div className="min-w-0 flex-1">
           {title && (
-            <h1 className="text-2xl tracking-tight leading-7 sm:truncate font-bold">
+            <h1 className="text-2xl font-bold leading-7 tracking-tight sm:truncate">
               {title}
             </h1>
           )}
           {subtitle && (
-            <p className="text-sm sm:text-base mt-2 text-zinc-500 dark:text-zinc-400">
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400 sm:text-base">
               {subtitle}
             </p>
           )}
         </div>
-        <div className="mt-5 flex lg:ml-4 lg:mt-0 gap-2">
+        <div className="mt-5 flex gap-2 lg:ml-4 lg:mt-0">
           {buttons && buttons}
         </div>
       </div>
@@ -83,7 +85,7 @@ const AppContent = ({
   children: React.ReactNode;
   className?: string;
 }) => {
-  return <div className={cn("flex-1 w-full", className)}>{children}</div>;
+  return <div className={cn("w-full flex-1", className)}>{children}</div>;
 };
 
 const AppBreadcrumbs: React.FC<{
@@ -94,7 +96,7 @@ const AppBreadcrumbs: React.FC<{
   children?: React.ReactNode;
 }> = ({ breadcrumbs, children }) => {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 justify-between">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-zinc-200 dark:border-zinc-800">
       <div className="flex items-center gap-2 px-4 sm:px-6">
         <Breadcrumb>
           <BreadcrumbList>
@@ -123,5 +125,29 @@ const AppBreadcrumbs: React.FC<{
     </header>
   );
 };
+interface AppScrollAreaProps {
+  children: ReactNode;
+  className?: string;
+  contentClassName?: string;
+}
 
-export { AppBody, AppBreadcrumbs, AppContent, AppHeader, AppPage };
+const AppScrollArea = ({
+  children,
+  className,
+  contentClassName,
+}: AppScrollAreaProps) => {
+  return (
+    <ScrollArea className={cn("h-full", className)}>
+      <div className={cn("p-4", contentClassName)}>{children}</div>
+    </ScrollArea>
+  );
+};
+
+export {
+  AppBody,
+  AppBreadcrumbs,
+  AppContent,
+  AppHeader,
+  AppPage,
+  AppScrollArea,
+};

@@ -16,11 +16,11 @@ import {
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
-  organization: organizationRouter,
-  campaign: campaignRouter,
-  run: runRouter,
-  patient: patientRouter,
-  call: callRouter,
+  organizations: organizationRouter,
+  campaigns: campaignRouter,
+  runs: runRouter,
+  patients: patientRouter,
+  calls: callRouter,
   admin: adminRouter,
   dashboard: dashboardRouter,
 });
