@@ -1,3 +1,5 @@
+import { CampaignDetails } from "@/components/app/campaign/campaign-details";
+import { CreateRunModalButton } from "@/components/app/run/create-run-modal-button";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -7,6 +9,7 @@ import {
 } from "@/components/layout/shell";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { api } from "@/trpc/server";
 import { Metadata } from "next";
 import Link from "next/link";
 
@@ -22,20 +25,25 @@ type PageProps = {
 
 export default async function CampaignPage({ params }: PageProps) {
   const { campaignId } = await params;
-  console.log(campaignId);
+
+  // Fetch campaign data from the server
+  const campaign = await api.campaigns.getById({ id: campaignId });
 
   return (
     <AppPage>
       <AppBreadcrumbs
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
-          { title: "Campaign", href: `/campaigns/${campaignId}` },
+          {
+            title: campaign?.name || "Campaign",
+            href: `/campaigns/${campaignId}`,
+          },
         ]}
       />
       <AppBody maxWidth="max-w-screen-xl">
         <AppHeader
           className=""
-          title="Campaign"
+          title={campaign?.name || "Campaign"}
           buttons={
             <>
               <Link
@@ -45,12 +53,12 @@ export default async function CampaignPage({ params }: PageProps) {
               >
                 View Runs
               </Link>
-              {/* <CreateRunModalButton /> */}
+              <CreateRunModalButton campaignId={campaignId} />
             </>
           }
         />
         <AppContent className="space-y-10">
-          <AppContent className="h-full">TODO: Add campaign details</AppContent>
+          <CampaignDetails campaignId={campaignId} initialData={campaign} />
         </AppContent>
       </AppBody>
     </AppPage>

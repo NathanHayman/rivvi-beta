@@ -1,5 +1,5 @@
 // src/services/patient-service.ts
-import { isMinor } from "@/lib/patient-utils";
+import { isMinor } from "@/lib/patient/patient-utils";
 import { db } from "@/server/db";
 import { organizationPatients, patients } from "@/server/db/schema";
 import { createId } from "@paralleldrive/cuid2";

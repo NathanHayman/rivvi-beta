@@ -41,7 +41,7 @@ import {
 import { api } from "@/trpc/react";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
-import { OrganizationCreateForm } from "../forms/organization-create-form";
+import { CreateOrganizationForm } from "../forms/organization-create-form";
 import { TriggerSheet } from "../modals/trigger-sheet";
 
 interface Organization {
@@ -351,7 +351,7 @@ export function OrganizationsTable() {
       <TriggerSheet
         buttonIcon={<Plus />}
         buttonText="Create Organization"
-        form={<OrganizationCreateForm />}
+        form={<CreateOrganizationForm />}
         title="Create Organization"
         onOpenChange={setIsCreateOrgDialogOpen}
       />

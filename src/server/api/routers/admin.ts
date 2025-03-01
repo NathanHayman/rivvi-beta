@@ -6,6 +6,7 @@ import {
   campaigns,
   organizations,
   runs,
+  users,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, like, or, SQL, sql } from "drizzle-orm";
@@ -273,6 +274,102 @@ export const adminRouter = createTRPCRouter({
       };
     }),
 
+  // Get all campaign requests with pagination and filtering
+  getAllCampaignRequests: superAdminProcedure
+    .input(
+      z.object({
+        status: z
+          .enum(["pending", "approved", "rejected", "completed"])
+          .optional(),
+        limit: z.number().min(1).max(100).optional().default(10),
+        offset: z.number().min(0).optional().default(0),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { status, limit, offset } = input;
+
+      // Build query with optional status filter
+      const whereConditions = status
+        ? eq(campaignRequests.status, status)
+        : undefined;
+
+      // Get campaign requests with organization and user info
+      const requests = await ctx.db
+        .select({
+          id: campaignRequests.id,
+          orgId: campaignRequests.orgId,
+          requestedBy: campaignRequests.requestedBy,
+          name: campaignRequests.name,
+          type: campaignRequests.type,
+          description: campaignRequests.description,
+          status: campaignRequests.status,
+          adminNotes: campaignRequests.adminNotes,
+          resultingCampaignId: campaignRequests.resultingCampaignId,
+          createdAt: campaignRequests.createdAt,
+          updatedAt: campaignRequests.updatedAt,
+          organization: organizations,
+          user: {
+            firstName: users.firstName,
+            lastName: users.lastName,
+            email: users.email,
+          },
+        })
+        .from(campaignRequests)
+        .leftJoin(organizations, eq(campaignRequests.orgId, organizations.id))
+        .leftJoin(users, eq(campaignRequests.requestedBy, users.id))
+        .where(whereConditions)
+        .limit(limit)
+        .offset(offset)
+        .orderBy(desc(campaignRequests.createdAt));
+
+      // Count total matching requests
+      const [countResult] = await ctx.db
+        .select({ value: count() })
+        .from(campaignRequests)
+        .where(whereConditions);
+
+      const totalCount = Number(countResult?.value || 0);
+
+      return {
+        requests,
+        totalCount,
+        hasMore: offset + limit < totalCount,
+      };
+    }),
+
+  // Process a single campaign request
+  processCampaignRequest: superAdminProcedure
+    .input(
+      z.object({
+        requestId: z.string().uuid(),
+        status: z.enum(["approved", "rejected"]),
+        adminNotes: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { requestId, status, adminNotes } = input;
+
+      // Update the request
+      const [updated] = await ctx.db
+        .update(campaignRequests)
+        .set({
+          status,
+          adminNotes,
+          updatedAt: new Date(),
+        })
+        .where(eq(campaignRequests.id, requestId))
+        .returning();
+
+      if (!updated) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Campaign request not found",
+        });
+      }
+
+      return updated;
+    }),
+
   // Process campaign requests in bulk
   processBulkCampaignRequests: superAdminProcedure
     .input(
@@ -394,7 +491,7 @@ export const adminRouter = createTRPCRouter({
                   fields: [],
                 },
               }),
-            postCall: z
+            analysis: z
               .object({
                 standard: z
                   .object({
@@ -458,7 +555,7 @@ export const adminRouter = createTRPCRouter({
                 fields: [],
               },
             },
-            postCall: {
+            analysis: {
               standard: {
                 fields: [],
               },

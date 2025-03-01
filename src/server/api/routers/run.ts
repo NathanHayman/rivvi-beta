@@ -1,11 +1,12 @@
 // src/server/api/routers/run.ts
 import { CallProcessor } from "@/lib/call-processor";
-import { processExcelFile } from "@/lib/excel-processor";
+import { parseFileContent, processExcelFile } from "@/lib/excel-processor";
 import { pusherServer } from "@/lib/pusher-server";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import { calls, campaigns, rows, runs } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 export const runRouter = createTRPCRouter({
@@ -237,17 +238,180 @@ export const runRouter = createTRPCRouter({
       return run;
     }),
 
-  // Upload and process file for a run
+  // Validate file data without uploading
+  validateData: orgProcedure
+    .input(
+      z.object({
+        campaignId: z.string().uuid(),
+        fileContent: z.string(),
+        fileName: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { campaignId, fileContent, fileName } = input;
+      const orgId = ctx.auth.organization?.id;
+
+      if (!orgId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No active organization",
+        });
+      }
+
+      // Get the campaign
+      const [campaign] = await ctx.db
+        .select()
+        .from(campaigns)
+        .where(and(eq(campaigns.id, campaignId), eq(campaigns.orgId, orgId)));
+
+      if (!campaign) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Campaign not found",
+        });
+      }
+
+      try {
+        // Parse the file content but don't save anything yet
+        const { headers, rows: fileRows } = parseFileContent(
+          fileContent,
+          fileName,
+        );
+
+        // Process the Excel file - we'll modify this to just validate without creating patients
+        const processedData = await processExcelFile(
+          fileContent,
+          fileName,
+          campaign.config,
+          orgId,
+        );
+
+        // Extract patient and campaign fields based on the configuration
+        const patientFields = campaign.config.variables.patient.fields.map(
+          (f) => f.key,
+        );
+        const campaignFields = campaign.config.variables.campaign.fields.map(
+          (f) => f.key,
+        );
+
+        // Create sample rows for the UI
+        const sampleRows = processedData.validRows
+          .slice(0, 10)
+          .map((row, index) => {
+            const patientData: Record<string, any> = {};
+            const campaignData: Record<string, any> = {};
+
+            // Split variables into patient and campaign data
+            Object.entries(row.variables).forEach(([key, value]) => {
+              if (patientFields.includes(key)) {
+                patientData[key] = value;
+              } else if (campaignFields.includes(key)) {
+                campaignData[key] = value;
+              }
+            });
+
+            return {
+              id: nanoid(),
+              isValid: true,
+              patientData: {
+                firstName: patientData.firstName || "",
+                lastName: patientData.lastName || "",
+                phoneNumber: patientData.phoneNumber || "",
+                dob: patientData.dob || "",
+                ...patientData,
+              },
+              campaignData,
+              originalRow: fileRows[index] || {},
+            };
+          });
+
+        // Add invalid rows to sample as well
+        const invalidSampleRows = processedData.invalidRows
+          .slice(0, 5)
+          .map((invalid) => {
+            const originalRow = fileRows[invalid.index] || {};
+
+            // Try to extract some basic info even if invalid
+            const firstName =
+              originalRow.firstName ||
+              originalRow.first_name ||
+              originalRow["First Name"] ||
+              "";
+
+            const lastName =
+              originalRow.lastName ||
+              originalRow.last_name ||
+              originalRow["Last Name"] ||
+              "";
+
+            const phoneNumber =
+              originalRow.phoneNumber ||
+              originalRow.phone ||
+              originalRow["Phone Number"] ||
+              "";
+
+            return {
+              id: nanoid(),
+              isValid: false,
+              validationErrors: [invalid.error],
+              patientData: {
+                firstName,
+                lastName,
+                phoneNumber,
+              },
+              campaignData: {},
+              originalRow,
+            };
+          });
+
+        // Extract column mapping info
+        const matchedColumns = Object.values(processedData.columnMappings);
+        const unmatchedColumns = headers.filter(
+          (header) => !matchedColumns.includes(header),
+        );
+
+        // Return validation results
+        return {
+          totalRows: processedData.stats.totalRows,
+          validRows: processedData.stats.validRows,
+          invalidRows: processedData.stats.invalidRows,
+          newPatients: processedData.stats.uniquePatients,
+          existingPatients: processedData.stats.duplicatePatients,
+          matchedColumns,
+          unmatchedColumns,
+          sampleRows: [...sampleRows, ...invalidSampleRows],
+          allRows: [...sampleRows, ...invalidSampleRows],
+        };
+      } catch (error) {
+        console.error("Error validating file:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Failed to validate file: ${(error as Error).message}`,
+        });
+      }
+    }),
+
+  // Update uploadFile to accept processed data
   uploadFile: orgProcedure
     .input(
       z.object({
         runId: z.string().uuid(),
         fileContent: z.string(),
         fileName: z.string(),
+        processedData: z
+          .array(
+            z.object({
+              id: z.string(),
+              isValid: z.boolean(),
+              patientData: z.record(z.any()),
+              campaignData: z.record(z.any()),
+            }),
+          )
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { runId, fileContent, fileName } = input;
+      const { runId, fileContent, fileName, processedData } = input;
       const orgId = ctx.auth.organization?.id;
 
       if (!orgId) {
@@ -290,22 +454,96 @@ export const runRouter = createTRPCRouter({
         .where(eq(runs.id, runId));
 
       try {
-        // Process the Excel file
-        const processedData = await processExcelFile(
-          fileContent,
-          fileName,
-          campaign.config,
-        );
+        // Process the Excel file if processed data is not provided
+        let processedDataResult;
+
+        if (processedData && processedData.length > 0) {
+          // Use the pre-processed data from the review step
+          const validRows = processedData
+            .filter((row) => row.isValid)
+            .map((row) => {
+              // Combine patient and campaign data
+              return {
+                patientId: null, // Will be set during insertion
+                patientHash: null, // Will be set during insertion
+                variables: {
+                  ...row.patientData,
+                  ...row.campaignData,
+                },
+              };
+            });
+
+          // Count invalid rows
+          const invalidRowsCount = processedData.filter(
+            (row) => !row.isValid,
+          ).length;
+
+          processedDataResult = {
+            validRows,
+            invalidRows: [],
+            stats: {
+              totalRows: processedData.length,
+              validRows: validRows.length,
+              invalidRows: invalidRowsCount,
+              uniquePatients: validRows.length, // Simplified, will be updated during patient creation
+              duplicatePatients: 0,
+            },
+            columnMappings: {}, // Not needed since we already processed
+            errors: [],
+            rawFileUrl: "", // Will be updated by the file processor
+            processedFileUrl: "", // Will be updated by the file processor
+          };
+
+          // Still process the file to generate the URLs and update patient IDs
+          const fullProcessedData = await processExcelFile(
+            fileContent,
+            fileName,
+            campaign.config,
+            orgId,
+          );
+
+          // Update URLs from full processing
+          processedDataResult.rawFileUrl = fullProcessedData.rawFileUrl;
+          processedDataResult.processedFileUrl =
+            fullProcessedData.processedFileUrl;
+
+          // Match patient IDs from full processing if possible
+          for (
+            let i = 0;
+            i < processedDataResult.validRows.length &&
+            i < fullProcessedData.validRows.length;
+            i++
+          ) {
+            const fullRow = fullProcessedData.validRows[i];
+            if (fullRow && processedDataResult.validRows[i]) {
+              // Use non-null assertion and type assertion
+              processedDataResult.validRows[i]!.patientId =
+                fullRow.patientId as any;
+              processedDataResult.validRows[i]!.patientHash =
+                fullRow.patientHash as any;
+            }
+          }
+        } else {
+          // Process the file normally
+          processedDataResult = await processExcelFile(
+            fileContent,
+            fileName,
+            campaign.config,
+            orgId,
+          );
+        }
 
         // Store the processed data as rows
-        const rowsToInsert = processedData.validRows.map((rowData, index) => ({
-          runId,
-          orgId,
-          variables: rowData.variables,
-          patientId: rowData.patientId,
-          status: "pending",
-          sortIndex: index,
-        }));
+        const rowsToInsert = processedDataResult.validRows.map(
+          (rowData, index) => ({
+            runId,
+            orgId,
+            variables: rowData.variables,
+            patientId: rowData.patientId,
+            status: "pending",
+            sortIndex: index,
+          }),
+        );
 
         if (rowsToInsert.length > 0) {
           await ctx.db.insert(rows).values(rowsToInsert as any);
@@ -315,13 +553,13 @@ export const runRouter = createTRPCRouter({
         const updatedMetadata = {
           ...run.metadata,
           rows: {
-            total: processedData.validRows.length,
-            invalid: processedData.invalidRows.length,
+            total: processedDataResult.validRows.length,
+            invalid: processedDataResult.invalidRows.length,
           },
           calls: {
             ...run.metadata?.calls,
-            total: processedData.validRows.length,
-            pending: processedData.validRows.length,
+            total: processedDataResult.validRows.length,
+            pending: processedDataResult.validRows.length,
           },
         };
 
@@ -331,8 +569,8 @@ export const runRouter = createTRPCRouter({
           .set({
             status: "ready",
             metadata: updatedMetadata as any,
-            rawFileUrl: processedData.rawFileUrl,
-            processedFileUrl: processedData.processedFileUrl,
+            rawFileUrl: processedDataResult.rawFileUrl,
+            processedFileUrl: processedDataResult.processedFileUrl,
           })
           .where(eq(runs.id, runId));
 
@@ -345,9 +583,9 @@ export const runRouter = createTRPCRouter({
 
         return {
           success: true,
-          rowsAdded: processedData.validRows.length,
-          invalidRows: processedData.invalidRows.length,
-          errors: processedData.errors,
+          rowsAdded: processedDataResult.validRows.length,
+          invalidRows: processedDataResult.invalidRows.length,
+          errors: processedDataResult.errors,
         };
       } catch (error) {
         // Update run status to failed

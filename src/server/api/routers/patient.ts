@@ -1,5 +1,5 @@
 // src/server/api/routers/patient.ts
-import { generatePatientHash } from "@/lib/patient-utils";
+import { generatePatientHash } from "@/lib/patient/patient-utils";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import { calls, organizationPatients, patients } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";

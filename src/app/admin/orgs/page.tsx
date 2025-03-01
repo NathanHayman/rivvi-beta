@@ -1,4 +1,4 @@
-import { CreateCampaignForm } from "@/components/forms/campaign-create-form";
+import { CreateOrganizationForm } from "@/components/forms/organization-create-form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -8,30 +8,22 @@ import {
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { OrganizationsTable } from "@/components/tables/organizations-table";
-import { getAgents } from "@/lib/retell-client";
 import { Plus } from "lucide-react";
 import { Suspense } from "react";
 
 export default async function AdminOrganizationsPage() {
-  const agents = await getAgents();
-  const agentsList = agents.map((agent: any) => ({
-    agent_id: agent.agent_id,
-    name: agent.agent_name,
-  }));
-
   return (
     <AppPage>
       <AppBreadcrumbs breadcrumbs={[{ title: "Organizations", href: "/" }]} />
       <AppBody>
         <AppHeader
           title="Organizations"
-          // buttons={<CreateOrgSheetButton />}
           buttons={
             <TriggerSheet
               buttonIcon={<Plus />}
-              buttonText="Create Campaign"
-              form={<CreateCampaignForm agents={agentsList} />}
-              title="Create Campaign"
+              buttonText="Create Organization"
+              form={<CreateOrganizationForm />}
+              title="Create Organization"
             />
           }
           className="mb-4"

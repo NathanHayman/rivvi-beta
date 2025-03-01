@@ -61,15 +61,15 @@ const organizationFormSchema = z.object({
 
 type OrganizationFormValues = z.infer<typeof organizationFormSchema>;
 
-interface OrganizationCreateFormProps {
+interface CreateOrganizationFormProps {
   onOpenChange?: (open: boolean) => void;
   onSuccess?: () => void;
 }
 
-export function OrganizationCreateForm({
+export function CreateOrganizationForm({
   onOpenChange,
   onSuccess,
-}: OrganizationCreateFormProps) {
+}: CreateOrganizationFormProps) {
   const [isFetching, setIsFetching] = useState(false);
 
   // Form setup

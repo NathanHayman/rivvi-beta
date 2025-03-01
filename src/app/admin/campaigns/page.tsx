@@ -1,3 +1,4 @@
+import { CampaignCreateSheet } from "@/components/app/campaign/campaign-create-sheet";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -5,7 +6,10 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { CampaignsTable } from "@/components/tables/campaigns-table";
+import { getAgents } from "@/lib/retell-client";
 import { Metadata } from "next";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Campaigns - Rivvi",
@@ -20,6 +24,12 @@ type PageProps = {
 export default async function AdminCampaignsPage({ params }: PageProps) {
   const { orgId } = await params;
 
+  const agents = await getAgents();
+  const agentsList = agents.map((agent: any) => ({
+    agent_id: agent.agent_id,
+    name: agent.agent_name,
+  }));
+
   return (
     <AppPage>
       <AppBreadcrumbs
@@ -33,9 +43,13 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
         <AppHeader
           className=""
           title="Campaigns"
-          // buttons={<CreateCampaignSheetButton orgId={orgId} />}
+          buttons={<CampaignCreateSheet agents={agentsList} />}
         />
-        <AppContent className="">TODO: Add table</AppContent>
+        <AppContent className="">
+          <Suspense fallback={<div>Loading...</div>}>
+            <CampaignsTable />
+          </Suspense>
+        </AppContent>
       </AppBody>
     </AppPage>
   );

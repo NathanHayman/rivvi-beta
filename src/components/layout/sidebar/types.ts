@@ -1,7 +1,8 @@
 import { AnimatedIconProps } from "@/components/shared/icons/animated-icon";
+import { LucideIcon } from "lucide-react";
 
 export type TNavLinkIcon = {
-  icon: React.FC<AnimatedIconProps>;
+  icon: React.FC<AnimatedIconProps> | LucideIcon;
   iconTitle: string;
   className?: string;
   iconClassName?: string;

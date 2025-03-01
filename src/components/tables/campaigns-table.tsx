@@ -19,7 +19,7 @@ import {
   MoreHorizontal,
   RefreshCw,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/trpc/react";
 import { CreateRunModal } from "../app/run/create-run-modal";
+import { RequestCampaignButton } from "../buttons/request-campaign-button";
 
 interface Campaign {
   id: string;
@@ -54,6 +55,7 @@ interface Campaign {
 
 export function CampaignsTable() {
   const router = useRouter();
+  const pathname = usePathname();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     null,
@@ -64,6 +66,8 @@ export function CampaignsTable() {
     pageIndex: 0,
     pageSize: 10,
   });
+
+  const isAdmin = pathname.includes("/admin");
 
   // Get campaigns data
   const { data, isLoading, refetch } = api.campaigns.getAll.useQuery({
@@ -260,16 +264,7 @@ export function CampaignsTable() {
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
-        <Button
-          size="sm"
-          onClick={() => {
-            // This would typically open a campaign request modal
-            // For now, navigate to the campaign request page
-            router.push("/campaigns/request");
-          }}
-        >
-          Request Campaign
-        </Button>
+        {!isAdmin && <RequestCampaignButton />}
       </div>
 
       <div className="rounded-md">

@@ -1,3 +1,4 @@
+import { CreateRunModalButton } from "@/components/app/run/create-run-modal-button";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -5,6 +6,8 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { RunsTable } from "@/components/tables/runs-table";
+import { api } from "@/trpc/server";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -19,24 +22,31 @@ interface PageProps {
 
 export default async function CampaignRunsPage({ params }: PageProps) {
   const { campaignId } = await params;
-  console.log(campaignId);
+
+  // Fetch campaign data from the server
+  const campaign = await api.campaigns.getById({ id: campaignId });
 
   return (
     <AppPage>
       <AppBreadcrumbs
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
-          { title: "Campaign Name", href: `/campaigns/${campaignId}` },
+          {
+            title: campaign?.name || "Campaign",
+            href: `/campaigns/${campaignId}`,
+          },
           { title: "Runs", href: `/campaigns/${campaignId}/runs` },
         ]}
       />
       <AppBody>
         <AppHeader
           className=""
-          title={`Campaign Name - Runs`}
-          // buttons={<CreateRunModalButton />}
+          title={`${campaign?.name || "Campaign"} - Runs`}
+          buttons={<CreateRunModalButton campaignId={campaignId} />}
         />
-        <AppContent>TODO: Add runs table</AppContent>
+        <AppContent>
+          <RunsTable campaignId={campaignId} limit={20} />
+        </AppContent>
       </AppBody>
     </AppPage>
   );

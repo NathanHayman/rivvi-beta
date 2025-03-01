@@ -49,7 +49,7 @@ const campaignConfigSchema = z.object({
       ),
     }),
   }),
-  postCall: z.object({
+  analysis: z.object({
     standard: z.object({
       fields: z.array(
         z.object({
@@ -211,7 +211,7 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
-      // Create the campaign
+      // Create the campaign with explicit type assertion
       const [campaign] = await ctx.db
         .insert(campaigns)
         .values({
@@ -219,7 +219,7 @@ export const campaignRouter = createTRPCRouter({
           name: input.name,
           agentId: input.agentId,
           type: input.type,
-          config: input.config,
+          config: input.config as typeof campaigns.$inferInsert.config,
         })
         .returning();
 
@@ -234,6 +234,7 @@ export const campaignRouter = createTRPCRouter({
         name: z.string().min(1).optional(),
         agentId: z.string().min(1).optional(),
         type: z.string().min(1).optional(),
+        isActive: z.boolean().optional(),
         config: campaignConfigSchema.optional(),
       }),
     )
@@ -260,9 +261,55 @@ export const campaignRouter = createTRPCRouter({
       }
 
       // Update the campaign
+      // First, ensure any fields we use have the correct required properties
+      let updatedConfig = undefined;
+
+      if (updateData.config) {
+        const processedStandardFields =
+          updateData.config.analysis?.standard?.fields?.filter(
+            (field) =>
+              typeof field.key === "string" &&
+              typeof field.label === "string" &&
+              field.type &&
+              typeof field.required === "boolean",
+          ) || [];
+
+        const processedCampaignFields =
+          updateData.config.analysis?.campaign?.fields?.filter(
+            (field) =>
+              typeof field.key === "string" &&
+              typeof field.label === "string" &&
+              field.type &&
+              typeof field.required === "boolean",
+          ) || [];
+
+        updatedConfig = {
+          ...updateData.config,
+          analysis: {
+            ...updateData.config.analysis,
+            standard: {
+              ...updateData.config.analysis?.standard,
+              fields: processedStandardFields,
+            },
+            campaign: {
+              ...updateData.config.analysis?.campaign,
+              fields: processedCampaignFields,
+            },
+          },
+        } as typeof campaigns.$inferInsert.config;
+      }
+
       const [updatedCampaign] = await ctx.db
         .update(campaigns)
-        .set(updateData)
+        .set({
+          ...(updateData.name && { name: updateData.name }),
+          ...(updateData.agentId && { agentId: updateData.agentId }),
+          ...(updateData.type && { type: updateData.type }),
+          ...(updateData.isActive !== undefined && {
+            isActive: updateData.isActive,
+          }),
+          ...(updatedConfig && { config: updatedConfig }),
+        })
         .where(eq(campaigns.id, id))
         .returning();
 
@@ -337,17 +384,17 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
-      // Create the campaign request
+      // Create the campaign request with correct types
       const [campaignRequest] = await ctx.db
         .insert(campaignRequests)
         .values({
-          orgId,
-          requestedBy: userId,
           name: input.name,
+          orgId: orgId,
           type: input.type,
           description: input.description,
           status: "pending",
-        })
+          requestedBy: userId,
+        } as typeof campaignRequests.$inferInsert)
         .returning();
 
       return campaignRequest;
@@ -463,14 +510,14 @@ export const campaignRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { requestId, status, adminNotes, resultingCampaignId } = input;
 
-      // Update the campaign request
+      // Update the campaign request using partial update
       const [updatedRequest] = await ctx.db
         .update(campaignRequests)
         .set({
-          status,
-          adminNotes,
-          resultingCampaignId,
-        })
+          status: status,
+          ...(adminNotes && { adminNotes }),
+          ...(resultingCampaignId && { resultingCampaignId }),
+        } as Partial<typeof campaignRequests.$inferInsert>)
         .where(eq(campaignRequests.id, requestId))
         .returning();
 

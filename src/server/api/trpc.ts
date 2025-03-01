@@ -14,7 +14,7 @@ import { ZodError } from "zod";
 
 import { isSuperAdmin } from "@/lib/super-admin";
 import { db } from "@/server/db";
-import { organizations } from "@/server/db/schema";
+import { organizations, users } from "@/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 
@@ -32,26 +32,36 @@ import { eq } from "drizzle-orm";
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
   // Get the user's org from Clerk
-  const { userId, orgId } = await auth();
+  const { userId: clerkUserId, orgId: clerkOrgId } = await auth();
 
   // Determine if the user is a super admin
-  const isSuperAdminUser = orgId ? await isSuperAdmin() : false;
+  const isSuperAdminUser = clerkOrgId ? await isSuperAdmin(clerkOrgId) : false;
 
   // If the user has an orgId, get the organization details from our DB
   let organization = null;
-  if (orgId) {
+  if (clerkOrgId) {
     const orgs = await db
       .select()
       .from(organizations)
-      .where(eq(organizations.clerkId, orgId));
+      .where(eq(organizations.clerkId, clerkOrgId));
     organization = orgs[0] || null;
+  }
+
+  // If the user has a userId, get the user details from our DB
+  let user = null;
+  if (clerkUserId) {
+    const _users = await db
+      .select()
+      .from(users)
+      .where(eq(users.clerkId, clerkUserId));
+    user = _users[0] || null;
   }
 
   return {
     db,
     auth: {
-      userId,
-      orgId,
+      userId: user?.id,
+      orgId: organization?.id,
       organization,
       isSuperAdmin: isSuperAdminUser,
     },

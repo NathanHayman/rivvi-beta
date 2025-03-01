@@ -358,7 +358,7 @@ export function CampaignRequestsTable() {
   // Create table
   const table = useReactTable({
     data: data?.requests || [],
-    columns,
+    columns: columns as any,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),

@@ -5,9 +5,17 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { PatientDetail } from "@/components/patients/patient-detail";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Patient Details - Rivvi",
+  description:
+    "View and manage patient information in Rivvi's healthcare communication platform.",
+};
 
 type PageProps = {
   params: Promise<{ patientId: string }>;
@@ -22,7 +30,7 @@ export default async function PatientPage({ params }: PageProps) {
         breadcrumbs={[
           { title: "Patients", href: "/patients" },
           {
-            title: `Patient Full Name`,
+            title: `Patient Details`,
             href: `/patients/${patientId}`,
           },
         ]}
@@ -30,7 +38,7 @@ export default async function PatientPage({ params }: PageProps) {
       <AppBody>
         <AppHeader
           className=""
-          title={`Patient Full Name`}
+          title={`Patient Details`}
           buttons={
             <>
               <Link
@@ -42,7 +50,9 @@ export default async function PatientPage({ params }: PageProps) {
             </>
           }
         />
-        <AppContent>TODO: Add patient details</AppContent>
+        <AppContent>
+          <PatientDetail patientId={patientId} />
+        </AppContent>
       </AppBody>
     </AppPage>
   );

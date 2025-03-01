@@ -86,19 +86,75 @@ export const users = createTable(
   }),
 );
 
+export const patients = createTable(
+  "patient",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    patientHash: varchar("patient_hash", { length: 256 }).notNull().unique(), // Hash of phone + DOB for deduplication
+    firstName: varchar("first_name", { length: 256 }).notNull(),
+    lastName: varchar("last_name", { length: 256 }).notNull(),
+    dob: date("dob").notNull(),
+    isMinor: boolean("is_minor").default(false),
+    primaryPhone: varchar("primary_phone", { length: 20 }).notNull(),
+    secondaryPhone: varchar("secondary_phone", { length: 20 }),
+    externalIds: json("external_ids").$type<Record<string, string>>(),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
+  },
+  (table) => ({
+    patientHashIdx: index("patient_hash_idx").on(table.patientHash),
+    phoneIdx: index("patient_phone_idx").on(table.primaryPhone),
+  }),
+);
+
+// Junction table for organization-patient relationship
+export const organizationPatients = createTable(
+  "organization_patient",
+  {
+    orgId: uuid("org_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    patientId: uuid("patient_id")
+      .references(() => patients.id, { onDelete: "cascade" })
+      .notNull(),
+    emrIdInOrg: varchar("emr_id_in_org", { length: 256 }),
+    isActive: boolean("is_active").default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.orgId, table.patientId] }),
+    orgIdIdx: index("org_patient_org_id_idx").on(table.orgId),
+    patientIdIdx: index("org_patient_patient_id_idx").on(table.patientId),
+  }),
+);
+
 // Campaign Type: appointment_confirmation, annual_wellness_visit, medication_adherence, etc.
 export const campaigns = createTable(
   "campaign",
   {
     id: uuid("id")
       .primaryKey()
-      .default(sql`gen_random_uuid()`),
+      .default(sql`gen_random_uuid()`)
+      .notNull(),
     orgId: uuid("org_id")
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     type: varchar("type", { length: 50 }).notNull(),
+    isActive: boolean("is_active").default(true),
     config: json("config")
       .$type<{
         basePrompt: string;
@@ -129,7 +185,7 @@ export const campaigns = createTable(
             }>;
           };
         };
-        postCall: {
+        analysis: {
           standard: {
             fields: Array<{
               key: string;
@@ -217,6 +273,14 @@ export const runs = createTable(
         lastPausedAt?: string;
         scheduledTime?: string;
         duration?: number;
+        batchSize?: number;
+        callsPerMinute?: number;
+        respectPatientTimezone?: boolean;
+        callStartHour?: number;
+        callEndHour?: number;
+        maxRetries?: number;
+        pausedOutsideHours?: boolean;
+        lastCallTime?: string;
       };
     }>(),
     rawFileUrl: varchar("raw_file_url", { length: 512 }),
@@ -260,7 +324,7 @@ export const rows = createTable(
       onDelete: "set null",
     }),
     variables: json("variables").$type<Record<string, unknown>>().notNull(),
-    postCallData: json("post_call_data").$type<Record<string, unknown>>(),
+    analysis: json("analysis").$type<Record<string, unknown>>(),
     status: varchar("status", { length: 50 })
       .$type<RowStatus>()
       .default("pending")
@@ -268,6 +332,9 @@ export const rows = createTable(
     error: text("error"),
     retellCallId: varchar("retell_call_id", { length: 256 }),
     sortIndex: integer("sort_index").notNull(), // For preserving the original order in the spreadsheet
+    retryCount: integer("retry_count").default(0),
+    callAttempts: integer("call_attempts").default(0),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -280,58 +347,6 @@ export const rows = createTable(
     orgIdIdx: index("row_org_id_idx").on(table.orgId),
     patientIdIdx: index("row_patient_id_idx").on(table.patientId),
     statusIdx: index("row_status_idx").on(table.status),
-  }),
-);
-
-export const patients = createTable(
-  "patient",
-  {
-    id: uuid("id")
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
-    patientHash: varchar("patient_hash", { length: 256 }).notNull().unique(), // Hash of phone + DOB for deduplication
-    firstName: varchar("first_name", { length: 256 }).notNull(),
-    lastName: varchar("last_name", { length: 256 }).notNull(),
-    dob: date("dob").notNull(),
-    isMinor: boolean("is_minor").default(false),
-    primaryPhone: varchar("primary_phone", { length: 20 }).notNull(),
-    secondaryPhone: varchar("secondary_phone", { length: 20 }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .default(sql`CURRENT_TIMESTAMP`)
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
-      () => new Date(),
-    ),
-  },
-  (table) => ({
-    patientHashIdx: index("patient_hash_idx").on(table.patientHash),
-    phoneIdx: index("patient_phone_idx").on(table.primaryPhone),
-  }),
-);
-
-// Junction table for organization-patient relationship
-export const organizationPatients = createTable(
-  "organization_patient",
-  {
-    orgId: uuid("org_id")
-      .references(() => organizations.id, { onDelete: "cascade" })
-      .notNull(),
-    patientId: uuid("patient_id")
-      .references(() => patients.id, { onDelete: "cascade" })
-      .notNull(),
-    emrIdInOrg: varchar("emr_id_in_org", { length: 256 }),
-    isActive: boolean("is_active").default(true),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .default(sql`CURRENT_TIMESTAMP`)
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
-      () => new Date(),
-    ),
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.orgId, table.patientId] }),
-    orgIdIdx: index("org_patient_org_id_idx").on(table.orgId),
-    patientIdIdx: index("org_patient_patient_id_idx").on(table.patientId),
   }),
 );
 
@@ -354,6 +369,9 @@ export const calls = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    campaignId: uuid("campaign_id").references(() => campaigns.id, {
+      onDelete: "set null",
+    }),
     rowId: uuid("row_id").references(() => rows.id, { onDelete: "set null" }),
     patientId: uuid("patient_id").references(() => patients.id, {
       onDelete: "set null",
@@ -376,6 +394,7 @@ export const calls = createTable(
     startTime: timestamp("start_time", { withTimezone: true }),
     endTime: timestamp("end_time", { withTimezone: true }),
     duration: integer("duration"),
+    error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -386,6 +405,7 @@ export const calls = createTable(
   (table) => ({
     orgIdIdx: index("call_org_id_idx").on(table.orgId),
     runIdIdx: index("call_run_id_idx").on(table.runId),
+    campaignIdIdx: index("call_campaign_id_idx").on(table.campaignId),
     rowIdIdx: index("call_row_id_idx").on(table.rowId),
     patientIdIdx: index("call_patient_id_idx").on(table.patientId),
     retellCallIdIdx: index("call_retell_call_id_idx").on(table.retellCallId),

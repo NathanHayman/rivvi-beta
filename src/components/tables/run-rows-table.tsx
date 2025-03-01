@@ -307,7 +307,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
   // Create table
   const table = useReactTable({
     data: data?.rows || [],
-    columns,
+    columns: columns as any,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,

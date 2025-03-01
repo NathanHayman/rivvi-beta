@@ -19,6 +19,22 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
         iconTitle: "Organizations",
       },
     },
+    {
+      title: "Campaigns",
+      href: "/admin/campaigns",
+      icon: {
+        icon: List,
+        iconTitle: "Campaigns",
+      },
+    },
+    {
+      title: "Campaign Requests",
+      href: "/admin/campaign-requests",
+      icon: {
+        icon: List,
+        iconTitle: "Campaign Requests",
+      },
+    },
   ],
   links: [
     {

@@ -1,0 +1,1 @@
+ALTER TABLE "rivvi_campaign" ADD COLUMN "is_active" boolean DEFAULT true;
