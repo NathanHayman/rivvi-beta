@@ -46,7 +46,7 @@ import { RequestCampaignButton } from "../buttons/request-campaign-button";
 interface Campaign {
   id: string;
   name: string;
-  type: string;
+  direction: string;
   agentId: string;
   createdAt: Date;
   runCount?: number;
@@ -75,6 +75,18 @@ export function CampaignsTable() {
     offset: pagination.pageIndex * pagination.pageSize,
   });
 
+  // Map API response to Campaign interface
+  const campaignsData: Campaign[] = (data?.campaigns || []).map((campaign) => ({
+    id: campaign.id || "",
+    name: campaign.name || "",
+    direction: campaign.direction || "",
+    agentId: campaign.agentId || "",
+    createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
+    // Use optional chaining for properties that might not exist in the API response
+    runCount: (campaign as any).runCount,
+    callCount: (campaign as any).callCount,
+  }));
+
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
     setIsCreateRunModalOpen(true);
@@ -99,23 +111,21 @@ export function CampaignsTable() {
       ),
     },
     {
-      accessorKey: "type",
-      header: "Type",
+      accessorKey: "direction",
+      header: "Direction",
       cell: ({ row }) => {
-        const type = row.getValue("type") as string;
+        const direction = row.getValue("direction") as string;
 
         const campaignTypeColor =
-          type === "appointment_confirmation"
+          direction === "inbound"
             ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-            : type === "annual_wellness"
+            : direction === "outbound"
               ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-              : type === "medication_adherence"
-                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
+              : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
 
         return (
           <Badge variant="outline" className={campaignTypeColor}>
-            {type}
+            {direction}
           </Badge>
         );
       },
@@ -227,7 +237,7 @@ export function CampaignsTable() {
   ];
 
   const table = useReactTable<Campaign>({
-    data: data?.campaigns || [],
+    data: campaignsData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),

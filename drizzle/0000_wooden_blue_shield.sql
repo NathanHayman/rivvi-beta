@@ -1,12 +1,43 @@
+DO $$ BEGIN
+ CREATE TYPE "public"."call_direction" AS ENUM('inbound', 'outbound');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."call_status" AS ENUM('pending', 'in-progress', 'completed', 'failed', 'voicemail', 'no-answer');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."campaign_request_status" AS ENUM('pending', 'approved', 'rejected', 'completed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."row_status" AS ENUM('pending', 'calling', 'completed', 'failed', 'skipped');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."run_status" AS ENUM('draft', 'processing', 'ready', 'running', 'paused', 'completed', 'failed', 'scheduled');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "rivvi_call" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"run_id" uuid,
+	"campaign_id" uuid,
 	"row_id" uuid,
 	"patient_id" uuid,
 	"agent_id" varchar(256) NOT NULL,
-	"direction" varchar(20) NOT NULL,
-	"status" varchar(50) DEFAULT 'pending' NOT NULL,
+	"direction" "call_direction" NOT NULL,
+	"status" "call_status" DEFAULT 'pending' NOT NULL,
 	"retell_call_id" varchar(256) NOT NULL,
 	"recording_url" varchar(512),
 	"to_number" varchar(20) NOT NULL,
@@ -17,6 +48,8 @@ CREATE TABLE IF NOT EXISTS "rivvi_call" (
 	"start_time" timestamp with time zone,
 	"end_time" timestamp with time zone,
 	"duration" integer,
+	"error" text,
+	"related_outbound_call_id" uuid,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone
 );
@@ -26,9 +59,9 @@ CREATE TABLE IF NOT EXISTS "rivvi_campaign_request" (
 	"org_id" uuid NOT NULL,
 	"requested_by" uuid,
 	"name" varchar(256) NOT NULL,
-	"type" varchar(50) NOT NULL,
+	"direction" "call_direction" DEFAULT 'outbound' NOT NULL,
 	"description" text NOT NULL,
-	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"status" "campaign_request_status" DEFAULT 'pending' NOT NULL,
 	"admin_notes" text,
 	"resulting_campaign_id" uuid,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -40,7 +73,9 @@ CREATE TABLE IF NOT EXISTS "rivvi_campaign" (
 	"org_id" uuid NOT NULL,
 	"name" varchar(256) NOT NULL,
 	"agent_id" varchar(256) NOT NULL,
-	"type" varchar(50) NOT NULL,
+	"direction" "call_direction" NOT NULL,
+	"is_active" boolean DEFAULT true,
+	"is_default_inbound" boolean DEFAULT false,
 	"config" json NOT NULL,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone
@@ -79,9 +114,22 @@ CREATE TABLE IF NOT EXISTS "rivvi_patient" (
 	"is_minor" boolean DEFAULT false,
 	"primary_phone" varchar(20) NOT NULL,
 	"secondary_phone" varchar(20),
+	"external_ids" json,
+	"metadata" json,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone,
 	CONSTRAINT "rivvi_patient_patient_hash_unique" UNIQUE("patient_hash")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "rivvi_prompt_iteration" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"campaign_id" uuid NOT NULL,
+	"run_id" uuid,
+	"user_id" uuid,
+	"user_input" text NOT NULL,
+	"prompt" text NOT NULL,
+	"changes" text,
+	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "rivvi_row" (
@@ -90,11 +138,14 @@ CREATE TABLE IF NOT EXISTS "rivvi_row" (
 	"org_id" uuid NOT NULL,
 	"patient_id" uuid,
 	"variables" json NOT NULL,
-	"post_call_data" json,
-	"status" varchar(50) DEFAULT 'pending' NOT NULL,
+	"analysis" json,
+	"status" "row_status" DEFAULT 'pending' NOT NULL,
 	"error" text,
 	"retell_call_id" varchar(256),
 	"sort_index" integer NOT NULL,
+	"retry_count" integer DEFAULT 0,
+	"call_attempts" integer DEFAULT 0,
+	"metadata" json,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone
 );
@@ -104,7 +155,7 @@ CREATE TABLE IF NOT EXISTS "rivvi_run" (
 	"campaign_id" uuid NOT NULL,
 	"org_id" uuid NOT NULL,
 	"name" varchar(256) NOT NULL,
-	"status" varchar(50) DEFAULT 'draft' NOT NULL,
+	"status" "run_status" DEFAULT 'draft' NOT NULL,
 	"metadata" json,
 	"raw_file_url" varchar(512),
 	"processed_file_url" varchar(512),
@@ -140,6 +191,12 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
+ ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_campaign_id_rivvi_campaign_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."rivvi_campaign"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
  ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_row_id_rivvi_row_id_fk" FOREIGN KEY ("row_id") REFERENCES "public"."rivvi_row"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
@@ -147,6 +204,12 @@ END $$;
 --> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_patient_id_rivvi_patient_id_fk" FOREIGN KEY ("patient_id") REFERENCES "public"."rivvi_patient"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_related_outbound_call_id_rivvi_call_id_fk" FOREIGN KEY ("related_outbound_call_id") REFERENCES "public"."rivvi_call"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
@@ -183,6 +246,24 @@ END $$;
 --> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "rivvi_organization_patient" ADD CONSTRAINT "rivvi_organization_patient_patient_id_rivvi_patient_id_fk" FOREIGN KEY ("patient_id") REFERENCES "public"."rivvi_patient"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_prompt_iteration" ADD CONSTRAINT "rivvi_prompt_iteration_campaign_id_rivvi_campaign_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."rivvi_campaign"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_prompt_iteration" ADD CONSTRAINT "rivvi_prompt_iteration_run_id_rivvi_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."rivvi_run"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_prompt_iteration" ADD CONSTRAINT "rivvi_prompt_iteration_user_id_rivvi_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."rivvi_user"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
@@ -225,6 +306,7 @@ END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_org_id_idx" ON "rivvi_call" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_run_id_idx" ON "rivvi_call" USING btree ("run_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "call_campaign_id_idx" ON "rivvi_call" USING btree ("campaign_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_row_id_idx" ON "rivvi_call" USING btree ("row_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_patient_id_idx" ON "rivvi_call" USING btree ("patient_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_retell_call_id_idx" ON "rivvi_call" USING btree ("retell_call_id");--> statement-breakpoint
@@ -239,6 +321,8 @@ CREATE INDEX IF NOT EXISTS "org_patient_patient_id_idx" ON "rivvi_organization_p
 CREATE INDEX IF NOT EXISTS "organization_clerk_id_idx" ON "rivvi_organization" USING btree ("clerk_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_hash_idx" ON "rivvi_patient" USING btree ("patient_hash");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_phone_idx" ON "rivvi_patient" USING btree ("primary_phone");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "prompt_iter_campaign_id_idx" ON "rivvi_prompt_iteration" USING btree ("campaign_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "prompt_iter_run_id_idx" ON "rivvi_prompt_iteration" USING btree ("run_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_run_id_idx" ON "rivvi_row" USING btree ("run_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_org_id_idx" ON "rivvi_row" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_patient_id_idx" ON "rivvi_row" USING btree ("patient_id");--> statement-breakpoint

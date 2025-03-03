@@ -54,33 +54,34 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/trpc/react";
+import { TCampaignRequest } from "@/types/db";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 type CampaignRequestStatus = "pending" | "approved" | "rejected" | "completed";
 
-interface CampaignRequest {
-  id: string;
-  orgId: string;
-  requestedBy: string | null;
-  name: string;
-  type: string;
-  description: string;
-  status: CampaignRequestStatus;
-  adminNotes: string | null;
-  resultingCampaignId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  organization?: {
-    name: string;
-  };
-  user?: {
-    firstName: string | null;
-    lastName: string | null;
-    email: string;
-  };
-}
+// interface CampaignRequest {
+//   id: string;
+//   orgId: string;
+//   requestedBy: string | null;
+//   name: string;
+//   type: string;
+//   description: string;
+//   status: CampaignRequestStatus;
+//   adminNotes: string | null;
+//   resultingCampaignId: string | null;
+//   createdAt: Date;
+//   updatedAt: Date;
+//   organization?: {
+//     name: string;
+//   };
+//   user?: {
+//     firstName: string | null;
+//     lastName: string | null;
+//     email: string;
+//   };
+// }
 
 export function CampaignRequestsTable() {
   const router = useRouter();
@@ -173,7 +174,16 @@ export function CampaignRequestsTable() {
   };
 
   // Define columns
-  const columns: ColumnDef<CampaignRequest>[] = [
+  const columns: ColumnDef<
+    TCampaignRequest & {
+      organization: { name: string };
+      user: {
+        firstName: string | null;
+        lastName: string | null;
+        email: string;
+      };
+    }
+  >[] = [
     {
       accessorKey: "organization.name",
       header: ({ column }) => (
@@ -198,7 +208,7 @@ export function CampaignRequestsTable() {
         <div>
           <div className="font-medium">{row.getValue("name")}</div>
           <div className="text-xs text-muted-foreground">
-            Type: {row.original.type}
+            Direction: {row.original.direction}
           </div>
         </div>
       ),

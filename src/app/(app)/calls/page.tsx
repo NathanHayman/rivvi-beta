@@ -5,21 +5,33 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { HydrateClient } from "@/trpc/server";
 import { Metadata } from "next";
+import { Suspense } from "react";
+import { CallsTable } from "./_components/calls-table";
 
 export const metadata: Metadata = {
   title: "Calls - Rivvi",
-  description: "Calls for Rivvi's human-like conversational AI for healthcare.",
+  description: "View and manage all calls in the Rivvi platform.",
 };
 
 export default async function Calls() {
   return (
-    <AppPage>
-      <AppBreadcrumbs breadcrumbs={[{ title: "Calls", href: "/" }]} />
-      <AppBody>
-        <AppHeader title="Calls" />
-        <AppContent className="h-full">TODO: Add calls table</AppContent>
-      </AppBody>
-    </AppPage>
+    <HydrateClient>
+      <AppPage>
+        <AppBreadcrumbs breadcrumbs={[{ title: "Calls", href: "/calls" }]} />
+        <AppBody>
+          <AppHeader
+            title="Calls"
+            subtitle="View and manage all inbound and outbound calls"
+          />
+          <AppContent className="h-full space-y-4">
+            <Suspense fallback={<div>Loading...</div>}>
+              <CallsTable />
+            </Suspense>
+          </AppContent>
+        </AppBody>
+      </AppPage>
+    </HydrateClient>
   );
 }

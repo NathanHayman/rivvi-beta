@@ -1,5 +1,5 @@
 // src/app/api/webhooks/retell/[orgId]/post-call/route.ts
-import { handlePostCallWebhook } from "@/lib/webhook-handler";
+import { handlePostCallWebhook } from "@/lib/call/call-webhook-handler";
 import { RetellPostCallWebhookRaw } from "@/types/retell";
 import { NextResponse } from "next/server";
 
@@ -16,7 +16,10 @@ export async function POST(
     const payload = (await request.json()) as RetellPostCallWebhookRaw["body"];
 
     // Skip processing if this is not a call_analyzed event
-    if (payload.event !== "call_analyzed") {
+    if (
+      payload.event !== "call_analyzed" ||
+      payload.call.call_type !== "phone_call"
+    ) {
       return NextResponse.json(
         {
           status: "ignored",

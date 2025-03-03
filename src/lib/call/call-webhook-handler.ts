@@ -1,17 +1,19 @@
 // src/lib/webhook-handler.ts
+import { PatientService } from "@/lib/patient/patient-service";
+import { pusherServer } from "@/lib/pusher-server";
 import { db } from "@/server/db";
 import {
   calls,
   campaigns,
+  organizationPatients,
   organizations,
+  patients,
   rows,
   runs,
 } from "@/server/db/schema";
 import { RetellPostCallObjectRaw } from "@/types/retell";
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, or, sql } from "drizzle-orm";
-import { PatientService } from "./patient/patient-service";
-import { pusherServer } from "./pusher-server";
 
 /**
  * Handle inbound webhook from Retell
@@ -46,12 +48,9 @@ export async function handleInboundWebhook(
 
     // Find patient by phone number within this organization
     const patientService = new PatientService(db);
-    const cleanPhone = payload.from_number.replace(/\D/g, "");
+    const cleanPhone = payload.from_number.replace("+1", "");
 
-    const patient = await patientService.findPatientByPhone(
-      payload.from_number,
-      orgId,
-    );
+    const patient = await patientService.findPatientByPhone(cleanPhone, orgId);
 
     // Create a minimal patient record if not found
     let patientId: string | null = patient?.id || null;
@@ -109,7 +108,7 @@ export async function handleInboundWebhook(
       .where(
         and(
           eq(campaigns.orgId, orgId),
-          eq(campaigns.type, "inbound"),
+          eq(campaigns.direction, "inbound"),
           eq(campaigns.isActive, true),
         ),
       );
@@ -242,6 +241,9 @@ export async function handleInboundWebhook(
         time: new Date().toISOString(),
       });
 
+      console.log("Inbound call webhook processed successfully");
+      console.log("Context:", context);
+
       return {
         status: "success",
         call_id: insertedCall?.id ?? call_id,
@@ -270,31 +272,169 @@ export async function handleInboundWebhook(
  * Handler for Retell post-call webhook
  * Processes call results and updates database records
  * Expects webhook payload from call_analyzed event
+ * Metadata will only be present for outbound calls
+ */
+/**
+ * Handler for Retell post-call webhook
+ * Processes call results and updates database records
+ * Expects webhook payload from call_analyzed event
+ * Metadata will only be present for outbound calls
  */
 export async function handlePostCallWebhook(
   orgId: string,
-  campaignId: string,
+  campaignId: string | null,
   payload: RetellPostCallObjectRaw,
 ) {
   try {
     console.log(
-      `Handling post-call webhook for org ${orgId}, campaign ${campaignId}:`,
+      `Handling post-call webhook for org ${orgId}, campaign ${campaignId || "unknown"}:`,
       JSON.stringify(payload),
     );
 
-    // Find the call record
-    const [call] = await db
+    const {
+      call_id: retellCallId,
+      direction,
+      from_number: fromNumber,
+      to_number: toNumber,
+      agent_id,
+      metadata,
+      call_status: callStatus,
+      recording_url: recordingUrl,
+      disconnection_reason: disconnectionReason,
+      call_analysis,
+    } = payload;
+
+    // Ensure we have an agent_id, use a default if not provided
+    const agentId = agent_id || "default_agent";
+    console.log(`Using agent_id: ${agentId} for call ${retellCallId}`);
+
+    // Determine patient for this call
+    let patientId: string | null = null;
+
+    // For outbound calls, get patient ID from metadata
+    if (direction === "outbound" && metadata) {
+      patientId = metadata.patientId || metadata.patient_id || null;
+    }
+    // For inbound calls, try to find patient by phone number
+    else if (direction === "inbound") {
+      // Determine which number is the patient's
+      // For inbound calls, the caller's number is in fromNumber
+      const patientPhone = fromNumber;
+
+      if (patientPhone) {
+        // Try to find patient by phone (check both primary and secondary phone)
+        const [patient] = await db
+          .select()
+          .from(patients)
+          .where(
+            or(
+              eq(patients.primaryPhone, patientPhone),
+              eq(patients.secondaryPhone, patientPhone),
+            ),
+          );
+
+        if (patient) {
+          // Found a patient, now verify they're associated with this organization
+          const [orgPatient] = await db
+            .select()
+            .from(organizationPatients)
+            .where(
+              and(
+                eq(organizationPatients.patientId, patient.id),
+                eq(organizationPatients.orgId, orgId),
+                eq(organizationPatients.isActive, true),
+              ),
+            );
+
+          if (orgPatient) {
+            patientId = patient.id;
+          } else {
+            console.log(
+              `Patient ${patient.id} found but not associated with org ${orgId}`,
+            );
+          }
+        } else {
+          console.log(`No patient found with phone number ${patientPhone}`);
+        }
+      }
+    }
+
+    // 1. Check if the call exists, update if it does, create if not
+    const [existingCall] = await db
       .select()
       .from(calls)
-      .where(
-        and(eq(calls.retellCallId, payload.call_id), eq(calls.orgId, orgId)),
-      );
+      .where(and(eq(calls.retellCallId, retellCallId), eq(calls.orgId, orgId)));
+
+    let callId: string;
+    let rowId: string | null = null;
+    let runId: string | null = null;
+
+    if (existingCall) {
+      callId = existingCall.id;
+      rowId = existingCall.rowId;
+      runId = existingCall.runId;
+
+      // If we found a patient but the existing call doesn't have one, update it
+      if (patientId && !existingCall.patientId) {
+        await db.update(calls).set({ patientId }).where(eq(calls.id, callId));
+      }
+    } else {
+      // Create the call with proper metadata initialization
+      const [newCall] = await db
+        .insert(calls)
+        .values({
+          orgId,
+          retellCallId,
+          patientId,
+          toNumber,
+          fromNumber,
+          direction: direction,
+          status:
+            callStatus === "completed"
+              ? "completed"
+              : callStatus === "failed"
+                ? "failed"
+                : "in-progress",
+          agentId,
+          campaignId: campaignId || null,
+          metadata: {
+            ...(metadata || {}),
+            campaignId: campaignId || null,
+          },
+        })
+        .returning();
+
+      callId = newCall.id;
+      rowId = metadata?.rowId || null;
+      runId = metadata?.runId || null;
+
+      // If the call came with a rowId in metadata but we didn't set it directly, update the call
+      if (metadata?.rowId && !newCall.rowId) {
+        await db
+          .update(calls)
+          .set({ rowId: metadata.rowId })
+          .where(eq(calls.id, callId));
+      }
+
+      // Same for runId
+      if (metadata?.runId && !newCall.runId) {
+        await db
+          .update(calls)
+          .set({ runId: metadata.runId })
+          .where(eq(calls.id, callId));
+      }
+    }
+
+    // Fetch the complete call record again to make sure we have latest data
+    const [call] = await db.select().from(calls).where(eq(calls.id, callId));
 
     if (!call) {
-      throw new Error(
-        `Call with Retell ID ${payload.call_id} not found for org ${orgId}`,
-      );
+      throw new Error(`Call ${callId} not found after creation/lookup`);
     }
+
+    // Re-assign these values from the latest call record
+    rowId = call.rowId;
+    runId = call.runId;
 
     // Fetch campaign configuration if campaignId is provided
     let campaignConfig = null;
@@ -310,7 +450,17 @@ export async function handlePostCallWebhook(
     }
 
     // Process analysis data with campaign-specific validation
-    let processedAnalysis = payload.call_analysis?.custom_analysis_data || {};
+    let processedAnalysis: Record<string, any> =
+      call_analysis?.custom_analysis_data || {};
+
+    // If voicemail was detected, mark it in the analysis
+    if (call_analysis?.in_voicemail === true) {
+      processedAnalysis = {
+        ...processedAnalysis,
+        voicemail_detected: true,
+      };
+    }
+
     if (campaignConfig && campaignConfig.analysis) {
       // Apply campaign-specific analysis processing
       try {
@@ -319,6 +469,18 @@ export async function handlePostCallWebhook(
         // Process standard fields
         if (analysisSchema.standard?.fields) {
           // Validate standard fields if defined in the campaign config
+          for (const field of analysisSchema.standard.fields) {
+            if (
+              field.required &&
+              (!(field.key in processedAnalysis) ||
+                processedAnalysis[field.key] === undefined ||
+                processedAnalysis[field.key] === null)
+            ) {
+              console.warn(
+                `Required field ${field.key} missing from analysis data`,
+              );
+            }
+          }
         }
 
         // Process campaign-specific fields
@@ -330,42 +492,20 @@ export async function handlePostCallWebhook(
 
           // Add campaign KPI tracking metadata
           if (mainKPIs.length > 0) {
-            // Create separate records for different types to match the expected types
-            const campaignKPIsString: Record<string, string> = {};
-            const campaignKPIsBoolean: Record<string, boolean> = {};
-            const campaignKPIsNumber: Record<string, number> = {};
+            const kpiValues: Record<string, any> = {};
 
-            // Extract KPI values from analysis data and add to appropriate record
+            // Extract KPI values from analysis data
             for (const kpiKey of mainKPIs) {
               if (typeof kpiKey === "string" && kpiKey in processedAnalysis) {
-                const value = processedAnalysis[kpiKey];
-                if (typeof value === "string") {
-                  campaignKPIsString[kpiKey] = value;
-                } else if (typeof value === "boolean") {
-                  campaignKPIsBoolean[kpiKey] = value;
-                } else if (typeof value === "number") {
-                  campaignKPIsNumber[kpiKey] = value;
-                }
+                kpiValues[kpiKey] = processedAnalysis[kpiKey];
               }
             }
 
-            // Add the appropriate record to processedAnalysis based on which has values
-            if (Object.keys(campaignKPIsString).length > 0) {
+            // Add KPI values to processed analysis
+            if (Object.keys(kpiValues).length > 0) {
               processedAnalysis = {
                 ...processedAnalysis,
-                _campaignKPIsString: campaignKPIsString,
-              };
-            }
-            if (Object.keys(campaignKPIsBoolean).length > 0) {
-              processedAnalysis = {
-                ...processedAnalysis,
-                _campaignKPIsBoolean: campaignKPIsBoolean,
-              };
-            }
-            if (Object.keys(campaignKPIsNumber).length > 0) {
-              processedAnalysis = {
-                ...processedAnalysis,
-                _campaignKPIsNumber: campaignKPIsNumber,
+                _campaignKPIs: kpiValues,
               };
             }
           }
@@ -375,64 +515,78 @@ export async function handlePostCallWebhook(
       }
     }
 
-    // Update call record
+    // Extract insights from transcript and analysis
+    const insights = extractCallInsights({
+      transcript: call_analysis?.transcript,
+      analysis: processedAnalysis,
+    });
+
+    // Update call record with complete information
     await db
       .update(calls)
       .set({
         status:
-          payload.call_status === "completed"
+          callStatus === "completed"
             ? "completed"
-            : payload.call_status === "failed"
+            : callStatus === "failed"
               ? "failed"
               : call.status,
-        recordingUrl: payload.recording_url || call.recordingUrl,
-        transcript: payload.call_analysis?.transcript || call.transcript,
-        analysis: payload.call_analysis?.custom_analysis_data || call.analysis,
-        // Store campaign ID if schema allows it
-        // campaignId: campaignId || call.campaignId,
+        recordingUrl: recordingUrl || call.recordingUrl,
+        transcript: call_analysis?.transcript || call.transcript,
+        analysis: processedAnalysis,
+        duration: Math.round(
+          (payload.duration_ms || call.duration || 0) / 1000,
+        ),
+        startTime: payload.start_timestamp
+          ? new Date(payload.start_timestamp)
+          : call.startTime,
+        endTime: payload.end_timestamp
+          ? new Date(payload.end_timestamp)
+          : call.endTime,
+        error:
+          callStatus === "failed" ? disconnectionReason || "Call failed" : null,
         metadata: {
           ...call.metadata,
-          analysisData: processedAnalysis || call.metadata?.analysisData,
-          campaignId, // Add campaign ID to metadata
-          error:
-            payload.call_status === "failed"
-              ? payload.disconnection_reason || "Call failed"
-              : null,
+          campaignId: campaignId || call.metadata?.campaignId,
+          insights: insights,
         },
         updatedAt: new Date(),
       })
       .where(eq(calls.id, call.id));
 
-    // If this is an outbound call, update the row status
-    if (call.direction === "outbound" && call.rowId) {
+    // If this is a call associated with a row, update the row status
+    if (rowId) {
       await db
         .update(rows)
         .set({
           status:
-            payload.call_status === "completed"
+            callStatus === "completed"
               ? "completed"
-              : payload.call_status === "failed"
+              : callStatus === "failed"
                 ? "failed"
                 : "calling",
           error:
-            payload.call_status === "failed"
-              ? payload.disconnection_reason || "Call failed"
+            callStatus === "failed"
+              ? disconnectionReason || "Call failed"
               : null,
-          analysis: processedAnalysis || null,
-          // Add campaign ID to metadata instead of directly to row if schema doesn't support it
+          analysis: processedAnalysis,
           metadata: {
-            ...(typeof call.metadata === "object" ? call.metadata : {}),
-            campaignId,
+            ...(call.metadata && typeof call.metadata === "object"
+              ? call.metadata
+              : {}),
+            campaignId: campaignId || null,
+            callCompleted: callStatus === "completed",
+            callInsights: insights,
           },
           updatedAt: new Date(),
-        })
-        .where(eq(rows.id, call.rowId));
+        } as Partial<typeof rows.$inferInsert>)
+        .where(eq(rows.id, rowId));
     }
 
     // If the call has a run ID, update run metrics
-    if (call.runId) {
+    if (runId) {
       // Get the run
-      const [run] = await db.select().from(runs).where(eq(runs.id, call.runId));
+      const [run] = await db.select().from(runs).where(eq(runs.id, runId));
 
       if (run) {
         // Create a deep copy of metadata
@@ -447,64 +601,108 @@ export async function handlePostCallWebhook(
             completed: 0,
             failed: 0,
             voicemail: 0,
-            reached: 0,
+            connected: 0,
             converted: 0,
+            pending: 0,
+            calling: 0,
           };
         }
 
         // Update metrics
-        if (payload.call_status === "completed") {
+        if (callStatus === "completed") {
           metadata.calls.completed = (metadata.calls.completed || 0) + 1;
+
+          // If call was previously calling, decrement that counter
+          if (call.status === "calling" || call.status === "in-progress") {
+            metadata.calls.calling = Math.max(
+              0,
+              (metadata.calls.calling || 0) - 1,
+            );
+          }
 
           // Check if patient was reached
           const patientReachedValue =
-            payload.call_analysis?.custom_analysis_data?.patient_reached;
-          if (
+            processedAnalysis.patient_reached !== undefined
+              ? processedAnalysis.patient_reached
+              : processedAnalysis.patientReached;
+
+          const wasReached =
             patientReachedValue === true ||
-            (typeof patientReachedValue === "string" &&
-              patientReachedValue === "true")
-          ) {
-            metadata.calls.reached = (metadata.calls.reached || 0) + 1;
+            patientReachedValue === "true" ||
+            patientReachedValue === "yes";
+
+          if (wasReached) {
+            metadata.calls.connected = (metadata.calls.connected || 0) + 1;
           }
 
-          // Check if voicemail was left - support both analysis field and direct in_voicemail field
-          if (payload.call_analysis?.in_voicemail === true) {
+          // Check if voicemail was left
+          if (
+            call_analysis?.in_voicemail === true ||
+            processedAnalysis.voicemail_detected === true
+          ) {
             metadata.calls.voicemail = (metadata.calls.voicemail || 0) + 1;
           }
 
           // Check for conversion if defined in analysis data
-          // This needs to match the campaign config if it has a main KPI of conversion
           let conversionValue = false;
 
           // First check if there's a main KPI defined in the campaign config
-          if (campaignConfig?.analysis?.campaign?.fields) {
+          if (campaignConfig?.postCall?.campaign?.fields) {
             const conversionField =
-              campaignConfig.analysis.campaign.fields.find(
+              campaignConfig.postCall.campaign.fields.find(
                 (field) => field.isMainKPI && field.key,
               );
 
             if (conversionField && conversionField.key) {
               // Use the main KPI field as the conversion metric
-              const kpiValue =
-                payload.call_analysis?.custom_analysis_data?.[
-                  conversionField.key
-                ];
+              const kpiValue = processedAnalysis[conversionField.key];
+
               conversionValue =
                 kpiValue === true ||
-                (typeof kpiValue === "string" && kpiValue === "true");
+                kpiValue === "true" ||
+                kpiValue === "yes" ||
+                kpiValue === 1;
             }
           }
 
-          // If no main KPI was found or it wasn't truthy, fallback to call_successful
+          // If no main KPI was found or it wasn't truthy, fallback to common fields
           if (!conversionValue) {
-            conversionValue = payload.call_analysis?.call_successful === true;
+            // Check common conversion field names
+            const commonConversionFields = [
+              "appointment_confirmed",
+              "appointmentConfirmed",
+              "converted",
+              "conversion",
+              "call_successful",
+            ];
+
+            for (const field of commonConversionFields) {
+              const value = processedAnalysis[field];
+              if (
+                value === true ||
+                value === "true" ||
+                value === "yes" ||
+                value === 1
+              ) {
+                conversionValue = true;
+                break;
+              }
+            }
           }
 
           if (conversionValue) {
             metadata.calls.converted = (metadata.calls.converted || 0) + 1;
           }
-        } else if (payload.call_status === "failed") {
+        } else if (callStatus === "failed") {
           metadata.calls.failed = (metadata.calls.failed || 0) + 1;
+
+          // If call was previously calling, decrement that counter
+          if (call.status === "calling" || call.status === "in-progress") {
+            metadata.calls.calling = Math.max(
+              0,
+              (metadata.calls.calling || 0) - 1,
+            );
+          }
         }
 
         // Update run metadata
@@ -513,8 +711,8 @@ export async function handlePostCallWebhook(
           .set({
             metadata: metadata as any,
             updatedAt: new Date(),
-          })
-          .where(eq(runs.id, call.runId));
+          } as Partial<typeof runs.$inferInsert>)
+          .where(eq(runs.id, runId));
 
         // Check if run is complete (all rows processed)
         const [{ value: pendingRows }] = (await db
@@ -524,12 +722,20 @@ export async function handlePostCallWebhook(
           .from(rows)
           .where(
             and(
-              eq(rows.runId, call.runId),
+              eq(rows.runId, runId),
               or(eq(rows.status, "pending"), eq(rows.status, "calling")),
             ),
           )) as [{ value: number }];
 
         if (pendingRows === 0) {
+          // Calculate duration if we have start time
+          let duration: number | undefined;
+          if (metadata.run?.startTime) {
+            duration = Math.floor(
+              (Date.now() - new Date(metadata.run.startTime).getTime()) / 1000,
+            );
+          }
+
           // Update run status to completed
           await db
             .update(runs)
@@ -540,29 +746,33 @@ export async function handlePostCallWebhook(
                 run: {
                   ...metadata.run,
                   endTime: new Date().toISOString(),
-                  duration: metadata.run?.startTime
-                    ? Math.floor(
-                        (Date.now() -
-                          new Date(metadata.run.startTime).getTime()) /
-                          1000,
-                      )
-                    : undefined,
+                  duration,
+                  completedAt: new Date().toISOString(),
                 },
               } as any,
               updatedAt: new Date(),
-            })
-            .where(eq(runs.id, call.runId));
+            } as Partial<typeof runs.$inferInsert>)
+            .where(eq(runs.id, runId));
 
           // Send real-time update for run completion
           await pusherServer.trigger(`org-${orgId}`, "run-updated", {
-            runId: call.runId,
+            runId,
             status: "completed",
+            metadata: {
+              ...metadata,
+              run: {
+                ...metadata.run,
+                endTime: new Date().toISOString(),
+                duration,
+                completedAt: new Date().toISOString(),
+              },
+            },
           });
         }
 
         // Send real-time update for run metrics
-        await pusherServer.trigger(`run-${call.runId}`, "metrics-updated", {
-          runId: call.runId,
+        await pusherServer.trigger(`run-${runId}`, "metrics-updated", {
+          runId,
           metrics: metadata,
         });
       }
@@ -571,43 +781,46 @@ export async function handlePostCallWebhook(
     // Send real-time updates
     await pusherServer.trigger(`org-${orgId}`, "call-updated", {
       callId: call.id,
-      status: payload.call_status,
-      patientId: call.patientId,
-      runId: call.runId,
-      // Include campaign ID in metadata rather than as a direct property
+      status: callStatus,
+      patientId,
+      runId,
       metadata: {
-        campaignId,
+        campaignId: campaignId || null,
       },
       analysis: processedAnalysis,
+      insights,
     });
 
     // Add campaign-specific channel updates
     if (campaignId) {
       await pusherServer.trigger(`campaign-${campaignId}`, "call-completed", {
         callId: call.id,
-        status: payload.call_status,
-        patientId: call.patientId,
+        status: callStatus,
+        patientId,
         analysis: processedAnalysis,
+        insights,
       });
     }
 
-    if (call.runId) {
-      await pusherServer.trigger(`run-${call.runId}`, "call-completed", {
+    if (runId) {
+      await pusherServer.trigger(`run-${runId}`, "call-completed", {
         callId: call.id,
-        status: payload.call_status,
-        rowId: call.rowId,
-        // Include campaign ID in metadata rather than as a direct property
+        status: callStatus,
+        rowId,
         metadata: {
-          campaignId,
+          campaignId: campaignId || null,
         },
         analysis: processedAnalysis,
+        insights,
       });
     }
 
     return {
       status: "success",
       callId: call.id,
+      patientId,
       message: "Call data processed successfully",
+      insights,
     };
   } catch (error) {
     console.error(`Error handling post-call webhook for org ${orgId}:`, error);
@@ -630,28 +843,146 @@ export function extractCallInsights(payload: {
   sentiment: "positive" | "negative" | "neutral";
   followUpNeeded: boolean;
   followUpReason?: string;
+  patientReached: boolean;
+  voicemailLeft: boolean;
 } {
   try {
-    const analysis = payload.analysis || {};
-    const sentiment = analysis.user_sentiment || "neutral";
+    const { transcript, analysis } = payload;
+    const processedAnalysis = analysis || {};
 
-    // Determine if follow-up is needed
-    const followUpNeeded =
-      analysis.schedule_followup === "true" ||
-      analysis.patient_question === "true" ||
-      analysis.patient_reached === "false" ||
+    // Determine sentiment - check multiple possible field names
+    let sentiment: "positive" | "negative" | "neutral" = "neutral";
+    const possibleSentimentFields = [
+      "sentiment",
+      "user_sentiment",
+      "patient_sentiment",
+      "call_sentiment",
+    ];
+
+    for (const field of possibleSentimentFields) {
+      if (field in processedAnalysis) {
+        const value = processedAnalysis[field];
+        if (typeof value === "string") {
+          if (value.toLowerCase().includes("positive")) {
+            sentiment = "positive";
+            break;
+          } else if (value.toLowerCase().includes("negative")) {
+            sentiment = "negative";
+            break;
+          }
+        }
+      }
+    }
+
+    // Check if patient was reached - normalize different field names
+    const patientReachedValue =
+      processedAnalysis.patient_reached !== undefined
+        ? processedAnalysis.patient_reached
+        : processedAnalysis.patientReached;
+
+    const patientReached =
+      patientReachedValue === true ||
+      patientReachedValue === "true" ||
+      patientReachedValue === "yes";
+
+    // Check if voicemail was left
+    const voicemailLeft =
+      processedAnalysis.voicemail_left === true ||
+      processedAnalysis.voicemailLeft === true ||
+      processedAnalysis.left_voicemail === true ||
+      processedAnalysis.leftVoicemail === true ||
+      processedAnalysis.voicemail === true ||
+      processedAnalysis.in_voicemail === true;
+
+    // Determine if follow-up is needed - check multiple possible conditions
+    const scheduleFollowUp =
+      processedAnalysis.schedule_followup === true ||
+      processedAnalysis.scheduleFollowup === true ||
+      processedAnalysis.needs_followup === true ||
+      processedAnalysis.needsFollowup === true ||
+      processedAnalysis.schedule_followup === "true" ||
+      processedAnalysis.scheduleFollowup === "true";
+
+    const patientHadQuestions =
+      processedAnalysis.patient_question === true ||
+      processedAnalysis.patientQuestion === true ||
+      processedAnalysis.has_questions === true ||
+      processedAnalysis.hasQuestions === true ||
+      processedAnalysis.patient_question === "true" ||
+      processedAnalysis.patientQuestion === "true";
+
+    let followUpNeeded =
+      scheduleFollowUp ||
+      patientHadQuestions ||
+      !patientReached ||
       sentiment === "negative";
 
+    // Determine the reason for follow-up
     let followUpReason;
     if (followUpNeeded) {
-      if (analysis.schedule_followup === "true") {
+      if (scheduleFollowUp) {
         followUpReason = "Patient requested follow-up";
-      } else if (analysis.patient_question === "true") {
+      } else if (patientHadQuestions) {
         followUpReason = "Patient had unanswered questions";
-      } else if (analysis.patient_reached === "false") {
+      } else if (!patientReached) {
         followUpReason = "Unable to reach patient";
       } else if (sentiment === "negative") {
         followUpReason = "Negative sentiment detected";
+      }
+    }
+
+    // Use transcript to enhance insights if available
+    if (transcript && typeof transcript === "string") {
+      // Check for callback requests in transcript
+      if (
+        !followUpNeeded &&
+        (transcript.toLowerCase().includes("call me back") ||
+          transcript.toLowerCase().includes("callback") ||
+          transcript.toLowerCase().includes("call me tomorrow"))
+      ) {
+        followUpNeeded = true;
+        followUpReason = "Callback request detected in transcript";
+      }
+
+      // Detect sentiment from transcript if not already determined
+      if (sentiment === "neutral") {
+        const positiveWords = [
+          "great",
+          "good",
+          "excellent",
+          "happy",
+          "pleased",
+          "thank you",
+          "appreciate",
+        ];
+        const negativeWords = [
+          "bad",
+          "unhappy",
+          "disappointed",
+          "frustrated",
+          "upset",
+          "angry",
+          "not right",
+        ];
+
+        let positiveCount = 0;
+        let negativeCount = 0;
+
+        const transcriptLower = transcript.toLowerCase();
+
+        positiveWords.forEach((word) => {
+          if (transcriptLower.includes(word)) positiveCount++;
+        });
+
+        negativeWords.forEach((word) => {
+          if (transcriptLower.includes(word)) negativeCount++;
+        });
+
+        if (positiveCount > negativeCount + 1) {
+          sentiment = "positive";
+        } else if (negativeCount > positiveCount) {
+          sentiment = "negative";
+        }
       }
     }
 
@@ -659,6 +990,8 @@ export function extractCallInsights(payload: {
       sentiment,
       followUpNeeded,
       followUpReason,
+      patientReached,
+      voicemailLeft,
     };
   } catch (error) {
     console.error("Error extracting call insights:", error);
@@ -667,6 +1000,8 @@ export function extractCallInsights(payload: {
     return {
       sentiment: "neutral",
       followUpNeeded: false,
+      patientReached: false,
+      voicemailLeft: false,
     };
   }
 }

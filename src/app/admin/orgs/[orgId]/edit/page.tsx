@@ -1,4 +1,4 @@
-import { OrganizationEditForm } from "@/components/forms/organization-edit-form";
+import { EditOrganizationForm } from "@/components/forms/organization-edit-form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -43,7 +43,7 @@ export default async function EditOrganizationPage({ params }: PageProps) {
           />
           <AppContent>
             <div className="max-w-2xl">
-              <OrganizationEditForm organizationId={params.orgId} />
+              <EditOrganizationForm organizationId={params.orgId} />
             </div>
           </AppContent>
         </AppBody>

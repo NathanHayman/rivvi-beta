@@ -19,7 +19,7 @@ import { z } from "zod";
 export const dashboardRouter = createTRPCRouter({
   // Get basic dashboard stats
   getStats: orgProcedure.query(async ({ ctx }) => {
-    const orgId = ctx.auth.organization?.id;
+    const orgId = ctx.auth.orgId;
 
     if (!orgId) {
       throw new TRPCError({
@@ -32,7 +32,7 @@ export const dashboardRouter = createTRPCRouter({
     const [dbOrg] = await ctx.db
       .select({ id: organizations.id })
       .from(organizations)
-      .where(eq(organizations.clerkId, orgId));
+      .where(eq(organizations.id, orgId));
 
     if (!dbOrg) {
       throw new TRPCError({
@@ -80,66 +80,51 @@ export const dashboardRouter = createTRPCRouter({
   }),
 
   // Get organization dashboard data with detailed analytics
-  getOrgDashboard: orgProcedure
-    .input(
-      z.object({
-        orgId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      try {
-        // Get the database organization ID
-        const [dbOrg] = await ctx.db
-          .select({ id: organizations.id })
-          .from(organizations)
-          .where(eq(organizations.clerkId, input.orgId));
+  getOrgDashboard: orgProcedure.query(async ({ ctx }) => {
+    try {
+      const orgId = ctx.auth.orgId;
 
-        if (!dbOrg) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Organization not found",
-          });
-        }
-
-        const callAnalytics = new CallAnalytics(ctx.db);
-        return await callAnalytics.getOrgDashboard(dbOrg.id);
-      } catch (error) {
-        console.error("Error getting org dashboard:", error);
+      if (!orgId) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to fetch dashboard data",
-          cause: error,
+          code: "BAD_REQUEST",
+          message: "No active organization",
         });
       }
-    }),
+
+      const callAnalytics = new CallAnalytics(ctx.db);
+      return await callAnalytics.getOrgDashboard(orgId);
+    } catch (error) {
+      console.error("Error getting org dashboard:", error);
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to fetch dashboard data",
+        cause: error,
+      });
+    }
+  }),
 
   // Get call analytics by time of day/week
   getCallAnalyticsByTime: orgProcedure
     .input(
       z.object({
-        orgId: z.string(),
         period: z.enum(["day", "week", "month", "quarter"]).default("week"),
         timezone: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       try {
-        // Get the database organization ID
-        const [dbOrg] = await ctx.db
-          .select({ id: organizations.id })
-          .from(organizations)
-          .where(eq(organizations.clerkId, input.orgId));
+        const orgId = ctx.auth.orgId;
 
-        if (!dbOrg) {
+        if (!orgId) {
           throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Organization not found",
+            code: "BAD_REQUEST",
+            message: "No active organization",
           });
         }
 
         const callAnalytics = new CallAnalytics(ctx.db);
         return await callAnalytics.getCallAnalyticsByTime(
-          dbOrg.id,
+          orgId,
           input.period as "day" | "week" | "month",
           input.timezone,
         );
@@ -214,7 +199,7 @@ export const dashboardRouter = createTRPCRouter({
       const callAnalytics = new CallAnalytics(ctx.db);
 
       try {
-        const clerkOrgId = input.orgId || ctx.auth.organization?.id;
+        const clerkOrgId = input.orgId || ctx.auth.orgId;
 
         if (!clerkOrgId) {
           throw new TRPCError({
@@ -227,7 +212,7 @@ export const dashboardRouter = createTRPCRouter({
         const [dbOrg] = await ctx.db
           .select({ id: organizations.id })
           .from(organizations)
-          .where(eq(organizations.clerkId, clerkOrgId));
+          .where(eq(organizations.id, clerkOrgId));
 
         if (!dbOrg) {
           throw new TRPCError({
@@ -355,9 +340,9 @@ export const dashboardRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit } = input;
-      const clerkOrgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
-      if (!clerkOrgId) {
+      if (!orgId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "No active organization",
@@ -368,7 +353,7 @@ export const dashboardRouter = createTRPCRouter({
       const [dbOrg] = await ctx.db
         .select({ id: organizations.id })
         .from(organizations)
-        .where(eq(organizations.clerkId, clerkOrgId));
+        .where(eq(organizations.id, orgId));
 
       if (!dbOrg) {
         throw new TRPCError({
@@ -413,9 +398,9 @@ export const dashboardRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit } = input;
-      const clerkOrgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
-      if (!clerkOrgId) {
+      if (!orgId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "No active organization",
@@ -426,7 +411,7 @@ export const dashboardRouter = createTRPCRouter({
       const [dbOrg] = await ctx.db
         .select({ id: organizations.id })
         .from(organizations)
-        .where(eq(organizations.clerkId, clerkOrgId));
+        .where(eq(organizations.id, orgId));
 
       if (!dbOrg) {
         throw new TRPCError({

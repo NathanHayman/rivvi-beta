@@ -29,32 +29,13 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-const CAMPAIGN_TYPES = [
-  {
-    value: "appointment_confirmation",
-    label: "Appointment Confirmation",
-  },
-  {
-    value: "annual_wellness",
-    label: "Annual Wellness",
-  },
-  {
-    value: "medication_adherence",
-    label: "Medication Adherence",
-  },
-  {
-    value: "inbound",
-    label: "Inbound",
-  },
-];
-
 // Form schema
 const campaignFormSchema = z.object({
   name: z.string().min(3, {
     message: "Campaign name must be at least 3 characters.",
   }),
-  type: z.string({
-    required_error: "Please select a campaign type.",
+  direction: z.string({
+    required_error: "Please select a campaign direction.",
   }),
   agentId: z.string().min(1, {
     message: "Agent ID is required",
@@ -81,7 +62,7 @@ export function CampaignEditForm({
     resolver: zodResolver(campaignFormSchema),
     defaultValues: {
       name: campaign.name,
-      type: campaign.type,
+      direction: campaign.direction,
       agentId: campaign.agentId,
       isActive: campaign.isActive ?? true,
       basePrompt: campaign.config.basePrompt,
@@ -116,7 +97,7 @@ export function CampaignEditForm({
     updateCampaign.mutate({
       id: campaign.id,
       name: data.name,
-      type: data.type,
+      direction: data.direction,
       agentId: data.agentId,
       isActive: data.isActive,
       config: configUpdate,
@@ -145,26 +126,23 @@ export function CampaignEditForm({
 
         <FormField
           control={form.control}
-          name="type"
+          name="direction"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Campaign Type</FormLabel>
+              <FormLabel>Campaign Direction</FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select campaign type" />
+                    <SelectValue placeholder="Select campaign direction" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {CAMPAIGN_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="outbound">Outbound</SelectItem>
+                  <SelectItem value="inbound">Inbound</SelectItem>
                 </SelectContent>
               </Select>
               <FormDescription>
-                The type of campaign determines the workflow and data
+                The direction of the campaign determines the workflow and data
                 requirements.
               </FormDescription>
               <FormMessage />

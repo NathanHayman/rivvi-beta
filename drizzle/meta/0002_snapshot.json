@@ -1,6 +1,6 @@
 {
-  "id": "69f67d18-c93d-4bdb-9831-4d75212016e5",
-  "prevId": "40926ce4-9417-4c3d-825e-cf3a9387e3c3",
+  "id": "c491666c-b823-4d42-b81c-75187eb86331",
+  "prevId": "720d11bb-d79b-4b29-8274-7022d2c23cc0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -27,6 +27,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "row_id": {
           "name": "row_id",
           "type": "uuid",
@@ -47,13 +53,15 @@
         },
         "direction": {
           "name": "direction",
-          "type": "varchar(20)",
+          "type": "call_direction",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
         "status": {
           "name": "status",
-          "type": "varchar(50)",
+          "type": "call_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
@@ -118,6 +126,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "related_outbound_call_id": {
+          "name": "related_outbound_call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -153,6 +173,21 @@
           "columns": [
             {
               "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "call_campaign_id_idx": {
+          "name": "call_campaign_id_idx",
+          "columns": [
+            {
+              "expression": "campaign_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -237,6 +272,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "call_retell_call_id_unique_idx": {
+          "name": "call_retell_call_id_unique_idx",
+          "columns": [
+            {
+              "expression": "retell_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -266,6 +316,19 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
+        "rivvi_call_campaign_id_rivvi_campaign_id_fk": {
+          "name": "rivvi_call_campaign_id_rivvi_campaign_id_fk",
+          "tableFrom": "rivvi_call",
+          "tableTo": "rivvi_campaign",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "rivvi_call_row_id_rivvi_row_id_fk": {
           "name": "rivvi_call_row_id_rivvi_row_id_fk",
           "tableFrom": "rivvi_call",
@@ -285,6 +348,19 @@
           "tableTo": "rivvi_patient",
           "columnsFrom": [
             "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_call_related_outbound_call_id_rivvi_call_id_fk": {
+          "name": "rivvi_call_related_outbound_call_id_rivvi_call_id_fk",
+          "tableFrom": "rivvi_call",
+          "tableTo": "rivvi_call",
+          "columnsFrom": [
+            "related_outbound_call_id"
           ],
           "columnsTo": [
             "id"
@@ -325,11 +401,13 @@
           "primaryKey": false,
           "notNull": true
         },
-        "type": {
-          "name": "type",
-          "type": "varchar(50)",
+        "direction": {
+          "name": "direction",
+          "type": "call_direction",
+          "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'outbound'"
         },
         "description": {
           "name": "description",
@@ -339,7 +417,8 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(20)",
+          "type": "campaign_request_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
@@ -475,9 +554,16 @@
           "primaryKey": false,
           "notNull": true
         },
-        "type": {
-          "name": "type",
-          "type": "varchar(50)",
+        "llm_id": {
+          "name": "llm_id",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "call_direction",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
@@ -487,6 +573,13 @@
           "primaryKey": false,
           "notNull": false,
           "default": true
+        },
+        "is_default_inbound": {
+          "name": "is_default_inbound",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
         },
         "config": {
           "name": "config",
@@ -895,6 +988,137 @@
         }
       }
     },
+    "public.rivvi_prompt_iteration": {
+      "name": "rivvi_prompt_iteration",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_input": {
+          "name": "user_input",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changes": {
+          "name": "changes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "prompt_iter_campaign_id_idx": {
+          "name": "prompt_iter_campaign_id_idx",
+          "columns": [
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "prompt_iter_run_id_idx": {
+          "name": "prompt_iter_run_id_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "rivvi_prompt_iteration_campaign_id_rivvi_campaign_id_fk": {
+          "name": "rivvi_prompt_iteration_campaign_id_rivvi_campaign_id_fk",
+          "tableFrom": "rivvi_prompt_iteration",
+          "tableTo": "rivvi_campaign",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rivvi_prompt_iteration_run_id_rivvi_run_id_fk": {
+          "name": "rivvi_prompt_iteration_run_id_rivvi_run_id_fk",
+          "tableFrom": "rivvi_prompt_iteration",
+          "tableTo": "rivvi_run",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rivvi_prompt_iteration_user_id_rivvi_user_id_fk": {
+          "name": "rivvi_prompt_iteration_user_id_rivvi_user_id_fk",
+          "tableFrom": "rivvi_prompt_iteration",
+          "tableTo": "rivvi_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
     "public.rivvi_row": {
       "name": "rivvi_row",
       "schema": "",
@@ -930,15 +1154,16 @@
           "primaryKey": false,
           "notNull": true
         },
-        "post_call_data": {
-          "name": "post_call_data",
+        "analysis": {
+          "name": "analysis",
           "type": "json",
           "primaryKey": false,
           "notNull": false
         },
         "status": {
           "name": "status",
-          "type": "varchar(50)",
+          "type": "row_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
           "default": "'pending'"
@@ -960,6 +1185,26 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "retry_count": {
+          "name": "retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "call_attempts": {
+          "name": "call_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1112,7 +1357,8 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(50)",
+          "type": "run_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
           "default": "'draft'"
@@ -1360,7 +1606,63 @@
       }
     }
   },
-  "enums": {},
+  "enums": {
+    "public.call_direction": {
+      "name": "call_direction",
+      "schema": "public",
+      "values": [
+        "inbound",
+        "outbound"
+      ]
+    },
+    "public.call_status": {
+      "name": "call_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "in-progress",
+        "completed",
+        "failed",
+        "voicemail",
+        "no-answer"
+      ]
+    },
+    "public.campaign_request_status": {
+      "name": "campaign_request_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "approved",
+        "rejected",
+        "completed"
+      ]
+    },
+    "public.row_status": {
+      "name": "row_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "calling",
+        "completed",
+        "failed",
+        "skipped"
+      ]
+    },
+    "public.run_status": {
+      "name": "run_status",
+      "schema": "public",
+      "values": [
+        "draft",
+        "processing",
+        "ready",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "scheduled"
+      ]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "_meta": {

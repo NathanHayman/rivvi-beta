@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { formatPhoneDisplay } from "@/lib/format-utils";
 import { api } from "@/trpc/react";
 import { format } from "date-fns";
 import {
@@ -83,15 +84,6 @@ export function PatientSearch({
       searchInputRef.current.focus();
     }
   }, []);
-
-  // Format phone number for display
-  const formatPhoneNumber = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, "");
-    if (cleaned.length === 10) {
-      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
-    }
-    return phone;
-  };
 
   return (
     <div className="space-y-4">
@@ -198,7 +190,7 @@ export function PatientSearch({
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Phone className="h-3 w-3" />
-                            {formatPhoneNumber(patient.primaryPhone)}
+                            {formatPhoneDisplay(patient.primaryPhone)}
                           </div>
                           {patient.dob && (
                             <div className="flex items-center gap-1">

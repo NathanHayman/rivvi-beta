@@ -1,9 +1,10 @@
 // src/server/api/routers/run.ts
-import { CallProcessor } from "@/lib/call-processor";
+import { CallProcessor } from "@/lib/call/call-processor";
 import { parseFileContent, processExcelFile } from "@/lib/excel-processor";
 import { pusherServer } from "@/lib/pusher-server";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import { calls, campaigns, rows, runs } from "@/server/db/schema";
+import type { TCampaign } from "@/types/db";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -21,7 +22,7 @@ export const runRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { campaignId, limit, offset } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -39,10 +40,10 @@ export const runRouter = createTRPCRouter({
         .orderBy(desc(runs.createdAt));
 
       const totalCount = await ctx.db
-        .select({ count: runs.id })
+        .select({ count: count() })
         .from(runs)
         .where(and(eq(runs.campaignId, campaignId), eq(runs.orgId, orgId)))
-        .then((rows) => rows.length);
+        .then((result) => result[0]?.count || 0);
 
       return {
         runs: allRuns,
@@ -55,7 +56,7 @@ export const runRouter = createTRPCRouter({
   getById: orgProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -100,7 +101,7 @@ export const runRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { runId, page, pageSize, filter } = input;
       const offset = (page - 1) * pageSize;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -140,7 +141,7 @@ export const runRouter = createTRPCRouter({
           count: count(),
         })
         .from(rows)
-        .where(baseCondition)
+        .where(and(eq(rows.runId, runId), eq(rows.orgId, orgId)))
         .groupBy(rows.status);
 
       const counts = {
@@ -153,7 +154,7 @@ export const runRouter = createTRPCRouter({
       };
 
       statusCounts.forEach((item) => {
-        counts[item.status] = Number(item.count);
+        counts[item.status as keyof typeof counts] = Number(item.count);
       });
 
       return {
@@ -174,11 +175,12 @@ export const runRouter = createTRPCRouter({
       z.object({
         campaignId: z.string().uuid(),
         name: z.string().min(1),
+        customPrompt: z.string().optional(),
         scheduledAt: z.string().datetime().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -230,9 +232,10 @@ export const runRouter = createTRPCRouter({
           orgId,
           name: input.name,
           status: "draft",
+          customPrompt: input.customPrompt,
           metadata,
           scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
-        })
+        } as typeof runs.$inferInsert)
         .returning();
 
       return run;
@@ -249,7 +252,7 @@ export const runRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { campaignId, fileContent, fileName } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -278,11 +281,18 @@ export const runRouter = createTRPCRouter({
           fileName,
         );
 
+        if (fileRows.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The uploaded file contains no data rows",
+          });
+        }
+
         // Process the Excel file - we'll modify this to just validate without creating patients
         const processedData = await processExcelFile(
           fileContent,
           fileName,
-          campaign.config,
+          campaign.config as TCampaign["config"],
           orgId,
         );
 
@@ -310,14 +320,24 @@ export const runRouter = createTRPCRouter({
               }
             });
 
+            // Ensure we have the required fields for display
+            const phoneNumber =
+              patientData.primaryPhone ||
+              patientData.phoneNumber ||
+              patientData.cellPhone ||
+              "";
+            const firstName = patientData.firstName || "";
+            const lastName = patientData.lastName || "";
+            const dob = patientData.dob || "";
+
             return {
               id: nanoid(),
               isValid: true,
               patientData: {
-                firstName: patientData.firstName || "",
-                lastName: patientData.lastName || "",
-                phoneNumber: patientData.phoneNumber || "",
-                dob: patientData.dob || "",
+                firstName,
+                lastName,
+                phoneNumber,
+                dob,
                 ...patientData,
               },
               campaignData,
@@ -329,25 +349,29 @@ export const runRouter = createTRPCRouter({
         const invalidSampleRows = processedData.invalidRows
           .slice(0, 5)
           .map((invalid) => {
-            const originalRow = fileRows[invalid.index] || {};
+            const originalRow = fileRows[invalid.index - 2] || {}; // Adjust for 1-based index and header row
 
             // Try to extract some basic info even if invalid
             const firstName =
               originalRow.firstName ||
               originalRow.first_name ||
               originalRow["First Name"] ||
+              originalRow["Patient First Name"] ||
               "";
 
             const lastName =
               originalRow.lastName ||
               originalRow.last_name ||
               originalRow["Last Name"] ||
+              originalRow["Patient Last Name"] ||
               "";
 
             const phoneNumber =
               originalRow.phoneNumber ||
               originalRow.phone ||
               originalRow["Phone Number"] ||
+              originalRow["Primary Phone"] ||
+              originalRow["Cell Phone"] ||
               "";
 
             return {
@@ -370,6 +394,47 @@ export const runRouter = createTRPCRouter({
           (header) => !matchedColumns.includes(header),
         );
 
+        // Create all rows for processing
+        const allRows = [
+          ...processedData.validRows.map((row, index) => {
+            const patientData: Record<string, any> = {};
+            const campaignData: Record<string, any> = {};
+
+            // Split variables into patient and campaign data
+            Object.entries(row.variables).forEach(([key, value]) => {
+              if (patientFields.includes(key)) {
+                patientData[key] = value;
+              } else if (campaignFields.includes(key)) {
+                campaignData[key] = value;
+              }
+            });
+
+            const phoneNumber =
+              patientData.primaryPhone ||
+              patientData.phoneNumber ||
+              patientData.cellPhone ||
+              "";
+            const firstName = patientData.firstName || "";
+            const lastName = patientData.lastName || "";
+            const dob = patientData.dob || "";
+
+            return {
+              id: nanoid(),
+              isValid: true,
+              patientData: {
+                firstName,
+                lastName,
+                phoneNumber,
+                dob,
+                ...patientData,
+              },
+              campaignData,
+              originalRow: fileRows[index] || {},
+            };
+          }),
+          ...invalidSampleRows,
+        ];
+
         // Return validation results
         return {
           totalRows: processedData.stats.totalRows,
@@ -380,7 +445,7 @@ export const runRouter = createTRPCRouter({
           matchedColumns,
           unmatchedColumns,
           sampleRows: [...sampleRows, ...invalidSampleRows],
-          allRows: [...sampleRows, ...invalidSampleRows],
+          allRows,
         };
       } catch (error) {
         console.error("Error validating file:", error);
@@ -412,7 +477,7 @@ export const runRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { runId, fileContent, fileName, processedData } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -450,7 +515,7 @@ export const runRouter = createTRPCRouter({
       // Update run status to processing
       await ctx.db
         .update(runs)
-        .set({ status: "processing" })
+        .set({ status: "processing" } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       try {
@@ -516,11 +581,9 @@ export const runRouter = createTRPCRouter({
           ) {
             const fullRow = fullProcessedData.validRows[i];
             if (fullRow && processedDataResult.validRows[i]) {
-              // Use non-null assertion and type assertion
-              processedDataResult.validRows[i]!.patientId =
-                fullRow.patientId as any;
+              processedDataResult.validRows[i]!.patientId = fullRow.patientId;
               processedDataResult.validRows[i]!.patientHash =
-                fullRow.patientHash as any;
+                fullRow.patientHash;
             }
           }
         } else {
@@ -546,7 +609,7 @@ export const runRouter = createTRPCRouter({
         );
 
         if (rowsToInsert.length > 0) {
-          await ctx.db.insert(rows).values(rowsToInsert as any);
+          await ctx.db.insert(rows).values(rowsToInsert);
         }
 
         // Update run metadata with results
@@ -568,10 +631,10 @@ export const runRouter = createTRPCRouter({
           .update(runs)
           .set({
             status: "ready",
-            metadata: updatedMetadata as any,
+            metadata: updatedMetadata,
             rawFileUrl: processedDataResult.rawFileUrl,
             processedFileUrl: processedDataResult.processedFileUrl,
-          })
+          } as Partial<typeof runs.$inferInsert>)
           .where(eq(runs.id, runId));
 
         // Send real-time update
@@ -604,8 +667,8 @@ export const runRouter = createTRPCRouter({
           .update(runs)
           .set({
             status: "failed",
-            metadata: updatedMetadata as any,
-          })
+            metadata: updatedMetadata,
+          } as Partial<typeof runs.$inferInsert>)
           .where(eq(runs.id, runId));
 
         // Send real-time update
@@ -633,7 +696,7 @@ export const runRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { runId, customPrompt } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -644,7 +707,7 @@ export const runRouter = createTRPCRouter({
 
       const [run] = await ctx.db
         .update(runs)
-        .set({ customPrompt })
+        .set({ customPrompt } as Partial<typeof runs.$inferInsert>)
         .where(and(eq(runs.id, runId), eq(runs.orgId, orgId)))
         .returning();
 
@@ -668,7 +731,7 @@ export const runRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { runId, scheduledAt } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -682,7 +745,7 @@ export const runRouter = createTRPCRouter({
         .set({
           scheduledAt: new Date(scheduledAt),
           status: "scheduled",
-        })
+        } as Partial<typeof runs.$inferInsert>)
         .where(and(eq(runs.id, runId), eq(runs.orgId, orgId)))
         .returning();
 
@@ -704,7 +767,7 @@ export const runRouter = createTRPCRouter({
 
       await ctx.db
         .update(runs)
-        .set({ metadata: updatedMetadata as any })
+        .set({ metadata: updatedMetadata } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -722,7 +785,7 @@ export const runRouter = createTRPCRouter({
     .input(z.object({ runId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { runId } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -770,8 +833,8 @@ export const runRouter = createTRPCRouter({
         .update(runs)
         .set({
           status: "running",
-          metadata: updatedMetadata as any,
-        })
+          metadata: updatedMetadata,
+        } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -793,7 +856,7 @@ export const runRouter = createTRPCRouter({
     .input(z.object({ runId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const { runId } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -837,8 +900,8 @@ export const runRouter = createTRPCRouter({
         .update(runs)
         .set({
           status: "paused",
-          metadata: updatedMetadata as any,
-        })
+          metadata: updatedMetadata,
+        } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -856,7 +919,7 @@ export const runRouter = createTRPCRouter({
     .input(z.object({ runId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const { runId } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({

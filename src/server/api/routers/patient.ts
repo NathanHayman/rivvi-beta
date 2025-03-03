@@ -18,7 +18,7 @@ export const patientRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit, offset, search } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -82,7 +82,7 @@ export const patientRouter = createTRPCRouter({
   getById: orgProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -159,7 +159,7 @@ export const patientRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -223,7 +223,7 @@ export const patientRouter = createTRPCRouter({
               emrIdInOrg,
               isActive: true,
               updatedAt: new Date(),
-            })
+            } as Partial<typeof organizationPatients.$inferInsert>)
             .where(
               and(
                 eq(organizationPatients.patientId, patientId),
@@ -237,7 +237,7 @@ export const patientRouter = createTRPCRouter({
             patientId: patientId as string,
             emrIdInOrg: emrIdInOrg || null,
             isActive: true,
-          });
+          } as typeof organizationPatients.$inferInsert);
         }
 
         // Update patient info with latest data
@@ -249,7 +249,7 @@ export const patientRouter = createTRPCRouter({
             primaryPhone,
             secondaryPhone,
             updatedAt: new Date(),
-          })
+          } as Partial<typeof patients.$inferInsert>)
           .where(eq(patients.id, patientId as string));
       } else {
         // Create new patient
@@ -266,7 +266,7 @@ export const patientRouter = createTRPCRouter({
             isMinor,
             primaryPhone,
             secondaryPhone,
-          })
+          } as typeof patients.$inferInsert)
           .returning();
 
         patientId = newPatient?.id;
@@ -285,7 +285,7 @@ export const patientRouter = createTRPCRouter({
           patientId: patientId as string,
           emrIdInOrg: emrIdInOrg || null,
           isActive: true,
-        });
+        } as typeof organizationPatients.$inferInsert);
       }
 
       // Return the patient with organization data
@@ -324,7 +324,7 @@ export const patientRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, emrIdInOrg, ...patientFields } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -360,7 +360,7 @@ export const patientRouter = createTRPCRouter({
           .set({
             ...patientFields,
             updatedAt: new Date(),
-          })
+          } as Partial<typeof patients.$inferInsert>)
           .where(eq(patients.id, id));
       }
 
@@ -371,7 +371,7 @@ export const patientRouter = createTRPCRouter({
           .set({
             emrIdInOrg,
             updatedAt: new Date(),
-          })
+          } as Partial<typeof organizationPatients.$inferInsert>)
           .where(
             and(
               eq(organizationPatients.patientId, id),
@@ -406,7 +406,7 @@ export const patientRouter = createTRPCRouter({
   searchByPhone: orgProcedure
     .input(z.object({ phone: z.string().min(4) }))
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "call_retell_call_id_unique_idx" ON "rivvi_call" USING btree ("retell_call_id");

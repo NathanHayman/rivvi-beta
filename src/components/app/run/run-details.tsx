@@ -69,7 +69,7 @@ type RunDetailsProps = {
   campaign: {
     id: string;
     name: string;
-    type: string;
+    direction: string;
   };
 };
 
@@ -384,8 +384,8 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <p className="text-sm">Campaign Type</p>
-                  <Badge variant="outline">{campaign.type}</Badge>
+                  <p className="text-sm">Campaign Direction</p>
+                  <Badge variant="outline">{campaign.direction}</Badge>
                 </div>
 
                 {run.scheduledAt && (

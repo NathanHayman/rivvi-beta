@@ -1,0 +1,149 @@
+---
+description: Apply these rules when creating the project
+globs:
+alwaysApply: true
+---
+## Project Overview
+
+*   **Type:** cursor_project_rules
+*   **Description:** Rivvi Voice AI Platform: Comprehensive Development Guide Rivvi is an enterprise-grade voice AI platform for healthcare communication automation. It leverages Retell AI's voice technology to handle complex outbound and inbound patient communications while providing a unified interface for campaign management, data processing, and analytics.
+*   **Primary Goal:** Develop a comprehensive, multi-tenant voice AI platform that supports both dynamic outbound campaign execution and dedicated inbound call handling with natural language driven prompt iterations, while ensuring robust data processing, patient deduplication, and unified analytics.
+
+## Project Structure
+
+### Framework-Specific Routing
+
+*   **Directory Rules:**
+
+    *   **next.js 15 (App Router):** Enforce usage of the `app/` directory with nested route folders. Example: Use `app/[route]/page.tsx` conventions.
+    *   Example 1: "Next.js 14 (App Router)" → `app/[route]/page.tsx` conventions
+    *   Example 2: "Next.js (Pages Router)" → `pages/[route].tsx` pattern (Not applicable in this project)
+    *   Example 3: "React Router 6" → `src/routes/` with `createBrowserRouter` (Use similar nested structure if applicable for sub-modules)
+
+### Core Directories
+
+*   **Versioned Structure:**
+
+    *   **app/api:** Next.js 15 API routes with Route Handlers for server-side logic (e.g., campaign management, webhook endpoints).
+    *   **src/middleware:** Middleware for authentication, role enforcement, and organization context management.
+    *   **src/server/api:** Contains files such as `trpc.ts` for creating role-based procedures and API handling.
+    *   **src/views:** React components that implement UI for dashboards and runtime campaign interactions.
+
+### Key Files
+
+*   **Stack-Versioned Patterns:**
+
+    *   **app/dashboard/layout.tsx:** Root layout components for Next.js 15 App Router, handling shared state and UI consistency.
+    *   **app/api/webhooks/clerk/route.ts:** Specialized API routes for handling clerk webhook integration and user role synchronization.
+    *   **src/middleware.ts:** Enhanced middleware implementing organization redirection and role-based access.
+    *   **src/server/api/trpc.ts:** Implements role-based procedures using tRPC, Clerk JWT validation, and dynamic API routing.
+
+## Tech Stack Rules
+
+*   **Version Enforcement:**
+
+    *   **next@15:** Must use the App Router (`app/`) exclusively with nested directories; no legacy `pages/` based routing allowed.
+    *   **react:** Follow modern hooks and functional component patterns with minimal class components.
+    *   **node.js:** Favor asynchronous processing and non-blocking I/O patterns. Use environment-based configuration management.
+    *   **postgresql:** Enforce normalized schemas with indexing on key identifiers (e.g., patient and campaign IDs);
+    *   **clerk:** Use Clerk for secure, multi-tenant JWT authentication and maintain strict organization-scoped access checks.
+    *   **zod:** Use for schema validations in both frontend and backend; ensure all dynamic variables conform to expected shape.
+    *   **trpc:** Structure API endpoints with type safety and role-based gating.
+    *   **react query & tanstack:** Optimize data fetching by caching responses and invalidating queries post mutation.
+    *   **drizzle orm:** Use type-safe SQL query constructions adhering to current version requirements, ensuring migration consistency.
+    *   **pusher:** Implement real-time communication channels (e.g., for call status updates) with secure channels.
+    *   **aws s3:** Store and retrieve uploaded Excel/CSV files and media securely with proper permission sets.
+
+## PRD Compliance
+
+*   **Non-Negotiable:**
+
+    *   "Users can't update the prompt or see the prompt directly; they can only provide natural language input to define the campaign's intent." → This enforces that campaign configurations for prompt variables and post-call data are only accessible and editable by super admins.
+    *   "Inbound calls are handled via a dedicated campaign per organization with dynamic post-call processing and analytics correlation to outbound calls."
+
+## App Flow Integration
+
+*   **Stack-Aligned Flow:**
+
+    *   Example: "Next.js 15 Auth Flow" → `app/auth/login/page.tsx` utilizes server-side actions for secure multi-tenant authentication.
+    *   Campaign creation, scheduling, and natural language input processing are integrated within the app flow to allow seamless transition from campaign configuration to run execution.
+    *   Dynamic Excel/CSV data intake and batch processing are correlated with run execution endpoints and unified analytics views.
+
+## Best Practices
+
+*   **react**
+
+    *   Use functional components and React hooks for state management.
+    *   Optimize component re-rendering with memoization where applicable.
+    *   Leverage context and custom hooks for shared global state handling.
+
+*   **next.js**
+
+    *   Strictly use the App Router (`app/`) with server components for data fetching.
+    *   Avoid legacy APIs like `getInitialProps`; use modern data fetching strategies.
+    *   Structure nested routes to encapsulate page-specific logic and layout.
+
+*   **node.js**
+
+    *   Implement asynchronous operations using async/await to maintain non-blocking code.
+    *   Use robust error handling and logging mechanisms.
+    *   Design modular services for API endpoints to support scalability.
+
+*   **postgresql**
+
+    *   Define normalized schemas and enforce referential integrity.
+    *   Optimize queries with proper indexing and prepared statements.
+    *   Use transaction management for operations affecting multiple tables (e.g., patient deduplication).
+
+*   **clerk**
+
+    *   Ensure that authentication tokens are validated on every restricted API call.
+    *   Use organization-scoped authentication to enforce multi-tenant security boundaries.
+    *   Log and audit authentication attempts for debugging and security purposes.
+
+*   **zod**
+
+    *   Use Zod schemas to validate both incoming API data and outgoing responses.
+    *   Maintain centralized schema definitions to avoid duplication.
+    *   Incorporate Zod validations in both client-side forms and server-side endpoints.
+
+*   **trpc**
+
+    *   Enforce strict type safety across API boundaries.
+    *   Implement role-based access control within each procedure.
+    *   Organize procedures modularly to simplify maintenance and testing.
+
+*   **react query & tanstack**
+
+    *   Cache data effectively to reduce redundant network calls.
+    *   Use query invalidation and refetching strategies upon data mutation.
+    *   Maintain consistent query keys for predictable updates across the UI.
+
+*   **drizzle orm**
+
+    *   Use type-safe query constructs to prevent SQL injection and enforce schema.
+    *   Manage migrations carefully to ensure database integrity.
+    *   Keep ORM usage consistent across the application layers.
+
+*   **pusher**
+
+    *   Secure channels with authentication and role checks.
+    *   Implement real-time event broadcasting for critical state changes (like call status updates).
+    *   Monitor connection performance and handle reconnections gracefully.
+
+*   **aws s3**
+
+    *   Secure file uploads with proper bucket policies and access controls.
+    *   Implement lifecycle rules for file storage and cleanup.
+    *   Ensure efficient file retrieval and caching for frequently access files.
+
+## Rules
+
+*   Derive folder/file patterns directly from tech stack versions provided in the project context.
+*   If Next.js 15 App Router is used: enforce the `app/` directory with nested route folders; do not mix in legacy `pages/` patterns.
+*   For role-based access, only super admins may view or edit campaign configurations related to prompt variables and post-call data.
+*   Maintain the base prompt intact; natural language input from users is merged with the base prompt to generate updated AI messaging without direct exposure to users.
+*   Implement change logging for prompt iterations to maintain audit trail and historical reference.
+*   Ensure that the dynamic data processing engine applies flexible, yet consistent, validations for diverse Excel/CSV file schemas.
+*   Integration of inbound and outbound analytics should allow for unified reporting within the same dashboard, correlating call data across both directions.
+*   Strict adherence to version-specific conventions: never mix version patterns (e.g., do not use `pages/` if App Router is enforced).

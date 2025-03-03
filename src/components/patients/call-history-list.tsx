@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
+import { TCall } from "@/types/db";
 import { format } from "date-fns";
 import { useState } from "react";
 
@@ -42,7 +43,7 @@ export function CallHistoryList({ patientId, limit }: CallHistoryListProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        {calls.map((call) => (
+        {calls.map((call: TCall) => (
           <div
             key={call.id}
             className="flex items-start justify-between rounded-lg border p-4"
@@ -51,7 +52,7 @@ export function CallHistoryList({ patientId, limit }: CallHistoryListProps) {
               <div className="flex items-center gap-2">
                 <Badge
                   variant={
-                    call.direction === "outbound" ? "default" : "secondary"
+                    call?.direction === "outbound" ? "default" : "secondary"
                   }
                 >
                   {call.direction === "outbound" ? "Outbound" : "Inbound"}

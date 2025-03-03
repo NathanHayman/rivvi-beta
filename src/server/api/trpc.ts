@@ -60,11 +60,11 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
   return {
     db,
     auth: {
-      userId: user?.id,
       orgId: organization?.id,
-      organization,
+      userId: user?.id,
       isSuperAdmin: isSuperAdminUser,
     },
+    organization,
     ...opts,
   };
 };
@@ -170,7 +170,7 @@ const enforceOrganization = t.middleware(({ ctx, next }) => {
     });
   }
 
-  if (!ctx.auth.orgId || !ctx.auth.organization) {
+  if (!ctx.auth.orgId) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You must be part of an organization to perform this action",
@@ -183,8 +183,8 @@ const enforceOrganization = t.middleware(({ ctx, next }) => {
         ...ctx.auth,
         userId: ctx.auth.userId,
         orgId: ctx.auth.orgId,
-        organization: ctx.auth.organization,
       },
+      organization: ctx.organization as typeof organizations.$inferSelect,
     },
   });
 });

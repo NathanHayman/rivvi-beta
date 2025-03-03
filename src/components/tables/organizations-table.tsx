@@ -16,7 +16,6 @@ import {
   ChevronRight,
   MoreHorizontal,
   Phone,
-  Plus,
   Search,
 } from "lucide-react";
 import { useState } from "react";
@@ -41,8 +40,6 @@ import {
 import { api } from "@/trpc/react";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
-import { CreateOrganizationForm } from "../forms/organization-create-form";
-import { TriggerSheet } from "../modals/trigger-sheet";
 
 interface Organization {
   org: {
@@ -250,11 +247,6 @@ export function OrganizationsTable() {
             />
           </div>
         </div>
-
-        <Button onClick={() => setIsCreateOrgDialogOpen(true)}>
-          <Plus className="mr-1.5 h-4 w-4" />
-          New Organization
-        </Button>
       </div>
 
       <div className="rounded-md">
@@ -347,14 +339,6 @@ export function OrganizationsTable() {
           </Button>
         </div>
       </div>
-
-      <TriggerSheet
-        buttonIcon={<Plus />}
-        buttonText="Create Organization"
-        form={<CreateOrganizationForm />}
-        title="Create Organization"
-        onOpenChange={setIsCreateOrgDialogOpen}
-      />
     </div>
   );
 }

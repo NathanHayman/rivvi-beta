@@ -8,7 +8,7 @@ import {
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { CampaignRequestsTable } from "@/components/tables/campaign-requests-table";
-import { getAgents } from "@/lib/retell-client";
+import { getAgents } from "@/lib/retell-client-safe";
 import { Plus } from "lucide-react";
 import { Metadata } from "next";
 import { Suspense } from "react";

@@ -1,7 +1,7 @@
 // src/server/api/routers/call.ts
 import { retell } from "@/lib/retell-client";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
-import { calls, patients, rows, runs } from "@/server/db/schema";
+import { calls, campaigns, patients, rows, runs } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -30,7 +30,7 @@ export const callRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit, offset, patientId, runId, status, direction } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -92,17 +92,36 @@ export const callRouter = createTRPCRouter({
         const patientsData = await ctx.db
           .select()
           .from(patients)
-          .where(sql`${patients.id} IN (${patientIds.join(",")})`);
+          .where(sql`${patients.id} IN ${patientIds}`);
 
         patientsData.forEach((patient) => {
           patientMap[patient.id] = patient;
         });
       }
 
-      // Return calls with patient info
+      // If we have calls with campaign IDs, get the campaign info
+      const campaignIds = allCalls
+        .map((call) => call.campaignId)
+        .filter((id): id is string => !!id);
+
+      const campaignMap: Record<string, typeof campaigns.$inferSelect> = {};
+
+      if (campaignIds.length > 0) {
+        const campaignsData = await ctx.db
+          .select()
+          .from(campaigns)
+          .where(sql`${campaigns.id} IN ${campaignIds}`);
+
+        campaignsData.forEach((campaign) => {
+          campaignMap[campaign.id] = campaign;
+        });
+      }
+
+      // Return calls with patient and campaign info
       const callsWithInfo = allCalls.map((call) => ({
         ...call,
         patient: call.patientId ? patientMap[call.patientId] : null,
+        campaign: call.campaignId ? campaignMap[call.campaignId] : null,
       }));
 
       return {
@@ -116,7 +135,7 @@ export const callRouter = createTRPCRouter({
   getById: orgProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -190,7 +209,7 @@ export const callRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { patientId, campaignId, agentId, variables } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -213,8 +232,8 @@ export const callRouter = createTRPCRouter({
       }
 
       // Get organization phone number
-      const organization = ctx.auth.organization;
-      if (!organization.phone) {
+      const orgPhone = ctx.organization.phone;
+      if (!orgPhone) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Organization does not have a phone number configured",
@@ -225,7 +244,7 @@ export const callRouter = createTRPCRouter({
         // Create call in Retell
         const retellCall = await retell.call.createPhoneCall({
           to_number: patient.primaryPhone,
-          from_number: organization.phone,
+          from_number: orgPhone,
           override_agent_id: agentId,
           retell_llm_dynamic_variables: {
             ...variables,
@@ -257,7 +276,7 @@ export const callRouter = createTRPCRouter({
             status: "pending",
             retellCallId: retellCall.call_id,
             toNumber: patient.primaryPhone,
-            fromNumber: organization.phone,
+            fromNumber: orgPhone,
             metadata: {
               isManualCall: true,
               variables,
@@ -286,7 +305,7 @@ export const callRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { patientId, limit } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -310,7 +329,7 @@ export const callRouter = createTRPCRouter({
     .input(z.object({ callId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const { callId } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({

@@ -33,6 +33,7 @@ const config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-sans)"],
+        heading: ["var(--font-heading)"],
       },
       colors: {
         gray: 'generateScale({ name: "gray" })',

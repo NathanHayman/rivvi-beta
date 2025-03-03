@@ -8,7 +8,12 @@ import {
   orgProcedure,
   superAdminProcedure,
 } from "@/server/api/trpc";
-import { campaignRequests, campaigns, runs } from "@/server/db/schema";
+import {
+  CallDirection,
+  campaignRequests,
+  campaigns,
+  runs,
+} from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 // Validation schemas
@@ -22,7 +27,14 @@ const campaignConfigSchema = z.object({
           label: z.string(),
           possibleColumns: z.array(z.string()),
           transform: z
-            .enum(["text", "date", "time", "phone", "provider"])
+            .enum([
+              "text",
+              "short_date",
+              "long_date",
+              "time",
+              "phone",
+              "provider",
+            ])
             .optional(),
           required: z.boolean(),
           description: z.string().optional(),
@@ -41,7 +53,14 @@ const campaignConfigSchema = z.object({
           label: z.string(),
           possibleColumns: z.array(z.string()),
           transform: z
-            .enum(["text", "date", "time", "phone", "provider"])
+            .enum([
+              "text",
+              "short_date",
+              "long_date",
+              "time",
+              "phone",
+              "provider",
+            ])
             .optional(),
           required: z.boolean(),
           description: z.string().optional(),
@@ -89,7 +108,7 @@ export const campaignRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit, offset } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -123,7 +142,7 @@ export const campaignRouter = createTRPCRouter({
   getById: orgProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -161,7 +180,7 @@ export const campaignRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({
@@ -189,7 +208,8 @@ export const campaignRouter = createTRPCRouter({
         orgId: z.string().uuid(),
         name: z.string().min(1),
         agentId: z.string().min(1),
-        type: z.string().min(1),
+        llmId: z.string().min(1),
+        direction: z.string().min(1),
         config: campaignConfigSchema,
       }),
     )
@@ -218,7 +238,8 @@ export const campaignRouter = createTRPCRouter({
           orgId: input.orgId,
           name: input.name,
           agentId: input.agentId,
-          type: input.type,
+          llmId: input.llmId,
+          direction: input.direction as CallDirection,
           config: input.config as typeof campaigns.$inferInsert.config,
         })
         .returning();
@@ -233,7 +254,8 @@ export const campaignRouter = createTRPCRouter({
         id: z.string().uuid(),
         name: z.string().min(1).optional(),
         agentId: z.string().min(1).optional(),
-        type: z.string().min(1).optional(),
+        llmId: z.string().min(1).optional(),
+        direction: z.string().min(1).optional(),
         isActive: z.boolean().optional(),
         config: campaignConfigSchema.optional(),
       }),
@@ -304,10 +326,13 @@ export const campaignRouter = createTRPCRouter({
         .set({
           ...(updateData.name && { name: updateData.name }),
           ...(updateData.agentId && { agentId: updateData.agentId }),
-          ...(updateData.type && { type: updateData.type }),
+          ...(updateData.direction && {
+            direction: updateData.direction as CallDirection,
+          }),
           ...(updateData.isActive !== undefined && {
             isActive: updateData.isActive,
           }),
+          ...(updateData.llmId && { llmId: updateData.llmId }),
           ...(updatedConfig && { config: updatedConfig }),
         })
         .where(eq(campaigns.id, id))
@@ -328,29 +353,30 @@ export const campaignRouter = createTRPCRouter({
     .input(
       z.object({
         agentId: z.string().min(1),
+        llmId: z.string().min(1),
         prompt: z.string().min(1),
       }),
     )
     .mutation(async ({ input }) => {
       try {
-        const agent = await retell.agent.retrieve(input.agentId);
-        if (!agent) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Invalid Retell agent ID",
-          });
-        }
-        const llmId =
-          agent.response_engine.type === "retell-llm"
-            ? agent.response_engine.llm_id
-            : null;
-        if (!llmId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Invalid Retell agent ID",
-          });
-        }
-        const result = await retell.llm.update(llmId, {
+        // const agent = await retell.agent.retrieve(input.agentId);
+        // if (!agent) {
+        //   throw new TRPCError({
+        //     code: "BAD_REQUEST",
+        //     message: "Invalid Retell agent ID",
+        //   });
+        // }
+        // const llmId =
+        //   agent.response_engine.type === "retell-llm"
+        //     ? agent.response_engine.llm_id
+        //     : null;
+        // if (!llmId) {
+        //   throw new TRPCError({
+        //     code: "BAD_REQUEST",
+        //     message: "Invalid Retell agent ID",
+        //   });
+        // }
+        const result = await retell.llm.update(input.llmId, {
           general_prompt: input.prompt,
         });
 
@@ -369,12 +395,11 @@ export const campaignRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().min(1),
-        type: z.string().min(1),
         description: z.string().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
       const userId = ctx.auth.userId;
 
       if (!orgId) {
@@ -390,10 +415,10 @@ export const campaignRouter = createTRPCRouter({
         .values({
           name: input.name,
           orgId: orgId,
-          type: input.type,
           description: input.description,
           status: "pending",
           requestedBy: userId,
+          direction: "outbound",
         } as typeof campaignRequests.$inferInsert)
         .returning();
 
@@ -410,7 +435,7 @@ export const campaignRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const { limit, offset } = input;
-      const orgId = ctx.auth.organization?.id;
+      const orgId = ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({

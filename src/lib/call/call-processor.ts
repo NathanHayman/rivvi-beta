@@ -1,4 +1,6 @@
 // src/lib/call-processor.ts
+import { pusherServer } from "@/lib/pusher-server";
+import { createPhoneCall } from "@/lib/retell-client-safe";
 import {
   calls,
   campaigns,
@@ -9,8 +11,6 @@ import {
 import { createId } from "@paralleldrive/cuid2";
 import { toZonedTime } from "date-fns-tz";
 import { and, asc, desc, eq, lt, or, sql } from "drizzle-orm";
-import { pusherServer } from "./pusher-server";
-import { createPhoneCall } from "./retell-client";
 
 type DatabaseClient = typeof import("@/server/db").db;
 
@@ -72,7 +72,7 @@ export class CallProcessor {
             },
           },
           updatedAt: new Date(),
-        })
+        } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -159,7 +159,7 @@ export class CallProcessor {
               startTime: new Date().toISOString(),
             },
           },
-        })
+        } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -216,55 +216,101 @@ export class CallProcessor {
         .from(organizations)
         .where(eq(organizations.id, orgId));
 
+      console.log(`[DEBUG] Org: ${JSON.stringify(org)}`);
+
       if (!org || !org.timezone || !org.officeHours) {
         // If not configured, default to true
+        console.log(`[DEBUG] Org not configured, defaulting to true`);
         return true;
       }
 
       const timezone = org.timezone;
-      const officeHours = org.officeHours as {
-        weekdays?: { start: string; end: string }[];
-        weekend?: { start: string; end: string }[];
-      };
+      const officeHours = org.officeHours as Record<
+        string,
+        { start: string; end: string }
+      >;
 
       // Convert current time to organization's timezone
       const now = new Date();
+      console.log(`[DEBUG] Now: ${now}`);
       const zonedNow = toZonedTime(now, timezone);
+      console.log(`[DEBUG] Zoned now: ${zonedNow}`);
 
       // Get day of week (0 = Sunday, 6 = Saturday)
       const dayOfWeek = zonedNow.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      console.log(`[DEBUG] Day of week: ${dayOfWeek}`);
+
+      // Map day number to day name
+      const dayNames = [
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+      ];
+      const dayName = dayNames[dayOfWeek];
+      console.log(`[DEBUG] Day name: ${dayName}`);
 
       // Get current time as hours and minutes
       const hours = zonedNow.getHours();
+      console.log(`[DEBUG] Hours: ${hours}`);
       const minutes = zonedNow.getMinutes();
+      console.log(`[DEBUG] Minutes: ${minutes}`);
       const currentTime = hours * 60 + minutes; // Convert to minutes since midnight
+      console.log(`[DEBUG] Current time: ${currentTime}`);
+
+      // Get the hours configuration for the current day
+      const dayConfig = officeHours[dayName];
+      console.log(`[DEBUG] Day config: ${JSON.stringify(dayConfig)}`);
+
+      if (!dayConfig) {
+        // No hours configured for this day
+        console.log(
+          `[DEBUG] No hours configured for ${dayName}, defaulting to false`,
+        );
+        return false;
+      }
+
+      // Check if start and end are defined and not empty
+      if (!dayConfig.start || !dayConfig.end) {
+        console.log(`[DEBUG] Invalid hours configuration for ${dayName}`);
+        return false;
+      }
+
+      // Parse start and end times
+      const [startHours, startMinutes] = dayConfig.start.split(":").map(Number);
+      const [endHours, endMinutes] = dayConfig.end.split(":").map(Number);
+
+      const startTime = startHours * 60 + (startMinutes || 0);
+      const endTime = endHours * 60 + (endMinutes || 0);
+
+      console.log(
+        `[DEBUG] Hours range: ${startTime}-${endTime}, Current: ${currentTime}`,
+      );
+
+      // Special case: if start and end are both 0:00, assume not operating
+      if (startTime === 0 && endTime === 0) {
+        console.log(
+          `[DEBUG] Hours set to 00:00-00:00, treating as not operating`,
+        );
+        return false;
+      }
+
+      // Special case: if start and end are both 00:00-23:59, assume 24 hour operation
+      if (startTime === 0 && endTime === 23 * 60 + 59) {
+        console.log(
+          `[DEBUG] Hours set to 00:00-23:59, treating as 24-hour operation`,
+        );
+        return true;
+      }
 
       // Check if current time is within office hours
-      const hoursConfig = isWeekend
-        ? officeHours.weekend
-        : officeHours.weekdays;
+      const isWithinHours = currentTime >= startTime && currentTime <= endTime;
+      console.log(`[DEBUG] Within hours: ${isWithinHours}`);
 
-      if (!hoursConfig || hoursConfig.length === 0) {
-        // No hours configured for this day
-        return !isWeekend; // Default to allowing weekdays, blocking weekends
-      }
-
-      for (const range of hoursConfig) {
-        const [startHours, startMinutes] = range.start.split(":").map(Number);
-        const [endHours, endMinutes] = range.end.split(":").map(Number);
-
-        const startTime = startHours
-          ? startHours * 60 + (startMinutes || 0)
-          : 0;
-        const endTime = endHours ? endHours * 60 + (endMinutes || 0) : 24 * 60;
-
-        if (currentTime >= startTime && currentTime <= endTime) {
-          return true;
-        }
-      }
-
-      return false;
+      return isWithinHours;
     } catch (error) {
       console.error(`Error checking office hours for org ${orgId}:`, error);
       return true; // Default to true on error
@@ -281,6 +327,7 @@ export class CallProcessor {
       return;
     }
 
+    console.log(`[DEBUG] Starting to process run ${runId} for org ${orgId}`);
     // Add run to processing set
     this.processingRuns.add(runId);
 
@@ -297,16 +344,27 @@ export class CallProcessor {
 
         currentRun = run;
 
-        if (!run || run.status !== "running") {
+        if (!run) {
+          console.error(`[DEBUG] Run ${runId} not found, stopping processing`);
           processing = false;
           continue;
         }
+
+        if (run.status !== "running") {
+          console.log(
+            `[DEBUG] Run ${runId} is not running (status: ${run.status}), stopping processing`,
+          );
+          processing = false;
+          continue;
+        }
+
+        console.log(`[DEBUG] Processing run ${runId} (status: ${run.status})`);
 
         // Check if within office hours
         const withinHours = await this.isWithinOfficeHours(orgId);
         if (!withinHours) {
           console.log(
-            `Run ${runId} paused: outside of office hours for org ${orgId}`,
+            `[DEBUG] Run ${runId} paused: outside of office hours for org ${orgId}`,
           );
 
           // Update run status to reflect pause
@@ -333,7 +391,7 @@ export class CallProcessor {
                 },
               },
               updatedAt: new Date(),
-            })
+            } as Partial<typeof runs.$inferInsert>)
             .where(eq(runs.id, runId));
 
           // Wait before checking again (30 minutes)
@@ -348,8 +406,15 @@ export class CallProcessor {
           .where(eq(organizations.id, orgId));
 
         if (!organization) {
+          console.error(
+            `[DEBUG] Organization ${orgId} not found, cannot process run`,
+          );
           throw new Error(`Organization ${orgId} not found`);
         }
+
+        console.log(
+          `[DEBUG] Found organization: ${organization.name} (phone: ${organization.phone || "MISSING PHONE"})`,
+        );
 
         // Get campaign for agent ID and configuration
         const [campaign] = await this.db
@@ -358,11 +423,19 @@ export class CallProcessor {
           .where(eq(campaigns.id, run.campaignId));
 
         if (!campaign) {
+          console.error(
+            `[DEBUG] Campaign ${run.campaignId} not found, cannot process run`,
+          );
           throw new Error(`Campaign ${run.campaignId} not found`);
         }
 
+        console.log(
+          `[DEBUG] Found campaign: ${campaign.name} (agentId: ${campaign.agentId || "MISSING AGENT ID"})`,
+        );
+
         // Check concurrency limits
         const concurrencyLimit = organization.concurrentCallLimit || 20;
+        console.log(`[DEBUG] Concurrency limit for org: ${concurrencyLimit}`);
 
         // Count active calls (both for this run and total for the org)
         const [{ value: activeCalls }] = (await this.db
@@ -395,8 +468,14 @@ export class CallProcessor {
           concurrencyLimit - Number(activeCalls),
         );
 
+        console.log(
+          `[DEBUG] Active calls - Run: ${activeCalls}, Org: ${orgActiveCalls}, Available slots: ${availableSlots}`,
+        );
+
         if (availableSlots <= 0) {
-          console.log(`No available call slots for run ${runId}, waiting...`);
+          console.log(
+            `[DEBUG] No available call slots for run ${runId}, waiting...`,
+          );
           // No available slots, wait before checking again
           await new Promise((resolve) => setTimeout(resolve, 10000));
           continue;
@@ -416,6 +495,10 @@ export class CallProcessor {
           Math.floor(60000 / callsPerMinute),
         );
 
+        console.log(
+          `[DEBUG] Using batch size: ${batchSize}, calls per minute: ${callsPerMinute}, delay: ${delayBetweenCalls}ms`,
+        );
+
         // Get next batch of pending rows with priority ordering
         const pendingRows = await this.db
           .select()
@@ -428,6 +511,10 @@ export class CallProcessor {
             asc(rows.sortIndex),
           )
           .limit(batchSize);
+
+        console.log(
+          `[DEBUG] Found ${pendingRows.length} pending rows to process`,
+        );
 
         if (pendingRows.length === 0) {
           // Check if run is complete (no more pending or calling rows)
@@ -443,7 +530,12 @@ export class CallProcessor {
               ),
             )) as [{ value: number }];
 
+          console.log(
+            `[DEBUG] No pending rows found, remaining active rows: ${remainingRows}`,
+          );
+
           if (Number(remainingRows) === 0) {
+            console.log(`[DEBUG] No remaining rows, completing run ${runId}`);
             // Update run to completed
             await this.completeRun(runId);
           }
@@ -453,28 +545,45 @@ export class CallProcessor {
         }
 
         // Process each row in batch
+        console.log(
+          `[DEBUG] Starting to process batch of ${pendingRows.length} rows`,
+        );
+
         for (const row of pendingRows) {
           // Skip if no longer within office hours
           if (!(await this.isWithinOfficeHours(orgId))) {
             console.log(
-              `Stopping batch: outside of office hours for org ${orgId}`,
+              `[DEBUG] Stopping batch: outside of office hours for org ${orgId}`,
             );
             break;
           }
 
           try {
+            console.log(`[DEBUG] Processing row ${row.id}`);
+
             // Mark row as calling
             await this.db
               .update(rows)
-              .set({ status: "calling", updatedAt: new Date() })
+              .set({ status: "calling", updatedAt: new Date() } as Partial<
+                typeof rows.$inferInsert
+              >)
               .where(eq(rows.id, row.id));
 
             // Get phone number from row variables
-            const phone = row.variables.phone || row.variables.primaryPhone;
+            const phone =
+              row.variables.phone ||
+              row.variables.primaryPhone ||
+              row.variables.phoneNumber;
 
             if (!phone) {
+              console.error(
+                `[DEBUG] No phone number found in row variables for row ${row.id}`,
+                row.variables,
+              );
               throw new Error("No phone number found in row variables");
             }
+
+            console.log(`[DEBUG] Preparing to call ${phone} for row ${row.id}`);
 
             // Check for time zone restrictions if specified
             if (
@@ -495,9 +604,13 @@ export class CallProcessor {
                 const endHour =
                   (run.metadata?.run?.callEndHour as number) || 20;
 
+                console.log(
+                  `[DEBUG] Patient timezone check - Current hour: ${patientHour}, Allowed: ${startHour}-${endHour}`,
+                );
+
                 if (patientHour < startHour || patientHour >= endHour) {
                   console.log(
-                    `Skipping call to ${phone} due to timezone restrictions (current time for patient: ${patientHour}:00)`,
+                    `[DEBUG] Skipping call to ${phone} due to timezone restrictions (current time for patient: ${patientHour}:00)`,
                   );
 
                   // Mark for retry later
@@ -512,29 +625,44 @@ export class CallProcessor {
                         lastSkipReason: "timezone_restriction",
                         lastSkipTime: new Date().toISOString(),
                       },
-                    })
+                    } as Partial<typeof rows.$inferInsert>)
                     .where(eq(rows.id, row.id));
 
                   continue;
                 }
               } catch (error) {
-                console.error(`Error checking timezone for ${phone}:`, error);
+                console.error(
+                  `[DEBUG] Error checking timezone for ${phone}:`,
+                  error,
+                );
                 // Continue with call if timezone check fails
               }
             }
+
+            console.log(
+              `[DEBUG] Calling Retell for ${phone} with agent ${campaign.agentId}`,
+            );
+
+            // Prepare variables for the call
+            const callVariables = {
+              ...row.variables,
+              custom_prompt: run.customPrompt || undefined,
+              organization_name: organization.name,
+              campaign_name: campaign.name,
+              retry_count: row.retryCount || 0,
+            };
+
+            console.log(
+              `[DEBUG] Call variables:`,
+              JSON.stringify(callVariables),
+            );
 
             // Create call in Retell with enhanced context
             const retellCall = await createPhoneCall({
               toNumber: String(phone),
               fromNumber: organization.phone || "",
               agentId: campaign.agentId,
-              variables: {
-                ...row.variables,
-                custom_prompt: run.customPrompt || undefined,
-                organization_name: organization.name,
-                campaign_name: campaign.name,
-                retry_count: row.retryCount || 0,
-              },
+              variables: callVariables,
               metadata: {
                 runId,
                 rowId: row.id,
@@ -545,9 +673,18 @@ export class CallProcessor {
               },
             });
 
-            if (!retellCall.call_id) {
+            console.log(`[DEBUG] Retell response:`, JSON.stringify(retellCall));
+
+            if (!retellCall.ok) {
+              console.error(
+                `[DEBUG] No call ID returned from Retell for row ${row.id}`,
+              );
               throw new Error("No call ID returned from Retell");
             }
+
+            console.log(
+              `[DEBUG] Successfully created call with ID ${retellCall.call_id} for row ${row.id}`,
+            );
 
             // Update row with call ID
             await this.db
@@ -556,7 +693,7 @@ export class CallProcessor {
                 retellCallId: retellCall.call_id,
                 updatedAt: new Date(),
                 callAttempts: (row.callAttempts || 0) + 1,
-              })
+              } as Partial<typeof rows.$inferInsert>)
               .where(eq(rows.id, row.id));
 
             // Create call record with enhanced tracking
@@ -581,6 +718,10 @@ export class CallProcessor {
               createdAt: new Date(),
               updatedAt: new Date(),
             });
+
+            console.log(
+              `[DEBUG] Created call record in database for call ${retellCall.call_id}`,
+            );
 
             // Update run metrics
             await this.incrementMetric(runId, "calls.calling");
@@ -608,7 +749,7 @@ export class CallProcessor {
                   },
                 },
                 updatedAt: new Date(),
-              })
+              } as Partial<typeof runs.$inferInsert>)
               .where(eq(runs.id, runId));
 
             // Send real-time update
@@ -624,14 +765,30 @@ export class CallProcessor {
               rowId: row.id,
               callId: retellCall.call_id,
             });
+
+            console.log(
+              `[DEBUG] Successfully processed row ${row.id}, waiting ${delayBetweenCalls}ms before next call`,
+            );
+
+            // Wait before processing next call (rate limiting)
+            await new Promise((resolve) =>
+              setTimeout(resolve, delayBetweenCalls),
+            );
           } catch (error) {
-            console.error(`Error dispatching call for row ${row.id}:`, error);
+            console.error(
+              `[DEBUG] Error dispatching call for row ${row.id}:`,
+              error,
+            );
 
             // Determine if we should retry
             const maxRetries = (run.metadata?.run?.maxRetries as number) || 3;
             const currentRetries = row.retryCount || 0;
 
             if (currentRetries < maxRetries) {
+              console.log(
+                `[DEBUG] Will retry row ${row.id} later (${currentRetries + 1}/${maxRetries} retries)`,
+              );
+
               // Mark for retry
               await this.db
                 .update(rows)
@@ -646,7 +803,7 @@ export class CallProcessor {
                       error instanceof Error ? error.message : String(error),
                     lastErrorTime: new Date().toISOString(),
                   },
-                })
+                } as Partial<typeof rows.$inferInsert>)
                 .where(eq(rows.id, row.id));
 
               // Update run metrics
@@ -666,26 +823,14 @@ export class CallProcessor {
                     lastErrorTime: new Date().toISOString(),
                     failureReason: "max_retries_exceeded",
                   },
-                })
+                } as Partial<typeof rows.$inferInsert>)
                 .where(eq(rows.id, row.id));
 
               // Update run metrics
               await this.incrementMetric(runId, "calls.failed");
             }
           }
-
-          // Delay between calls to respect rate limits
-          await new Promise((resolve) =>
-            setTimeout(resolve, delayBetweenCalls),
-          );
         }
-
-        // Wait before processing next batch (avoid API rate limits and throttling)
-        const batchDelay = Math.max(
-          5000,
-          Math.floor((60000 / callsPerMinute) * batchSize),
-        );
-        await new Promise((resolve) => setTimeout(resolve, batchDelay));
       }
     } catch (error) {
       console.error(`Error processing run ${runId}:`, error);
@@ -705,7 +850,7 @@ export class CallProcessor {
             },
           },
           updatedAt: new Date(),
-        })
+        } as Partial<typeof runs.$inferInsert>)
         .where(eq(runs.id, runId));
 
       // Send real-time update
@@ -756,7 +901,7 @@ export class CallProcessor {
         status: "completed",
         metadata: updatedMetadata as any,
         updatedAt: new Date(),
-      })
+      } as Partial<typeof runs.$inferInsert>)
       .where(eq(runs.id, runId));
 
     // Send real-time update
@@ -807,7 +952,7 @@ export class CallProcessor {
       .set({
         metadata: metadata as any,
         updatedAt: new Date(),
-      })
+      } as Partial<typeof runs.$inferInsert>)
       .where(eq(runs.id, runId));
 
     // Send real-time update

@@ -1,4 +1,9 @@
-import { getAgent, getAgents, retell } from "@/lib/retell-client";
+import {
+  getAgent,
+  getAgents,
+  getLlmFromAgent,
+  updateRetellAgent,
+} from "@/lib/retell-client-safe";
 import { createTRPCRouter, superAdminProcedure } from "@/server/api/trpc";
 import {
   calls,
@@ -13,6 +18,31 @@ import { and, count, desc, eq, like, or, SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
 export const adminRouter = createTRPCRouter({
+  getAgents: superAdminProcedure.query(async ({ ctx }) => {
+    try {
+      const agents = await getAgents();
+      const agentsList = agents.map((agent: any) => ({
+        agent_id: agent.agent_id,
+        name: agent.agent_name || agent.agent_id,
+      }));
+      return agentsList;
+    } catch (error) {
+      console.error("Error fetching agents:", error);
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to fetch agents",
+        cause: error,
+      });
+    }
+  }),
+  getLlmFromAgent: superAdminProcedure
+    .input(z.object({ agentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { agentId } = input;
+      const llm = await getLlmFromAgent(agentId);
+      return llm;
+    }),
+
   // Dashboard statistics
   getDashboardStats: superAdminProcedure.query(async ({ ctx }) => {
     // Get counts for various entities
@@ -140,7 +170,7 @@ export const adminRouter = createTRPCRouter({
 
         // Update the agent if we have data to update
         if (Object.keys(updateData).length > 0) {
-          const agent = await retell.agent.update(agent_id, updateData);
+          const agent = await updateRetellAgent(agent_id, updateData);
           return agent;
         }
 
@@ -195,7 +225,7 @@ export const adminRouter = createTRPCRouter({
           whereCondition,
           or(
             like(organizations.name, searchTerm),
-            like(organizations.clerkId, searchTerm),
+            like(organizations.id, searchTerm),
             like(organizations.phone, searchTerm),
           ),
         ) as SQL<unknown>;
@@ -219,7 +249,7 @@ export const adminRouter = createTRPCRouter({
           countWhereCondition,
           or(
             like(organizations.name, searchTerm),
-            like(organizations.clerkId, searchTerm),
+            like(organizations.id, searchTerm),
             like(organizations.phone, searchTerm),
           ),
         ) as SQL<unknown>;
@@ -300,7 +330,7 @@ export const adminRouter = createTRPCRouter({
           orgId: campaignRequests.orgId,
           requestedBy: campaignRequests.requestedBy,
           name: campaignRequests.name,
-          type: campaignRequests.type,
+          direction: campaignRequests.direction,
           description: campaignRequests.description,
           status: campaignRequests.status,
           adminNotes: campaignRequests.adminNotes,
@@ -415,7 +445,8 @@ export const adminRouter = createTRPCRouter({
         description: z.string().optional(),
         orgId: z.string().uuid(),
         agentId: z.string().min(1),
-        type: z.string().min(1).default("general"),
+        direction: z.string().min(1).default("general"),
+        llmId: z.string().min(1),
         config: z
           .object({
             basePrompt: z.string().default("You are a helpful assistant."),
@@ -430,7 +461,14 @@ export const adminRouter = createTRPCRouter({
                           label: z.string(),
                           possibleColumns: z.array(z.string()),
                           transform: z
-                            .enum(["text", "date", "time", "phone", "provider"])
+                            .enum([
+                              "text",
+                              "short_date",
+                              "long_date",
+                              "time",
+                              "phone",
+                              "provider",
+                            ])
                             .optional(),
                           required: z.boolean(),
                           description: z.string().optional(),
@@ -466,7 +504,14 @@ export const adminRouter = createTRPCRouter({
                           label: z.string(),
                           possibleColumns: z.array(z.string()),
                           transform: z
-                            .enum(["text", "date", "time", "phone", "provider"])
+                            .enum([
+                              "text",
+                              "short_date",
+                              "long_date",
+                              "time",
+                              "phone",
+                              "provider",
+                            ])
                             .optional(),
                           required: z.boolean(),
                           description: z.string().optional(),

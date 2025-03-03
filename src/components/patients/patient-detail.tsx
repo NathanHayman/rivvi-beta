@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatPhoneDisplay } from "@/lib/format-utils";
 import { calculateAge } from "@/lib/patient/patient-utils";
 import { api } from "@/trpc/react";
 import { format } from "date-fns";
@@ -62,11 +63,12 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
 
   // Format patient data
   const age = calculateAge(patient.dob);
-  const formattedPhone = formatPhoneNumber(patient.primaryPhone);
+  const formattedPhone = formatPhoneDisplay(patient.primaryPhone);
   const patientFullName = `${patient.firstName} ${patient.lastName}`;
 
   return (
     <div className="space-y-6">
+      {patient.primaryPhone}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -109,7 +111,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                   {patient.secondaryPhone && (
                     <div className="flex items-center">
                       <PhoneIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-                      <span>{formatPhoneNumber(patient.secondaryPhone)}</span>
+                      <span>{formatPhoneDisplay(patient.secondaryPhone)}</span>
                       <Badge variant="outline" className="ml-2 text-xs">
                         Secondary
                       </Badge>
@@ -160,7 +162,8 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                       <span>Last Contact</span>
                       <span className="text-sm text-muted-foreground">
                         {format(
-                          new Date(patient.lastCall.createdAt),
+                          // @ts-expect-error - lastCall is a date
+                          new Date(patient.lastCall.createdAt as string),
                           "MMM d, yyyy",
                         )}
                       </span>
@@ -265,16 +268,6 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
       </Tabs>
     </div>
   );
-}
-
-// Helper function to format phone numbers
-function formatPhoneNumber(phoneNumber: string) {
-  const cleaned = phoneNumber.replace(/\D/g, "");
-  const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-  if (match) {
-    return `(${match[1]}) ${match[2]}-${match[3]}`;
-  }
-  return phoneNumber;
 }
 
 // Skeleton loader for patient details

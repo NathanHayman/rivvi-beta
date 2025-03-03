@@ -4,10 +4,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { formatPhoneDisplay } from "@/lib/format-utils";
 import { api } from "@/trpc/react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { PhoneIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -23,7 +23,10 @@ interface Patient {
   patientHash: string;
   emrIdInOrg?: string | null;
   callCount?: number;
-  createdAt: Date;
+  createdAt: string | Date;
+  updatedAt?: string | Date;
+  externalIds?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 export function PatientsTable() {
@@ -93,18 +96,12 @@ export function PatientsTable() {
       enableSorting: true,
     },
     {
-      accessorKey: "phone",
+      accessorKey: "primaryPhone",
       header: "Phone",
       cell: ({ row }) => {
         const patient = row.original;
-        const formattedPhone = formatPhoneNumber(patient.primaryPhone);
-
-        return (
-          <div className="flex items-center gap-2">
-            <PhoneIcon className="h-4 w-4 text-muted-foreground" />
-            <span>{formattedPhone}</span>
-          </div>
-        );
+        const formattedPhone = formatPhoneDisplay(patient.primaryPhone);
+        return formattedPhone;
       },
     },
     {
@@ -146,7 +143,7 @@ export function PatientsTable() {
   return (
     <DataTable
       columns={columns}
-      data={data?.patients || []}
+      data={(data?.patients || []) as Patient[]}
       searchable
       onSearch={setSearch}
       isLoading={isLoading || isFetching}
@@ -160,14 +157,4 @@ export function PatientsTable() {
       }
     />
   );
-}
-
-// Helper function to format phone numbers
-function formatPhoneNumber(phoneNumber: string) {
-  const cleaned = phoneNumber.replace(/\D/g, "");
-  const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-  if (match) {
-    return `(${match[1]}) ${match[2]}-${match[3]}`;
-  }
-  return phoneNumber;
 }

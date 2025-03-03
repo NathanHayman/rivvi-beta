@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   description: "Calls for Rivvi's human-like conversational AI for healthcare.",
 };
 
-export default async function Campaigns() {
+export default function Campaigns() {
   return (
     <AppPage>
       <AppBreadcrumbs breadcrumbs={[{ title: "Campaigns", href: "/" }]} />

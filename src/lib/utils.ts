@@ -5,6 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function partialUpdate<T>(data: Record<string, any>): Partial<T> {
+  return data as Partial<T>;
+}
 // Tremor Raw focusInput [v0.0.1]
 
 export const focusInput = [

@@ -293,7 +293,6 @@ export class PatientService {
         const [newPatient] = await this.db
           .insert(patients)
           .values({
-            id: createId(),
             patientHash,
             firstName,
             lastName,
@@ -303,7 +302,7 @@ export class PatientService {
             secondaryPhone: secondaryPhone,
             externalIds: externalIds || {},
             metadata: metadata || {},
-          })
+          } as typeof patients.$inferInsert)
           .returning();
 
         patient = newPatient;
@@ -330,7 +329,7 @@ export class PatientService {
             patientId: patient.id,
             emrIdInOrg: emrId,
             isActive: true,
-          });
+          } as typeof organizationPatients.$inferInsert);
         } else if (emrId || externalIds) {
           // Update organization patient link with new data
           const updates: Record<string, unknown> = {
@@ -598,7 +597,6 @@ export class PatientService {
       if (newLinks.length > 0) {
         await this.db.insert(organizationPatients).values(newLinks);
       }
-
       // Return all patient IDs
       return allPatients.map((p) => p.id);
     } catch (error) {

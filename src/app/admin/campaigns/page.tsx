@@ -7,7 +7,6 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { CampaignsTable } from "@/components/tables/campaigns-table";
-import { getAgents } from "@/lib/retell-client";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -24,12 +23,6 @@ type PageProps = {
 export default async function AdminCampaignsPage({ params }: PageProps) {
   const { orgId } = await params;
 
-  const agents = await getAgents();
-  const agentsList = agents.map((agent: any) => ({
-    agent_id: agent.agent_id,
-    name: agent.agent_name,
-  }));
-
   return (
     <AppPage>
       <AppBreadcrumbs
@@ -43,7 +36,7 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
         <AppHeader
           className=""
           title="Campaigns"
-          buttons={<CampaignCreateSheet agents={agentsList} />}
+          buttons={<CampaignCreateSheet />}
         />
         <AppContent className="">
           <Suspense fallback={<div>Loading...</div>}>

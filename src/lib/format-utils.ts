@@ -1,12 +1,58 @@
 // src/lib/format-utils.ts
 
 /**
- * Format a phone number by removing all non-numeric characters
+ * Format a phone number to E.164 international format with country code
  * @param phone Phone number to format
- * @returns Formatted phone number with only digits
+ * @returns Formatted phone number in E.164 format (+1XXXXXXXXXX for US numbers)
  */
 export function formatPhoneNumber(phone: string): string {
-  return phone.replace(/\D/g, "");
+  if (!phone) return "";
+
+  // Remove all non-numeric characters
+  const digitsOnly = phone.replace(/\D/g, "");
+
+  // If already has + sign, return as is
+  if (phone.startsWith("+")) {
+    return phone;
+  }
+
+  // For 10-digit US numbers
+  if (digitsOnly.length === 10) {
+    return `+1${digitsOnly}`;
+  }
+
+  // For 11-digit numbers with leading 1 (US country code)
+  if (digitsOnly.length === 11 && digitsOnly.startsWith("1")) {
+    return `+${digitsOnly}`;
+  }
+
+  // Return original digits if format is unknown
+  return digitsOnly.length > 0 ? `+${digitsOnly}` : "";
+}
+
+/**
+ * Format a phone number for display in the UI
+ * @param phone Phone number to format for display
+ * @returns Formatted phone number in (XXX) XXX-XXXX format
+ */
+export function formatPhoneDisplay(phone: string): string {
+  if (!phone) return "";
+
+  // If the phone has a + sign, remove it and any country code
+  let digitsOnly = phone.replace(/\D/g, "");
+
+  // Remove the country code if present (assuming US +1)
+  if (digitsOnly.length === 11 && digitsOnly.startsWith("1")) {
+    digitsOnly = digitsOnly.substring(1);
+  }
+
+  // Format as (XXX) XXX-XXXX for 10-digit numbers
+  if (digitsOnly.length === 10) {
+    return `(${digitsOnly.slice(0, 3)}) ${digitsOnly.slice(3, 6)}-${digitsOnly.slice(6)}`;
+  }
+
+  // Return original format if we can't parse it
+  return phone;
 }
 
 /**
@@ -42,9 +88,10 @@ export function formatDate(dateString: string): string {
         const month = parseInt(g2 || "");
         const day = parseInt(g3 || "");
 
-        // Handle 2-digit years
+        // Handle 2-digit years - use threshold of 25 instead of 50
+        // Years 00-25 → 2000-2025, Years 26-99 → 1926-1999
         if (year < 100) {
-          year += year < 50 ? 2000 : 1900;
+          year += year < 25 ? 2000 : 1900;
         }
 
         // Create date from parts

@@ -5,29 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1740773436784,
-      "tag": "0000_nasty_thunderbolts",
+      "when": 1740878572257,
+      "tag": "0000_wooden_blue_shield",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1740791766442,
-      "tag": "0001_daily_spitfire",
+      "when": 1740885592989,
+      "tag": "0001_dashing_kid_colt",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1740791821942,
-      "tag": "0002_perfect_mockingbird",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1740801042672,
-      "tag": "0003_open_fixer",
+      "when": 1740975941168,
+      "tag": "0002_great_mordo",
       "breakpoints": true
     }
   ]

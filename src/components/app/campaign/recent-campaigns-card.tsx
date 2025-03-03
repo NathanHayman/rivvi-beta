@@ -9,17 +9,11 @@ import { CreateRunModal } from "@/components/app/run/create-run-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TCampaign } from "@/types/db";
 import { useState } from "react";
 
-interface Campaign {
-  id: string;
-  name: string;
-  type: string;
-  createdAt: Date;
-}
-
 interface RecentCampaignsCardProps {
-  campaigns: Campaign[];
+  campaigns: TCampaign[];
 }
 
 export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
@@ -33,16 +27,12 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
     setIsCreateRunModalOpen(true);
   };
 
-  const getCampaignTypeColor = (type: string) => {
-    switch (type) {
-      case "appointment_confirmation":
+  const getCampaignTypeColor = (direction: string) => {
+    switch (direction) {
+      case "outbound":
         return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300";
-      case "annual_wellness":
+      case "inbound":
         return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
-      case "medication_adherence":
-        return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300";
-      case "no_show_followup":
-        return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
     }
@@ -71,9 +61,9 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
                     <div className="font-medium">{campaign.name}</div>
                     <Badge
                       variant="outline"
-                      className={getCampaignTypeColor(campaign.type)}
+                      className={getCampaignTypeColor(campaign.direction)}
                     >
-                      {campaign.type}
+                      {campaign.direction}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">

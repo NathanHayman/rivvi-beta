@@ -24,7 +24,7 @@ export const organizationRouter = createTRPCRouter({
     const [organization] = await ctx.db
       .select()
       .from(organizations)
-      .where(eq(organizations.clerkId, ctx.auth.orgId));
+      .where(eq(organizations.id, ctx.auth.orgId));
 
     if (!organization) {
       throw new TRPCError({
@@ -37,9 +37,14 @@ export const organizationRouter = createTRPCRouter({
   }),
 
   // Check if the current user is a super admin
-  isSuperAdmin: protectedProcedure.query(({ ctx }) => {
+  isSuperAdmin: protectedProcedure.query(async ({ ctx }) => {
+    const [org] = await ctx.db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, ctx.auth.orgId));
+
     return {
-      isSuperAdmin: ctx.auth.isSuperAdmin || false,
+      isSuperAdmin: org?.isSuperAdmin || false,
     };
   }),
 
@@ -176,7 +181,7 @@ export const organizationRouter = createTRPCRouter({
           officeHours,
           concurrentCallLimit: input.concurrentCallLimit,
           isSuperAdmin: input.isSuperAdmin,
-        })
+        } as typeof organizations.$inferInsert)
         .returning();
 
       return organization;
@@ -235,7 +240,7 @@ export const organizationRouter = createTRPCRouter({
       const orgId = input.id;
 
       // Check if the user is a super admin or an admin of the organization
-      if (!ctx.auth.isSuperAdmin && ctx.auth.organization?.id !== orgId) {
+      if (!ctx.auth.isSuperAdmin && ctx.auth.orgId !== orgId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You do not have permission to update this organization",
@@ -291,7 +296,7 @@ export const organizationRouter = createTRPCRouter({
       const orgId =
         ctx.auth.isSuperAdmin && input.organizationId
           ? input.organizationId
-          : ctx.auth.organization?.id;
+          : ctx.auth.orgId;
 
       if (!orgId) {
         throw new TRPCError({

@@ -11,6 +11,7 @@ import {
 import {
   CheckIcon,
   CircleIcon,
+  InfoIcon,
   Loader2,
   MoreHorizontal,
   Phone,
@@ -48,9 +49,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRunEvents } from "@/hooks/use-pusher";
+import { formatPhoneDisplay } from "@/lib/format-utils";
 import { api } from "@/trpc/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
 
@@ -63,7 +64,7 @@ interface Row {
   runId: string;
   patientId: string | null;
   variables: Record<string, unknown>;
-  postCallData: Record<string, unknown> | null;
+  analysis: Record<string, unknown> | null;
   error: string | null;
   retellCallId: string | null;
   sortIndex: number;
@@ -71,7 +72,7 @@ interface Row {
     id: string;
     firstName: string;
     lastName: string;
-    primaryPhone: string;
+    phoneNumber: string;
   } | null;
 }
 
@@ -80,13 +81,27 @@ interface RunRowsTableProps {
 }
 
 export function RunRowsTable({ runId }: RunRowsTableProps) {
-  const router = useRouter();
   const [filter, setFilter] = useState<RowStatus | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 10,
   });
+
+  // Get run details to access campaign information
+  const { data: runData } = api.runs.getById.useQuery(
+    { id: runId },
+    { enabled: !!runId },
+  );
+
+  // Get campaign variables from the run's campaign
+  const campaignVariables =
+    runData?.campaign?.config?.variables?.campaign?.fields || [];
+
+  // Get campaign analysis fields and find the main KPI
+  const campaignAnalysisFields =
+    runData?.campaign?.config?.analysis?.campaign?.fields || [];
+  const mainKpiField = campaignAnalysisFields.find((field) => field.isMainKPI);
 
   // Get rows data
   const { data, isLoading, isError, refetch } = api.runs.getRows.useQuery(
@@ -112,33 +127,105 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
     onCallCompleted: () => void refetch(),
   });
 
-  // Define columns
-  const columns: ColumnDef<Row>[] = [
+  // Define base columns
+  const baseColumns: ColumnDef<Row>[] = [
     {
       accessorKey: "patient",
       header: "Patient",
       cell: ({ row }) => {
         const patient = row.original.patient;
-        const name = patient
-          ? `${patient.firstName} ${patient.lastName}`
-          : "Unknown";
+        const variables = row.original.variables || {};
 
-        const initials = patient
-          ? `${patient.firstName.charAt(0)}${patient.lastName.charAt(0)}`
-          : "?";
+        // Extract patient data from either the patient object or variables
+        const firstName = patient?.firstName || variables.firstName || "";
+        const lastName = patient?.lastName || variables.lastName || "";
+        const phoneNumber =
+          patient?.phoneNumber ||
+          variables.primaryPhone ||
+          variables.phoneNumber ||
+          "No phone";
+
+        const name =
+          firstName && lastName ? `${firstName} ${lastName}` : "Unknown";
+
+        const initials =
+          firstName && lastName
+            ? `${String(firstName).charAt(0)}${String(lastName).charAt(0)}`
+            : "?";
+
+        // Format the phone number for display
+        const formattedPhone = phoneNumber
+          ? formatPhoneDisplay(String(phoneNumber))
+          : "No phone";
 
         return (
-          <div className="flex items-center gap-2">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback>{initials}</AvatarFallback>
-            </Avatar>
-            <div>
-              <div className="font-medium">{name}</div>
-              <div className="text-xs text-muted-foreground">
-                {String(row?.original?.variables?.phone || "No phone")}
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="flex cursor-pointer items-center gap-2">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="font-medium">{name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {formattedPhone}
+                  </div>
+                </div>
+                <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground" />
               </div>
-            </div>
-          </div>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="grid gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-medium leading-none">Patient Details</h4>
+                  <div className="text-sm text-muted-foreground">
+                    Complete information about this patient.
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <span className="text-sm font-medium">Name</span>
+                    <span className="col-span-2 text-sm">{name}</span>
+                  </div>
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <span className="text-sm font-medium">Phone</span>
+                    <span className="col-span-2 text-sm">{formattedPhone}</span>
+                  </div>
+                  {variables.dob && (
+                    <div className="grid grid-cols-3 items-center gap-4">
+                      <span className="text-sm font-medium">DOB</span>
+                      <span className="col-span-2 text-sm">
+                        {String(variables.dob)}
+                      </span>
+                    </div>
+                  )}
+                  {variables.email && (
+                    <div className="grid grid-cols-3 items-center gap-4">
+                      <span className="text-sm font-medium">Email</span>
+                      <span className="col-span-2 text-sm">
+                        {String(variables.email)}
+                      </span>
+                    </div>
+                  )}
+                  {patient?.id && (
+                    <div className="mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                        className="w-full"
+                      >
+                        <Link href={`/patients/${patient.id}`}>
+                          <User className="mr-2 h-4 w-4" />
+                          View Patient Profile
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         );
       },
     },
@@ -188,6 +275,141 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       },
     },
     {
+      accessorKey: "campaignVariables",
+      header: "Campaign Data",
+      cell: ({ row }) => {
+        const variables = row.original.variables || {};
+
+        // Filter out patient-related variables
+        const patientKeys = [
+          "firstName",
+          "lastName",
+          "phoneNumber",
+          "primaryPhone",
+          "dob",
+          "email",
+        ];
+        const campaignVars = Object.entries(variables).filter(
+          ([key]) => !patientKeys.includes(key),
+        );
+
+        if (campaignVars.length === 0) {
+          return <span className="text-muted-foreground">No data</span>;
+        }
+
+        // Get a preview of the first few variables
+        const previewVars = campaignVars.slice(0, 2);
+        const hasMore = campaignVars.length > 2;
+
+        return (
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="flex cursor-pointer items-center gap-2">
+                <div>
+                  {previewVars.map(([key, value]) => {
+                    // Find the variable definition to get the label
+                    const varDef = campaignVariables.find((v) => v.key === key);
+                    const label = varDef?.label || key;
+
+                    return (
+                      <div key={key} className="text-sm">
+                        <span className="font-medium">{label}:</span>{" "}
+                        <span>{String(value)}</span>
+                      </div>
+                    );
+                  })}
+                  {hasMore && (
+                    <div className="text-xs text-muted-foreground">
+                      + {campaignVars.length - 2} more fields
+                    </div>
+                  )}
+                </div>
+                <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground" />
+              </div>
+            </PopoverTrigger>
+            <PopoverContent className="w-80">
+              <div className="grid gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-medium leading-none">Campaign Data</h4>
+                  <div className="text-sm text-muted-foreground">
+                    Campaign-specific variables for this row.
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  {campaignVars.map(([key, value]) => {
+                    // Find the variable definition to get the label
+                    const varDef = campaignVariables.find((v) => v.key === key);
+                    const label = varDef?.label || key;
+
+                    return (
+                      <div
+                        key={key}
+                        className="grid grid-cols-3 items-center gap-4"
+                      >
+                        <span className="text-sm font-medium">{label}</span>
+                        <span className="col-span-2 text-sm">
+                          {String(value)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        );
+      },
+    },
+  ];
+
+  // Add main KPI column if it exists
+  if (mainKpiField) {
+    baseColumns.push({
+      accessorKey: "mainKpi",
+      header: mainKpiField.label,
+      cell: ({ row }) => {
+        const analysis = row.original.analysis || {};
+        const status = row.getValue("status") as RowStatus;
+
+        if (status === "pending" || status === "calling") {
+          return <span className="text-muted-foreground">Waiting...</span>;
+        }
+
+        if (status === "failed") {
+          return <span className="text-muted-foreground">Failed</span>;
+        }
+
+        if (!analysis) {
+          return <span className="text-muted-foreground">No data</span>;
+        }
+
+        // Get the value from the analysis data
+        const value = analysis[mainKpiField.key];
+
+        if (value === undefined) {
+          return <span>-</span>;
+        }
+
+        // Format the value based on type
+        if (
+          typeof value === "boolean" ||
+          value === "true" ||
+          value === "false"
+        ) {
+          const isPositive = value === true || value === "true";
+          return (
+            <Badge variant={isPositive ? "success_solid" : "neutral_solid"}>
+              {isPositive ? "Yes" : "No"}
+            </Badge>
+          );
+        }
+
+        return <span>{String(value)}</span>;
+      },
+    });
+  } else {
+    // Fallback to scheduled column if no main KPI exists
+    baseColumns.push({
       accessorKey: "scheduledAt",
       header: "Scheduled",
       cell: ({ row }) => {
@@ -207,12 +429,16 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           </div>
         );
       },
-    },
+    });
+  }
+
+  // Create outcome and actions columns
+  const outcomeAndActionsColumns: ColumnDef<Row>[] = [
     {
       id: "outcome",
       header: "Call Outcome",
       cell: ({ row }) => {
-        const postCallData = row.original.postCallData;
+        const analysis = row.original.analysis;
         const status = row.getValue("status") as RowStatus;
 
         if (status === "pending" || status === "calling") {
@@ -240,7 +466,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           );
         }
 
-        if (!postCallData) {
+        if (!analysis) {
           return <span className="text-muted-foreground">No data</span>;
         }
 
@@ -256,8 +482,8 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         ];
 
         for (const field of fieldsToCheck) {
-          if (field in postCallData) {
-            const value = postCallData[field];
+          if (field in analysis) {
+            const value = analysis[field];
             outcome =
               typeof value === "boolean"
                 ? value
@@ -302,6 +528,12 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         );
       },
     },
+  ];
+
+  // Combine all columns
+  const columns: ColumnDef<Row>[] = [
+    ...baseColumns,
+    ...outcomeAndActionsColumns,
   ];
 
   // Create table

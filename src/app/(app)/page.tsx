@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, HydrateClient } from "@/trpc/server";
+import { TCall, TCampaign } from "@/types/db";
 import { auth } from "@clerk/nextjs/server";
 import { formatDistance } from "date-fns";
 import {
@@ -131,7 +132,11 @@ async function GetDashboardStats({ orgId }: { orgId: string }) {
 async function GetRecentCampaigns() {
   try {
     const recentCampaigns = await api.campaigns.getAll({ limit: 3 });
-    return <RecentCampaignsCard campaigns={recentCampaigns.campaigns} />;
+    return (
+      <RecentCampaignsCard
+        campaigns={recentCampaigns.campaigns as TCampaign[]}
+      />
+    );
   } catch (error) {
     return (
       <Card>
@@ -154,7 +159,7 @@ async function GetRecentCampaigns() {
 async function GetRecentCalls() {
   try {
     const recentCalls = await api.calls.getAll({ limit: 5 });
-    return <RecentCallsCard calls={recentCalls.calls} />;
+    return <RecentCallsCard calls={recentCalls.calls as TCall[]} />;
   } catch (error) {
     return (
       <Card>
@@ -203,7 +208,7 @@ async function GetRecentCalls2() {
     <CardContent>
       {recentCalls.calls.length > 0 ? (
         <div className="space-y-4">
-          {recentCalls.calls.map((call) => {
+          {recentCalls.calls.map((call: TCall) => {
             // Determine call status icon
             let StatusIcon = PhoneOutgoing;
             let statusColor = "text-blue-500";
@@ -273,7 +278,7 @@ async function GetRecentCampaigns2() {
                 <div className="font-medium">{campaign.name}</div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="outline" className="text-xs font-normal">
-                    {campaign.type}
+                    {campaign.direction}
                   </Badge>
                   <span>
                     Created{" "}

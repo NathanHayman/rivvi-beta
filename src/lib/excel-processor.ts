@@ -1,4 +1,3 @@
-// src/lib/excel-processor.ts
 import { db } from "@/server/db";
 import { createHash } from "crypto";
 import { nanoid } from "nanoid";
@@ -12,7 +11,13 @@ type FieldConfig = {
   key: string;
   label: string;
   possibleColumns: string[];
-  transform?: "text" | "date" | "time" | "phone" | "provider";
+  transform?:
+    | "text"
+    | "short_date"
+    | "long_date"
+    | "time"
+    | "phone"
+    | "provider";
   required: boolean;
   description?: string;
 };
@@ -98,6 +103,7 @@ export function parseFileContent(
       const { data, errors } = Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
+        transformHeader: (header) => header.trim(), // Trim whitespace from headers
       });
 
       if (errors.length > 0) {
@@ -127,7 +133,9 @@ export function parseFileContent(
       if (!worksheet) {
         throw new Error("No worksheet found in the uploaded file");
       }
-      const data = XLSX.utils.sheet_to_json(worksheet);
+
+      // Use raw values to preserve dates and numbers correctly
+      const data = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
       return {
         headers: Object.keys(data[0] || {}),
@@ -144,42 +152,55 @@ export function parseFileContent(
  * with enhanced fuzzy matching for better column detection
  */
 function findMatchingColumn(
-  row: Record<string, unknown>,
+  headers: string[],
   possibleColumns: string[],
 ): string | null {
-  const rowKeys = Object.keys(row);
-  const normalizedRowKeys = rowKeys.map((key) => key.toLowerCase().trim());
+  const normalizedHeaders = headers.map((key) => key.toLowerCase().trim());
 
   // Try exact match first
   for (const column of possibleColumns) {
     const normalizedColumn = column.toLowerCase().trim();
-    const exactMatchIndex = normalizedRowKeys.findIndex(
+    const exactMatchIndex = normalizedHeaders.findIndex(
       (key) => key === normalizedColumn,
     );
     if (exactMatchIndex !== -1) {
-      return rowKeys[exactMatchIndex] ?? null;
+      return headers[exactMatchIndex] ?? null;
     }
   }
 
   // Try contains match (header contains the column name)
   for (const column of possibleColumns) {
     const normalizedColumn = column.toLowerCase().trim();
-    const containsMatchIndex = normalizedRowKeys.findIndex((key) =>
+    const containsMatchIndex = normalizedHeaders.findIndex((key) =>
       key.includes(normalizedColumn),
     );
     if (containsMatchIndex !== -1) {
-      return rowKeys[containsMatchIndex] ?? null;
+      return headers[containsMatchIndex] ?? null;
     }
   }
 
   // Try reverse contains match (column name contains the header)
   for (const column of possibleColumns) {
     const normalizedColumn = column.toLowerCase().trim();
-    const reverseContainsIndex = normalizedRowKeys.findIndex(
+    const reverseContainsIndex = normalizedHeaders.findIndex(
       (key) => normalizedColumn.includes(key) && key.length > 3, // Only consider substantial matches
     );
     if (reverseContainsIndex !== -1) {
-      return rowKeys[reverseContainsIndex] ?? null;
+      return headers[reverseContainsIndex] ?? null;
+    }
+  }
+
+  // Try word matching (e.g., "Patient First Name" matches "firstName")
+  for (const column of possibleColumns) {
+    const normalizedColumn = column.toLowerCase().trim();
+    const words = normalizedColumn.split(/\s+/);
+
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      const header = normalizedHeaders[i];
+      // Check if all words in the possible column appear in the header
+      if (words.every((word) => header.includes(word))) {
+        return headers[i] ?? null;
+      }
     }
   }
 
@@ -201,13 +222,29 @@ function transformValue(value: unknown, transform?: string): unknown {
   }
 
   switch (transform) {
-    case "date":
-      return formatDate(stringValue);
+    case "short_date":
+      return formatShortDate(stringValue);
+    case "long_date":
+      // e.g Tuesday, March 10, 2025
+      return formatLongDate(stringValue);
     case "phone":
+      // Use the enhanced formatPhoneNumber which now handles country codes
       return formatPhoneNumber(stringValue);
     case "time":
       // Convert various time formats to HH:MM format
       try {
+        // Handle Excel time format (decimal number)
+        if (!isNaN(Number(stringValue))) {
+          const timeValue = Number(stringValue);
+          if (timeValue >= 0 && timeValue < 1) {
+            const totalMinutes = Math.round(timeValue * 24 * 60);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+          }
+        }
+
+        // Handle string time formats
         const timeParts = stringValue.match(
           /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/i,
         );
@@ -215,7 +252,7 @@ function transformValue(value: unknown, transform?: string): unknown {
           return stringValue;
         }
 
-        let hours = parseInt(timeParts[1] ?? "0", 10);
+        let hours = Number.parseInt(timeParts[1] ?? "0", 10);
         const minutes = timeParts[2] ?? "0";
         const ampm = timeParts[4]?.toLowerCase();
 
@@ -243,6 +280,55 @@ function transformValue(value: unknown, transform?: string): unknown {
   }
 }
 
+// Helper functions for date formatting
+function formatShortDate(dateString: string): string {
+  try {
+    // Handle Excel date (number of days since 1/1/1900)
+    if (!isNaN(Number(dateString))) {
+      const excelDate = Number(dateString);
+      // Excel dates are number of days since 1/1/1900, with a leap year bug
+      const date = new Date(Date.UTC(1900, 0, excelDate - 1));
+      return formatDate(date.toISOString());
+    }
+
+    // Use the existing formatDate function for string dates
+    return formatDate(dateString);
+  } catch (error) {
+    return dateString;
+  }
+}
+
+function formatLongDate(dateString: string): string {
+  try {
+    // Handle Excel date (number of days since 1/1/1900)
+    if (!isNaN(Number(dateString))) {
+      const excelDate = Number(dateString);
+      const date = new Date(Date.UTC(1900, 0, excelDate - 1));
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    }
+
+    // Format as full date (e.g., Tuesday, March 10, 2025)
+    const date = new Date(dateString);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    }
+
+    return dateString;
+  } catch (error) {
+    return dateString;
+  }
+}
+
 /**
  * Validate a patient record against the configuration
  */
@@ -251,8 +337,14 @@ function validatePatientData(
   validation: ValidationConfig,
 ): string | null {
   // Check for required phone
-  if (validation.requireValidPhone && !patientData.primaryPhone) {
-    return "Valid phone number is required";
+  if (validation.requireValidPhone) {
+    const phone =
+      patientData.primaryPhone ||
+      patientData.phoneNumber ||
+      patientData.cellPhone;
+    if (!phone) {
+      return "Valid phone number is required";
+    }
   }
 
   // Check for valid DOB
@@ -282,6 +374,7 @@ function validatePatientData(
  */
 function extractFields(
   row: Record<string, unknown>,
+  headers: string[],
   fields: FieldConfig[],
 ): {
   extractedData: Record<string, unknown>;
@@ -293,7 +386,7 @@ function extractFields(
   const missingRequired: string[] = [];
 
   for (const field of fields) {
-    const columnName = findMatchingColumn(row, field.possibleColumns);
+    const columnName = findMatchingColumn(headers, field.possibleColumns);
 
     if (columnName) {
       columnMappings[field.key] = columnName;
@@ -338,6 +431,8 @@ export async function processExcelFile(
   config: CampaignConfig,
   orgId: string,
 ): Promise<ProcessedData> {
+  console.log("Config Campaign Fields", config.analysis.campaign.fields);
+  console.log("Config Patient Fields", config.variables.patient.fields);
   const patientService = new PatientService(db);
   const result: ProcessedData = {
     validRows: [],
@@ -375,7 +470,7 @@ export async function processExcelFile(
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (!row) {
-        throw new Error("Row is undefined");
+        continue; // Skip undefined rows
       }
 
       try {
@@ -384,7 +479,7 @@ export async function processExcelFile(
           extractedData: patientData,
           columnMappings: patientColumnMappings,
           missingRequired: missingPatientFields,
-        } = extractFields(row, config.variables.patient.fields);
+        } = extractFields(row, headers, config.variables.patient.fields);
 
         // Merge column mappings
         Object.assign(allColumnMappings, patientColumnMappings);
@@ -410,7 +505,7 @@ export async function processExcelFile(
           extractedData: campaignData,
           columnMappings: campaignColumnMappings,
           missingRequired: missingCampaignFields,
-        } = extractFields(row, config.variables.campaign.fields);
+        } = extractFields(row, headers, config.variables.campaign.fields);
 
         // Merge column mappings
         Object.assign(allColumnMappings, campaignColumnMappings);
@@ -427,14 +522,20 @@ export async function processExcelFile(
         if (
           patientData.firstName &&
           patientData.lastName &&
-          patientData.primaryPhone &&
+          (patientData.primaryPhone ||
+            patientData.phoneNumber ||
+            patientData.cellPhone) &&
           patientData.dob
         ) {
+          const phoneToUse =
+            patientData.primaryPhone ||
+            patientData.phoneNumber ||
+            patientData.cellPhone;
           patientHash = generatePatientHash(
             String(patientData.firstName),
             String(patientData.lastName),
             String(patientData.dob),
-            String(patientData.primaryPhone),
+            String(phoneToUse),
           );
 
           // Check if this patient has been seen before in this file
@@ -451,15 +552,24 @@ export async function processExcelFile(
         if (
           patientData.firstName &&
           patientData.lastName &&
-          patientData.primaryPhone &&
+          (patientData.primaryPhone ||
+            patientData.phoneNumber ||
+            patientData.cellPhone) &&
           patientData.dob
         ) {
+          const phoneToUse =
+            patientData.primaryPhone ||
+            patientData.phoneNumber ||
+            patientData.cellPhone;
           const patient = await patientService.findOrCreatePatient({
             firstName: String(patientData.firstName),
             lastName: String(patientData.lastName),
             dob: String(patientData.dob),
-            phone: String(patientData.primaryPhone),
-            emrId: patientData.emrId ? String(patientData.emrId) : undefined,
+            phone: String(phoneToUse),
+            emrId:
+              patientData.emrId || patientData.patientNumber
+                ? String(patientData.emrId || patientData.patientNumber)
+                : undefined,
             orgId,
           });
 

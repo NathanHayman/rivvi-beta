@@ -63,7 +63,7 @@ export default async function RunPage({ params }: PageProps) {
               campaign={{
                 id: campaign.id,
                 name: campaign.name,
-                type: campaign.type,
+                direction: campaign.direction,
               }}
             />
           )}

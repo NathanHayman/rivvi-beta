@@ -1,5 +1,4 @@
 // src/server/db/schema.ts
-import { createId } from "@paralleldrive/cuid2";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -7,10 +6,12 @@ import {
   index,
   integer,
   json,
+  pgEnum,
   pgTableCreator,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -23,8 +24,87 @@ import {
  */
 export const createTable = pgTableCreator((name) => `rivvi_${name}`);
 
-// Helper for generating UUIDs in default values
-const generateUUID = () => createId();
+// ------------------------
+// Define native PostgreSQL enums using pgEnum
+// ------------------------
+
+export const runStatusEnum = pgEnum("run_status", [
+  "draft",
+  "processing",
+  "ready",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "scheduled",
+]);
+
+export const rowStatusEnum = pgEnum("row_status", [
+  "pending",
+  "calling",
+  "completed",
+  "failed",
+  "skipped",
+]);
+
+export const callDirectionEnum = pgEnum("call_direction", [
+  "inbound",
+  "outbound",
+]);
+
+export const callStatusEnum = pgEnum("call_status", [
+  "pending",
+  "in-progress",
+  "completed",
+  "failed",
+  "voicemail",
+  "no-answer",
+]);
+
+export const campaignRequestStatusEnum = pgEnum("campaign_request_status", [
+  "pending",
+  "approved",
+  "rejected",
+  "completed",
+]);
+
+// Optionally keep TypeScript union types if needed elsewhere in your code:
+export type RunStatus =
+  | "draft"
+  | "processing"
+  | "ready"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "scheduled";
+
+export type RowStatus =
+  | "pending"
+  | "calling"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export type CallDirection = "inbound" | "outbound";
+
+export type CallStatus =
+  | "pending"
+  | "in-progress"
+  | "completed"
+  | "failed"
+  | "voicemail"
+  | "no-answer";
+
+export type CampaignRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "completed";
+
+// ------------------------
+// Table Definitions
+// ------------------------
 
 export const organizations = createTable(
   "organization",
@@ -153,8 +233,11 @@ export const campaigns = createTable(
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
     agentId: varchar("agent_id", { length: 256 }).notNull(),
-    type: varchar("type", { length: 50 }).notNull(),
+    llmId: varchar("llm_id", { length: 256 }).notNull(),
+    // Update to use native enum for call direction
+    direction: callDirectionEnum("direction").notNull(),
     isActive: boolean("is_active").default(true),
+    isDefaultInbound: boolean("is_default_inbound").default(false),
     config: json("config")
       .$type<{
         basePrompt: string;
@@ -164,7 +247,13 @@ export const campaigns = createTable(
               key: string;
               label: string;
               possibleColumns: string[];
-              transform?: "text" | "date" | "time" | "phone" | "provider";
+              transform?:
+                | "text"
+                | "short_date"
+                | "long_date"
+                | "time"
+                | "phone"
+                | "provider";
               required: boolean;
               description?: string;
             }>;
@@ -179,7 +268,13 @@ export const campaigns = createTable(
               key: string;
               label: string;
               possibleColumns: string[];
-              transform?: "date" | "time" | "phone" | "text" | "provider";
+              transform?:
+                | "short_date"
+                | "long_date"
+                | "time"
+                | "phone"
+                | "text"
+                | "provider";
               required: boolean;
               description?: string;
             }>;
@@ -223,16 +318,6 @@ export const campaigns = createTable(
   }),
 );
 
-export type RunStatus =
-  | "draft"
-  | "processing"
-  | "ready"
-  | "running"
-  | "paused"
-  | "completed"
-  | "failed"
-  | "scheduled";
-
 export const runs = createTable(
   "run",
   {
@@ -246,10 +331,8 @@ export const runs = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
-    status: varchar("status", { length: 50 })
-      .$type<RunStatus>()
-      .default("draft")
-      .notNull(),
+    // Use native enum for run status
+    status: runStatusEnum("status").default("draft").notNull(),
     metadata: json("metadata").$type<{
       rows: {
         total: number;
@@ -301,13 +384,6 @@ export const runs = createTable(
   }),
 );
 
-export type RowStatus =
-  | "pending"
-  | "calling"
-  | "completed"
-  | "failed"
-  | "skipped";
-
 export const rows = createTable(
   "row",
   {
@@ -325,10 +401,8 @@ export const rows = createTable(
     }),
     variables: json("variables").$type<Record<string, unknown>>().notNull(),
     analysis: json("analysis").$type<Record<string, unknown>>(),
-    status: varchar("status", { length: 50 })
-      .$type<RowStatus>()
-      .default("pending")
-      .notNull(),
+    // Use native enum for row status
+    status: rowStatusEnum("status").default("pending").notNull(),
     error: text("error"),
     retellCallId: varchar("retell_call_id", { length: 256 }),
     sortIndex: integer("sort_index").notNull(), // For preserving the original order in the spreadsheet
@@ -350,15 +424,6 @@ export const rows = createTable(
   }),
 );
 
-export type CallDirection = "inbound" | "outbound";
-export type CallStatus =
-  | "pending"
-  | "in-progress"
-  | "completed"
-  | "failed"
-  | "voicemail"
-  | "no-answer";
-
 export const calls = createTable(
   "call",
   {
@@ -377,13 +442,10 @@ export const calls = createTable(
       onDelete: "set null",
     }),
     agentId: varchar("agent_id", { length: 256 }).notNull(),
-    direction: varchar("direction", { length: 20 })
-      .$type<CallDirection>()
-      .notNull(),
-    status: varchar("status", { length: 50 })
-      .$type<CallStatus>()
-      .default("pending")
-      .notNull(),
+    // Use native enum for call direction
+    direction: callDirectionEnum("direction").notNull(),
+    // Use native enum for call status
+    status: callStatusEnum("status").default("pending").notNull(),
     retellCallId: varchar("retell_call_id", { length: 256 }).notNull(),
     recordingUrl: varchar("recording_url", { length: 512 }),
     toNumber: varchar("to_number", { length: 20 }).notNull(),
@@ -395,6 +457,10 @@ export const calls = createTable(
     endTime: timestamp("end_time", { withTimezone: true }),
     duration: integer("duration"),
     error: text("error"),
+    relatedOutboundCallId: uuid("related_outbound_call_id").references(
+      () => calls.id,
+      { onDelete: "set null" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -411,10 +477,12 @@ export const calls = createTable(
     retellCallIdIdx: index("call_retell_call_id_idx").on(table.retellCallId),
     statusIdx: index("call_status_idx").on(table.status),
     directionIdx: index("call_direction_idx").on(table.direction),
+    retellCallIdUniqueIdx: uniqueIndex("call_retell_call_id_unique_idx").on(
+      table.retellCallId,
+    ),
   }),
 );
 
-// Campaign requests - for organizations to request new campaigns
 export const campaignRequests = createTable(
   "campaign_request",
   {
@@ -428,12 +496,11 @@ export const campaignRequests = createTable(
       onDelete: "set null",
     }),
     name: varchar("name", { length: 256 }).notNull(),
-    type: varchar("type", { length: 50 }).notNull(),
+    // Use native enum for call direction
+    direction: callDirectionEnum("direction").default("outbound").notNull(),
     description: text("description").notNull(),
-    status: varchar("status", { length: 20 })
-      .default("pending")
-      .$type<"pending" | "approved" | "rejected" | "completed">()
-      .notNull(),
+    // Use native enum for campaign request status
+    status: campaignRequestStatusEnum("status").default("pending").notNull(),
     adminNotes: text("admin_notes"),
     resultingCampaignId: uuid("resulting_campaign_id").references(
       () => campaigns.id,
@@ -449,5 +516,31 @@ export const campaignRequests = createTable(
   (table) => ({
     orgIdIdx: index("campaign_request_org_id_idx").on(table.orgId),
     statusIdx: index("campaign_request_status_idx").on(table.status),
+  }),
+);
+
+export const promptIterations = createTable(
+  "prompt_iteration",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    campaignId: uuid("campaign_id")
+      .references(() => campaigns.id, { onDelete: "cascade" })
+      .notNull(),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    userInput: text("user_input").notNull(),
+    prompt: text("prompt").notNull(),
+    changes: text("changes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+  },
+  (table) => ({
+    campaignIdIdx: index("prompt_iter_campaign_id_idx").on(table.campaignId),
+    runIdIdx: index("prompt_iter_run_id_idx").on(table.runId),
   }),
 );
