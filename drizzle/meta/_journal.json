@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1740878572257,
-      "tag": "0000_wooden_blue_shield",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1740885592989,
-      "tag": "0001_dashing_kid_colt",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1740975941168,
-      "tag": "0002_great_mordo",
+      "when": 1741043454123,
+      "tag": "0000_married_firebird",
       "breakpoints": true
     }
   ]

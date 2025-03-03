@@ -3,12 +3,60 @@ import { CallProcessor } from "@/lib/call/call-processor";
 import { parseFileContent, processExcelFile } from "@/lib/excel-processor";
 import { pusherServer } from "@/lib/pusher-server";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
-import { calls, campaigns, rows, runs } from "@/server/db/schema";
-import type { TCampaign } from "@/types/db";
+import {
+  calls,
+  campaigns,
+  campaignTemplates,
+  rows,
+  runs,
+} from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
+
+// Helper function to get campaign template
+async function getCampaignTemplate(db: any, campaignId: string) {
+  // Get campaign first
+  const [campaign] = await db
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.id, campaignId));
+
+  if (!campaign) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Campaign not found",
+    });
+  }
+
+  // Get the associated template
+  const [template] = await db
+    .select()
+    .from(campaignTemplates)
+    .where(eq(campaignTemplates.id, campaign.templateId));
+
+  if (!template) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Campaign template not found",
+    });
+  }
+
+  return {
+    campaign,
+    template,
+    // Create a compatibility layer for the old config format
+    campaignWithConfig: {
+      ...campaign,
+      config: {
+        basePrompt: template.basePrompt,
+        voicemailMessage: template.voicemailMessage,
+        variables: template.variablesConfig,
+        analysis: template.analysisConfig,
+      },
+    },
+  };
+}
 
 export const runRouter = createTRPCRouter({
   // Get all runs for a campaign
@@ -78,12 +126,23 @@ export const runRouter = createTRPCRouter({
       }
 
       // Get the associated campaign
-      const [campaign] = await ctx.db
-        .select()
-        .from(campaigns)
-        .where(eq(campaigns.id, run.campaignId));
+      const { campaign, template } = await getCampaignTemplate(
+        ctx.db,
+        run.campaignId,
+      );
 
-      return { ...run, campaign };
+      return {
+        ...run,
+        campaign: {
+          ...campaign,
+          config: {
+            basePrompt: template.basePrompt,
+            voicemailMessage: template.voicemailMessage,
+            variables: template.variablesConfig,
+            analysis: template.analysisConfig,
+          },
+        },
+      };
     }),
 
   // Get rows for a run with pagination
@@ -261,191 +320,25 @@ export const runRouter = createTRPCRouter({
         });
       }
 
-      // Get the campaign
-      const [campaign] = await ctx.db
-        .select()
-        .from(campaigns)
-        .where(and(eq(campaigns.id, campaignId), eq(campaigns.orgId, orgId)));
-
-      if (!campaign) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Campaign not found",
-        });
-      }
+      // Get the campaign and template
+      const { template } = await getCampaignTemplate(ctx.db, campaignId);
 
       try {
-        // Parse the file content but don't save anything yet
-        const { headers, rows: fileRows } = parseFileContent(
-          fileContent,
-          fileName,
-        );
-
-        if (fileRows.length === 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "The uploaded file contains no data rows",
-          });
-        }
-
-        // Process the Excel file - we'll modify this to just validate without creating patients
-        const processedData = await processExcelFile(
-          fileContent,
-          fileName,
-          campaign.config as TCampaign["config"],
-          orgId,
-        );
+        // Parse the file content based on the campaign configuration
+        const parsedData = await parseFileContent(fileContent, fileName);
 
         // Extract patient and campaign fields based on the configuration
-        const patientFields = campaign.config.variables.patient.fields.map(
+        const patientFields = template.variablesConfig.patient.fields.map(
           (f) => f.key,
         );
-        const campaignFields = campaign.config.variables.campaign.fields.map(
+        const campaignFields = template.variablesConfig.campaign.fields.map(
           (f) => f.key,
         );
 
-        // Create sample rows for the UI
-        const sampleRows = processedData.validRows
-          .slice(0, 10)
-          .map((row, index) => {
-            const patientData: Record<string, any> = {};
-            const campaignData: Record<string, any> = {};
-
-            // Split variables into patient and campaign data
-            Object.entries(row.variables).forEach(([key, value]) => {
-              if (patientFields.includes(key)) {
-                patientData[key] = value;
-              } else if (campaignFields.includes(key)) {
-                campaignData[key] = value;
-              }
-            });
-
-            // Ensure we have the required fields for display
-            const phoneNumber =
-              patientData.primaryPhone ||
-              patientData.phoneNumber ||
-              patientData.cellPhone ||
-              "";
-            const firstName = patientData.firstName || "";
-            const lastName = patientData.lastName || "";
-            const dob = patientData.dob || "";
-
-            return {
-              id: nanoid(),
-              isValid: true,
-              patientData: {
-                firstName,
-                lastName,
-                phoneNumber,
-                dob,
-                ...patientData,
-              },
-              campaignData,
-              originalRow: fileRows[index] || {},
-            };
-          });
-
-        // Add invalid rows to sample as well
-        const invalidSampleRows = processedData.invalidRows
-          .slice(0, 5)
-          .map((invalid) => {
-            const originalRow = fileRows[invalid.index - 2] || {}; // Adjust for 1-based index and header row
-
-            // Try to extract some basic info even if invalid
-            const firstName =
-              originalRow.firstName ||
-              originalRow.first_name ||
-              originalRow["First Name"] ||
-              originalRow["Patient First Name"] ||
-              "";
-
-            const lastName =
-              originalRow.lastName ||
-              originalRow.last_name ||
-              originalRow["Last Name"] ||
-              originalRow["Patient Last Name"] ||
-              "";
-
-            const phoneNumber =
-              originalRow.phoneNumber ||
-              originalRow.phone ||
-              originalRow["Phone Number"] ||
-              originalRow["Primary Phone"] ||
-              originalRow["Cell Phone"] ||
-              "";
-
-            return {
-              id: nanoid(),
-              isValid: false,
-              validationErrors: [invalid.error],
-              patientData: {
-                firstName,
-                lastName,
-                phoneNumber,
-              },
-              campaignData: {},
-              originalRow,
-            };
-          });
-
-        // Extract column mapping info
-        const matchedColumns = Object.values(processedData.columnMappings);
-        const unmatchedColumns = headers.filter(
-          (header) => !matchedColumns.includes(header),
-        );
-
-        // Create all rows for processing
-        const allRows = [
-          ...processedData.validRows.map((row, index) => {
-            const patientData: Record<string, any> = {};
-            const campaignData: Record<string, any> = {};
-
-            // Split variables into patient and campaign data
-            Object.entries(row.variables).forEach(([key, value]) => {
-              if (patientFields.includes(key)) {
-                patientData[key] = value;
-              } else if (campaignFields.includes(key)) {
-                campaignData[key] = value;
-              }
-            });
-
-            const phoneNumber =
-              patientData.primaryPhone ||
-              patientData.phoneNumber ||
-              patientData.cellPhone ||
-              "";
-            const firstName = patientData.firstName || "";
-            const lastName = patientData.lastName || "";
-            const dob = patientData.dob || "";
-
-            return {
-              id: nanoid(),
-              isValid: true,
-              patientData: {
-                firstName,
-                lastName,
-                phoneNumber,
-                dob,
-                ...patientData,
-              },
-              campaignData,
-              originalRow: fileRows[index] || {},
-            };
-          }),
-          ...invalidSampleRows,
-        ];
-
-        // Return validation results
         return {
-          totalRows: processedData.stats.totalRows,
-          validRows: processedData.stats.validRows,
-          invalidRows: processedData.stats.invalidRows,
-          newPatients: processedData.stats.uniquePatients,
-          existingPatients: processedData.stats.duplicatePatients,
-          matchedColumns,
-          unmatchedColumns,
-          sampleRows: [...sampleRows, ...invalidSampleRows],
-          allRows,
+          parsedData,
+          patientFields,
+          campaignFields,
         };
       } catch (error) {
         console.error("Error validating file:", error);

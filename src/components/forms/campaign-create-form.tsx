@@ -1,3 +1,4 @@
+// src/components/forms/campaign-create-form-fixed.tsx
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,7 +9,6 @@ import { useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,8 +37,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  convertPostCallToAnalysisFields,
+  getAgentComplete,
+} from "@/lib/retell/retell-client-safe";
 import { api } from "@/trpc/react";
-import { TagInput } from "../ui/tag-input";
+import { Badge } from "../ui/badge";
 
 // Define the campaign creation schema
 const campaignFormSchema = z.object({
@@ -48,6 +52,7 @@ const campaignFormSchema = z.object({
   llmId: z.string().min(1, "Retell AI llm ID is required"),
   direction: z.string().min(1, "Direction is required"),
   basePrompt: z.string().min(1, "Base prompt is required"),
+  voicemailMessage: z.string().optional(),
   patientFields: z.array(
     z.object({
       key: z.string().min(1, "Key is required"),
@@ -99,6 +104,7 @@ const campaignFormSchema = z.object({
     }),
   ),
   requestId: z.string().uuid().optional(),
+  configureWebhooks: z.boolean().default(true),
 });
 
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
@@ -109,34 +115,8 @@ interface CreateCampaignFormProps {
   onSuccess?: () => void;
 }
 
-/**
- * Hook to fetch LLM data for a selected agent
- */
-function useAgentLlm(agentId: string | null | undefined) {
-  const {
-    data: llmData,
-    isLoading,
-    error,
-  } = api.admin.getLlmFromAgent.useQuery(
-    { agentId: agentId || "" },
-    {
-      enabled: !!agentId,
-      refetchOnWindowFocus: false,
-      retry: 1, // Only retry once to prevent excessive API calls on hard failures
-    },
-  );
-
-  // Log errors but don't show toasts to avoid spamming the user
-  useEffect(() => {
-    if (error) {
-      console.error("Error fetching LLM data:", error);
-    }
-  }, [error]);
-
-  return { llmData, isLoading, error };
-}
-
-export function CreateCampaignForm({
+export function CampaignCreateForm({
+  agents,
   requestId,
   onSuccess,
 }: CreateCampaignFormProps) {
@@ -144,11 +124,10 @@ export function CreateCampaignForm({
   const [step, setStep] = useState(0);
   const steps = ["Campaign Details", "Variables", "Analysis", "Prompt"];
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [isLoadingAgent, setIsLoadingAgent] = useState(false);
 
   const { data: organizations } =
     api.admin.getOrganizationsIdsAndNames.useQuery();
-
-  const { data: agents } = api.admin.getAgents.useQuery();
 
   // Setup form with default values
   const form = useForm<CampaignFormValues>({
@@ -160,6 +139,7 @@ export function CreateCampaignForm({
       llmId: "",
       direction: "outbound",
       basePrompt: "",
+      voicemailMessage: "",
       patientFields: [
         {
           key: "firstName",
@@ -229,21 +209,13 @@ export function CreateCampaignForm({
       ],
       campaignAnalysisFields: [],
       requestId,
+      configureWebhooks: true,
     },
   });
 
-  // Get LLM data for the selected agent
-  const { llmData, isLoading, error } = useAgentLlm(selectedAgentId);
-
-  // Update LLM ID when llm data changes
+  // Handle agent selection and data loading
   useEffect(() => {
-    if (llmData?.llm_id) {
-      form.setValue("llmId", llmData.llm_id);
-    }
-  }, [llmData, form]);
-
-  // Check if agent ID is already set when component mounts
-  useEffect(() => {
+    // Check if agent ID is already set when component mounts
     const currentAgentId = form.getValues("agentId");
     if (currentAgentId) {
       setSelectedAgentId(currentAgentId);
@@ -259,6 +231,74 @@ export function CreateCampaignForm({
     // Cleanup the subscription on unmount
     return () => subscription.unsubscribe();
   }, [form]);
+
+  // Fetch agent data when agent ID changes
+  useEffect(() => {
+    async function fetchAgentData() {
+      if (!selectedAgentId) return;
+
+      setIsLoadingAgent(true);
+      try {
+        // Use the client-safe Retell client to get agent data
+        const agentData = await getAgentComplete(selectedAgentId);
+
+        // Set LLM ID in form
+        form.setValue("llmId", agentData.combined.llm_id);
+
+        // Set base prompt
+        if (
+          !form.getValues("basePrompt") ||
+          form.getValues("basePrompt") === ""
+        ) {
+          form.setValue("basePrompt", agentData.combined.general_prompt);
+        }
+
+        // Set voicemail message if available
+        if (agentData.combined.voicemail_message) {
+          form.setValue(
+            "voicemailMessage",
+            agentData.combined.voicemail_message,
+          );
+        }
+
+        // Process post-call analysis fields if available
+        if (agentData.combined.post_call_analysis_data?.length > 0) {
+          const { standardFields, campaignFields } =
+            convertPostCallToAnalysisFields(
+              agentData.combined.post_call_analysis_data,
+            );
+
+          if (standardFields.length > 0) {
+            form.setValue("standardAnalysisFields", standardFields);
+          }
+
+          if (campaignFields.length > 0) {
+            form.setValue("campaignAnalysisFields", campaignFields);
+          }
+        }
+
+        toast.success("Agent data loaded successfully");
+      } catch (error) {
+        console.error("Error fetching agent data:", error);
+        toast.error(
+          `Failed to load agent data: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+
+        // Set a placeholder LLM ID to allow the form submission
+        if (!form.getValues("llmId")) {
+          form.setValue("llmId", "placeholder_llm_id");
+          toast.warning(
+            "Using placeholder LLM ID due to API issues. You can still save the form.",
+            { duration: 5000 },
+          );
+        }
+      } finally {
+        setIsLoadingAgent(false);
+      }
+    }
+
+    void fetchAgentData();
+  }, [selectedAgentId, form]);
 
   // Field arrays for dynamic fields
   const {
@@ -313,9 +353,10 @@ export function CreateCampaignForm({
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
     try {
-      // Transform the form values into the expected API format
+      // Create the config structure that matches the schema
       const config = {
         basePrompt: values.basePrompt,
+        voicemailMessage: values.voicemailMessage, // Add to config but don't break schema
         variables: {
           patient: {
             fields: values.patientFields,
@@ -333,27 +374,25 @@ export function CreateCampaignForm({
             fields: values.campaignAnalysisFields,
           },
         },
+        // Add webhooks placeholder that will be populated after creation
+        webhooks: {
+          updateTimestamp: new Date().toISOString(),
+        },
       };
 
-      // Create payload, potentially removing llmId if we know it causes schema issues
-      let payload = {
+      // Create payload for API call
+      const payload = {
         name: values.name,
         orgId: values.orgId,
         agentId: values.agentId,
         llmId: values.llmId,
         direction: values.direction,
+        basePrompt: values.basePrompt,
+        voicemailMessage: values.voicemailMessage,
         config,
         requestId: values.requestId,
+        configureWebhooks: values.configureWebhooks,
       };
-
-      // If we're in development and want to test without the llmId column
-      // This is commented out but can be uncommented for testing
-      /*
-      if (process.env.NODE_ENV !== 'production') {
-        const { llmId, ...payloadWithoutLlmId } = payload;
-        payload = payloadWithoutLlmId;
-      }
-      */
 
       createCampaignMutation.mutate(payload);
     } catch (error) {
@@ -539,14 +578,10 @@ export function CreateCampaignForm({
                     name="agentId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Retell Agent ID</FormLabel>
+                        <FormLabel>Retell Agent</FormLabel>
                         {agents?.length > 0 ? (
                           <Select
-                            onValueChange={(value) => {
-                              field.onChange(value);
-                              // Set the selected agent ID to trigger the hook
-                              setSelectedAgentId(value);
-                            }}
+                            onValueChange={field.onChange}
                             defaultValue={field.value}
                           >
                             <FormControl>
@@ -571,7 +606,7 @@ export function CreateCampaignForm({
                           </FormControl>
                         )}
                         <FormDescription>
-                          The Retell AI agent ID to use for this campaign
+                          The Retell AI agent to use for this campaign
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -587,7 +622,11 @@ export function CreateCampaignForm({
                           <Input
                             readOnly
                             disabled={true}
-                            placeholder="Select an agent to populate this field"
+                            placeholder={
+                              isLoadingAgent
+                                ? "Loading..."
+                                : "Select an agent to populate this field"
+                            }
                             className={
                               !field.value ? "italic text-muted-foreground" : ""
                             }
@@ -597,6 +636,9 @@ export function CreateCampaignForm({
                         <FormDescription>
                           This field is automatically populated based on the
                           selected agent
+                          {isLoadingAgent && (
+                            <span className="ml-2">⏳ Loading...</span>
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -630,12 +672,34 @@ export function CreateCampaignForm({
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name="configureWebhooks"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Configure Agent Webhooks</FormLabel>
+                          <FormDescription>
+                            Automatically update the Retell agent with
+                            appropriate webhook URLs for inbound calls and
+                            post-call analysis
+                          </FormDescription>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
                 </CardContent>
               </Card>
             </div>
           )}
-
-          {/* Step 2: Variables */}
+          {/* The Variables step (Step 2) for CampaignCreateForm component */}
           {step === 1 && (
             <div className="space-y-8">
               <Card>
@@ -768,17 +832,21 @@ export function CreateCampaignForm({
                               <FormItem>
                                 <FormLabel>Possible Column Names</FormLabel>
                                 <FormControl>
-                                  <TagInput
-                                    initialTags={field.value}
-                                    onTagsChange={(tags) =>
-                                      field.onChange(tags)
-                                    }
-                                    placeholder="Type column names and press Enter..."
+                                  <Input
+                                    placeholder="Column1, Column2, Column3"
+                                    value={field.value?.join(", ") || ""}
+                                    onChange={(e) => {
+                                      const values = e.target.value
+                                        .split(",")
+                                        .map((v) => v.trim())
+                                        .filter(Boolean);
+                                      field.onChange(values);
+                                    }}
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
                                   Column names that might match this field in
-                                  uploaded data
+                                  uploaded data (comma separated)
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -943,17 +1011,21 @@ export function CreateCampaignForm({
                                 <FormItem>
                                   <FormLabel>Possible Column Names</FormLabel>
                                   <FormControl>
-                                    <TagInput
-                                      initialTags={field.value}
-                                      onTagsChange={(tags) =>
-                                        field.onChange(tags)
-                                      }
-                                      placeholder="Type column names and press Enter..."
+                                    <Input
+                                      placeholder="Column1, Column2, Column3"
+                                      value={field.value?.join(", ") || ""}
+                                      onChange={(e) => {
+                                        const values = e.target.value
+                                          .split(",")
+                                          .map((v) => v.trim())
+                                          .filter(Boolean);
+                                        field.onChange(values);
+                                      }}
                                     />
                                   </FormControl>
                                   <FormDescription className="text-xs">
                                     Column names that might match this field in
-                                    uploaded data
+                                    uploaded data (comma separated)
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
@@ -1002,7 +1074,6 @@ export function CreateCampaignForm({
               </Card>
             </div>
           )}
-
           {/* Step 3: Analysis */}
           {step === 2 && (
             <div className="space-y-8">
@@ -1134,16 +1205,21 @@ export function CreateCampaignForm({
                                 <FormItem>
                                   <FormLabel>Options</FormLabel>
                                   <FormControl>
-                                    <TagInput
-                                      initialTags={field.value || []}
-                                      onTagsChange={(tags) =>
-                                        field.onChange(tags)
-                                      }
-                                      placeholder="Type options and press Enter..."
+                                    <Input
+                                      placeholder="Option1, Option2, Option3"
+                                      value={field.value?.join(", ") || ""}
+                                      onChange={(e) => {
+                                        const values = e.target.value
+                                          .split(",")
+                                          .map((v) => v.trim())
+                                          .filter(Boolean);
+                                        field.onChange(values);
+                                      }}
                                     />
                                   </FormControl>
                                   <FormDescription className="text-xs">
-                                    Possible values for this enum field
+                                    Possible values for this enum field (comma
+                                    separated)
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
@@ -1311,16 +1387,21 @@ export function CreateCampaignForm({
                                   <FormItem>
                                     <FormLabel>Options</FormLabel>
                                     <FormControl>
-                                      <TagInput
-                                        initialTags={field.value || []}
-                                        onTagsChange={(tags) =>
-                                          field.onChange(tags)
-                                        }
-                                        placeholder="Type options and press Enter..."
+                                      <Input
+                                        placeholder="Option1, Option2, Option3"
+                                        value={field.value?.join(", ") || ""}
+                                        onChange={(e) => {
+                                          const values = e.target.value
+                                            .split(",")
+                                            .map((v) => v.trim())
+                                            .filter(Boolean);
+                                          field.onChange(values);
+                                        }}
                                       />
                                     </FormControl>
                                     <FormDescription className="text-xs">
-                                      Possible values for this enum field
+                                      Possible values for this enum field (comma
+                                      separated)
                                     </FormDescription>
                                     <FormMessage />
                                   </FormItem>
@@ -1390,11 +1471,10 @@ export function CreateCampaignForm({
               </Card>
             </div>
           )}
-
           {/* Step 4: Prompt */}
           {step === 3 && (
             <div className="space-y-6">
-              <Card className="">
+              <Card>
                 <CardHeader>
                   <CardTitle>Campaign Prompt</CardTitle>
                   <CardDescription>
@@ -1410,91 +1490,46 @@ export function CreateCampaignForm({
                         <FormLabel>Base Prompt</FormLabel>
                         <FormControl>
                           <Textarea
-                            readOnly
-                            disabled={true}
                             placeholder="Please confirm your appointment for {{appointmentDate}} at {{appointmentTime}}."
                             className="min-h-[200px]"
-                            value={field.value}
-                            onChange={(e) => field.onChange(e.target.value)}
+                            {...field}
                           />
                         </FormControl>
                         <FormDescription className="flex flex-row items-center justify-between gap-2">
-                          Click the "Fetch Prompt" button below to fetch the
-                          current prompt for this agent.
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              try {
-                                const agentId = form.getValues("agentId");
-                                if (!agentId) {
-                                  toast.error("Please select an agent first");
-                                  return;
-                                }
+                          This is the base prompt that will be used for the
+                          agent's conversations.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </CardContent>
+              </Card>
 
-                                // Set the selected agent ID and wait for data
-                                setSelectedAgentId(agentId);
-                                toast.loading("Fetching prompt...", {
-                                  id: "fetchPrompt",
-                                });
-
-                                // Give time for the data to load
-                                setTimeout(() => {
-                                  // Dismiss the loading toast
-                                  toast.dismiss("fetchPrompt");
-
-                                  if (llmData?.general_prompt) {
-                                    form.setValue(
-                                      "basePrompt",
-                                      llmData.general_prompt,
-                                    );
-                                    toast.success(
-                                      "Agent prompt fetched successfully",
-                                    );
-                                  } else if (error) {
-                                    // Handle specific error cases
-                                    if (
-                                      error.message.includes(
-                                        "getDefaultAgent is not a function",
-                                      )
-                                    ) {
-                                      toast.error(
-                                        "There appears to be an issue with the Retell SDK. Please contact your administrator.",
-                                      );
-                                    } else {
-                                      toast.error(
-                                        `Failed to fetch prompt: ${error.message}`,
-                                      );
-                                    }
-
-                                    // Allow the user to continue without a valid LLM ID
-                                    if (!form.getValues("llmId")) {
-                                      form.setValue(
-                                        "llmId",
-                                        "placeholder_llm_id",
-                                      );
-                                      toast.warning(
-                                        "Using placeholder LLM ID due to API issues. You can still save the form.",
-                                        { duration: 5000 },
-                                      );
-                                    }
-                                  } else {
-                                    // Handle case where we couldn't get the prompt but don't have a clear error
-                                    toast.error(
-                                      "Unable to fetch prompt. The agent may not have a prompt configured.",
-                                    );
-                                  }
-                                }, 1000);
-                              } catch (error) {
-                                toast.dismiss("fetchPrompt");
-                                console.error("Error fetching prompt:", error);
-                                toast.error("Failed to fetch agent prompt");
-                              }
-                            }}
-                          >
-                            Fetch Prompt
-                          </Button>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Voicemail Message</CardTitle>
+                  <CardDescription>
+                    Define the voicemail message that will be used when calls go
+                    to voicemail
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FormField
+                    control={form.control}
+                    name="voicemailMessage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Voicemail Message</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Hello, this message is for {{firstName}}. We're calling about your upcoming appointment. Please call us back at 555-123-4567."
+                            className="min-h-[150px]"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          This message will be used when calls go to voicemail.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

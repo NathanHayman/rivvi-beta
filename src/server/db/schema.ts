@@ -220,6 +220,112 @@ export const organizationPatients = createTable(
   }),
 );
 
+/**
+ * Campaign Templates - Store reusable configurations for campaigns
+ * This centralizes agent settings, prompts, webhook URLs, and field definitions
+ */
+export const campaignTemplates = createTable(
+  "campaign_template",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    name: varchar("name", { length: 256 }).notNull(),
+    description: text("description"),
+    // Retell agent configuration
+    agentId: varchar("agent_id", { length: 256 }).notNull(),
+    llmId: varchar("llm_id", { length: 256 }).notNull(),
+    // Base messages
+    basePrompt: text("base_prompt").notNull(),
+    voicemailMessage: text("voicemail_message"),
+    // Webhook configuration
+    postCallWebhookUrl: varchar("post_call_webhook_url", { length: 512 }),
+    inboundWebhookUrl: varchar("inbound_webhook_url", { length: 512 }),
+    // Configuration for patient and campaign fields
+    variablesConfig: json("variables_config")
+      .$type<{
+        patient: {
+          fields: Array<{
+            key: string;
+            label: string;
+            possibleColumns: string[];
+            transform?:
+              | "text"
+              | "short_date"
+              | "long_date"
+              | "time"
+              | "phone"
+              | "provider";
+            required: boolean;
+            description?: string;
+          }>;
+          validation: {
+            requireValidPhone: boolean;
+            requireValidDOB: boolean;
+            requireName: boolean;
+          };
+        };
+        campaign: {
+          fields: Array<{
+            key: string;
+            label: string;
+            possibleColumns: string[];
+            transform?:
+              | "text"
+              | "short_date"
+              | "long_date"
+              | "time"
+              | "phone"
+              | "provider";
+            required: boolean;
+            description?: string;
+          }>;
+        };
+      }>()
+      .notNull(),
+    // Retell post-call analysis field definitions
+    analysisConfig: json("analysis_config")
+      .$type<{
+        standard: {
+          fields: Array<{
+            key: string;
+            label: string;
+            type: "boolean" | "string" | "date" | "enum";
+            options?: string[];
+            required: boolean;
+            description?: string;
+          }>;
+        };
+        campaign: {
+          fields: Array<{
+            key: string;
+            label: string;
+            type: "boolean" | "string" | "date" | "enum";
+            options?: string[];
+            required: boolean;
+            description?: string;
+            isMainKPI?: boolean;
+          }>;
+        };
+      }>()
+      .notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
+  },
+  (table) => ({
+    agentIdIdx: index("template_agent_id_idx").on(table.agentId),
+    llmIdIdx: index("template_llm_id_idx").on(table.llmId),
+    createdByIdx: index("template_created_by_idx").on(table.createdBy),
+  }),
+);
+
 // Campaign Type: appointment_confirmation, annual_wellness_visit, medication_adherence, etc.
 export const campaigns = createTable(
   "campaign",
@@ -234,13 +340,15 @@ export const campaigns = createTable(
     name: varchar("name", { length: 256 }).notNull(),
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     llmId: varchar("llm_id", { length: 256 }).notNull(),
-    // Update to use native enum for call direction
+    // Direction for this campaign
     direction: callDirectionEnum("direction").notNull(),
     isActive: boolean("is_active").default(true),
     isDefaultInbound: boolean("is_default_inbound").default(false),
+    // Configuration for prompts and variables
     config: json("config")
       .$type<{
         basePrompt: string;
+        voicemailMessage: string;
         variables: {
           patient: {
             fields: Array<{
@@ -305,6 +413,8 @@ export const campaigns = createTable(
         };
       }>()
       .notNull(),
+    // Will be linked to a template in the future when implemented
+    // templateId: uuid("template_id").references(() => campaignTemplates.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -318,6 +428,48 @@ export const campaigns = createTable(
   }),
 );
 
+/**
+ * Agent Variations - Generated prompt variations for specific runs
+ * Created by AI using Vercel AI SDK and Anthropic
+ */
+export const agentVariations = createTable(
+  "agent_variation",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    campaignId: uuid("campaign_id")
+      .references(() => campaigns.id, { onDelete: "cascade" })
+      .notNull(),
+    // User's natural language input for customization
+    userInput: text("user_input").notNull(),
+    // Original content before customization (from template)
+    originalBasePrompt: text("original_base_prompt").notNull(),
+    originalVoicemailMessage: text("original_voicemail_message"),
+    // AI-generated content
+    customizedPrompt: text("customized_prompt").notNull(),
+    customizedVoicemailMessage: text("customized_voicemail_message"),
+    suggestedRunName: varchar("suggested_run_name", { length: 256 }),
+    changeDescription: text("change_description"),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+  },
+  (table) => ({
+    campaignIdIdx: index("agent_variation_campaign_id_idx").on(
+      table.campaignId,
+    ),
+    userIdIdx: index("agent_variation_user_id_idx").on(table.userId),
+  }),
+);
+
+/**
+ * Runs table with reference to agent variation
+ * This links runs with their customized prompt and voicemail message
+ */
 export const runs = createTable(
   "run",
   {
@@ -331,7 +483,10 @@ export const runs = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
-    // Use native enum for run status
+    // Store variation details directly to avoid circular references
+    customPrompt: text("custom_prompt"),
+    customVoicemailMessage: text("custom_voicemail_message"),
+    variationNotes: text("variation_notes"),
     status: runStatusEnum("status").default("draft").notNull(),
     metadata: json("metadata").$type<{
       rows: {
@@ -368,7 +523,6 @@ export const runs = createTable(
     }>(),
     rawFileUrl: varchar("raw_file_url", { length: 512 }),
     processedFileUrl: varchar("processed_file_url", { length: 512 }),
-    customPrompt: text("custom_prompt"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
@@ -401,7 +555,6 @@ export const rows = createTable(
     }),
     variables: json("variables").$type<Record<string, unknown>>().notNull(),
     analysis: json("analysis").$type<Record<string, unknown>>(),
-    // Use native enum for row status
     status: rowStatusEnum("status").default("pending").notNull(),
     error: text("error"),
     retellCallId: varchar("retell_call_id", { length: 256 }),
@@ -441,10 +594,9 @@ export const calls = createTable(
     patientId: uuid("patient_id").references(() => patients.id, {
       onDelete: "set null",
     }),
+    // Agent ID from Retell, not a foreign key reference
     agentId: varchar("agent_id", { length: 256 }).notNull(),
-    // Use native enum for call direction
     direction: callDirectionEnum("direction").notNull(),
-    // Use native enum for call status
     status: callStatusEnum("status").default("pending").notNull(),
     retellCallId: varchar("retell_call_id", { length: 256 }).notNull(),
     recordingUrl: varchar("recording_url", { length: 512 }),
@@ -474,6 +626,7 @@ export const calls = createTable(
     campaignIdIdx: index("call_campaign_id_idx").on(table.campaignId),
     rowIdIdx: index("call_row_id_idx").on(table.rowId),
     patientIdIdx: index("call_patient_id_idx").on(table.patientId),
+    agentIdIdx: index("call_agent_id_idx").on(table.agentId),
     retellCallIdIdx: index("call_retell_call_id_idx").on(table.retellCallId),
     statusIdx: index("call_status_idx").on(table.status),
     directionIdx: index("call_direction_idx").on(table.direction),
@@ -496,10 +649,8 @@ export const campaignRequests = createTable(
       onDelete: "set null",
     }),
     name: varchar("name", { length: 256 }).notNull(),
-    // Use native enum for call direction
     direction: callDirectionEnum("direction").default("outbound").notNull(),
     description: text("description").notNull(),
-    // Use native enum for campaign request status
     status: campaignRequestStatusEnum("status").default("pending").notNull(),
     adminNotes: text("admin_notes"),
     resultingCampaignId: uuid("resulting_campaign_id").references(
@@ -516,31 +667,5 @@ export const campaignRequests = createTable(
   (table) => ({
     orgIdIdx: index("campaign_request_org_id_idx").on(table.orgId),
     statusIdx: index("campaign_request_status_idx").on(table.status),
-  }),
-);
-
-export const promptIterations = createTable(
-  "prompt_iteration",
-  {
-    id: uuid("id")
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
-    campaignId: uuid("campaign_id")
-      .references(() => campaigns.id, { onDelete: "cascade" })
-      .notNull(),
-    runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    userInput: text("user_input").notNull(),
-    prompt: text("prompt").notNull(),
-    changes: text("changes"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .default(sql`CURRENT_TIMESTAMP`)
-      .notNull(),
-  },
-  (table) => ({
-    campaignIdIdx: index("prompt_iter_campaign_id_idx").on(table.campaignId),
-    runIdIdx: index("prompt_iter_run_id_idx").on(table.runId),
   }),
 );

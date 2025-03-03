@@ -68,7 +68,7 @@ function TRPCErrorHandler() {
                 trpcError.message.includes("part of an organization")))
           ) {
             // Redirect to login page
-            router.push("/login");
+            router.replace("/org-selection");
           }
         }
       }

@@ -245,7 +245,7 @@ async function GetRecentCalls2() {
                     </div>
                   </div>
                 </div>
-                <Link href={`/calls/${call.id}`}>
+                <Link href={`/calls?callId=${call.id}`}>
                   <Button variant="ghost" size="icon">
                     <ChevronRight className="h-4 w-4" />
                   </Button>

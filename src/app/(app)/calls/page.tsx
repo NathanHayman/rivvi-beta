@@ -8,6 +8,7 @@ import {
 import { HydrateClient } from "@/trpc/server";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { CallDetailsSheet } from "./_components/call-details-sheet";
 import { CallsTable } from "./_components/calls-table";
 
 export const metadata: Metadata = {
@@ -29,6 +30,7 @@ export default async function Calls() {
             <Suspense fallback={<div>Loading...</div>}>
               <CallsTable />
             </Suspense>
+            <CallDetailsSheet />
           </AppContent>
         </AppBody>
       </AppPage>

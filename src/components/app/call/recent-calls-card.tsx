@@ -62,7 +62,7 @@ export function RecentCallsCard({ calls }: RecentCallsCardProps) {
               }
 
               return (
-                <Link key={call.id} href={`/calls/${call.id}`}>
+                <Link key={call.id} href={`/calls?callId=${call.id}`}>
                   <div className="flex cursor-pointer items-center justify-between rounded-md p-2 hover:bg-muted">
                     <div className="flex items-center gap-3">
                       <div className={statusColor}>

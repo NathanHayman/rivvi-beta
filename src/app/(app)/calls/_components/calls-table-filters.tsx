@@ -70,6 +70,12 @@ export function CallsTableFilters() {
         }
       });
 
+      // Preserve the callId parameter if it exists
+      const callId = searchParams.get("callId");
+      if (callId) {
+        params.set("callId", callId);
+      }
+
       return params.toString();
     },
     [searchParams],
@@ -88,7 +94,14 @@ export function CallsTableFilters() {
       status: "all",
       direction: "all",
     });
-    router.push(pathname);
+
+    // When resetting filters, preserve the callId if it exists
+    const callId = searchParams.get("callId");
+    if (callId) {
+      router.push(`${pathname}?callId=${callId}`);
+    } else {
+      router.push(pathname);
+    }
   }
 
   // Apply filters as they change

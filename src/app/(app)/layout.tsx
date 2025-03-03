@@ -12,6 +12,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <SuperAdminWidget />
       <SidebarProvider>
         <AppSidebar>
+          <UserButton />
           <OrganizationSwitcher
             fallback={
               <Button variant="outline">

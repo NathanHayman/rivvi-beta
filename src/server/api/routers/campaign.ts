@@ -2,7 +2,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { retell } from "@/lib/retell-client";
+import { retell } from "@/lib/retell/retell-client";
 import {
   createTRPCRouter,
   orgProcedure,
@@ -11,15 +11,15 @@ import {
 import {
   CallDirection,
   campaignRequests,
+  campaignTemplates,
   campaigns,
   runs,
 } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 // Validation schemas
-const campaignConfigSchema = z.object({
-  basePrompt: z.string(),
-  variables: z.object({
+const templateConfigSchema = z.object({
+  variablesConfig: z.object({
     patient: z.object({
       fields: z.array(
         z.object({
@@ -68,7 +68,7 @@ const campaignConfigSchema = z.object({
       ),
     }),
   }),
-  analysis: z.object({
+  analysisConfig: z.object({
     standard: z.object({
       fields: z.array(
         z.object({
@@ -97,6 +97,54 @@ const campaignConfigSchema = z.object({
   }),
 });
 
+// Helper function to get a campaign with its template
+async function getCampaignWithTemplate(
+  db: any,
+  campaignId: string,
+  orgId?: string,
+) {
+  // Base query to get campaign
+  const query = db.select().from(campaigns).where(eq(campaigns.id, campaignId));
+
+  // Add organization filter if provided
+  if (orgId) {
+    query.where(and(eq(campaigns.id, campaignId), eq(campaigns.orgId, orgId)));
+  }
+
+  const [campaign] = await query;
+
+  if (!campaign) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Campaign not found",
+    });
+  }
+
+  // Get the template
+  const [template] = await db
+    .select()
+    .from(campaignTemplates)
+    .where(eq(campaignTemplates.id, campaign.templateId));
+
+  if (!template) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Campaign template not found",
+    });
+  }
+
+  // Return combined data
+  return {
+    ...campaign,
+    config: {
+      basePrompt: template.basePrompt,
+      voicemailMessage: template.voicemailMessage,
+      variables: template.variablesConfig,
+      analysis: template.analysisConfig,
+    },
+  };
+}
+
 export const campaignRouter = createTRPCRouter({
   // Get all campaigns for the current organization
   getAll: orgProcedure
@@ -117,6 +165,7 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
+      // Get all campaigns for this organization
       const allCampaigns = await ctx.db
         .select()
         .from(campaigns)
@@ -125,6 +174,28 @@ export const campaignRouter = createTRPCRouter({
         .offset(offset)
         .orderBy(desc(campaigns.createdAt));
 
+      // Also get their templates
+      const campaignsWithTemplates = await Promise.all(
+        allCampaigns.map(async (campaign) => {
+          const [template] = await ctx.db
+            .select()
+            .from(campaignTemplates)
+            .where(eq(campaignTemplates.id, campaign.templateId));
+
+          return {
+            ...campaign,
+            config: template
+              ? {
+                  basePrompt: template.basePrompt,
+                  voicemailMessage: template.voicemailMessage,
+                  variables: template.variablesConfig,
+                  analysis: template.analysisConfig,
+                }
+              : null,
+          };
+        }),
+      );
+
       const totalCount = await ctx.db
         .select({ count: campaigns.id })
         .from(campaigns)
@@ -132,7 +203,7 @@ export const campaignRouter = createTRPCRouter({
         .then((rows) => rows.length);
 
       return {
-        campaigns: allCampaigns,
+        campaigns: campaignsWithTemplates,
         totalCount,
         hasMore: offset + limit < totalCount,
       };
@@ -151,24 +222,11 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
-      // Super admins can view any campaign
-      const whereClause = ctx.auth.isSuperAdmin
-        ? eq(campaigns.id, input.id)
-        : and(eq(campaigns.id, input.id), eq(campaigns.orgId, orgId));
-
-      const [campaign] = await ctx.db
-        .select()
-        .from(campaigns)
-        .where(whereClause);
-
-      if (!campaign) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Campaign not found",
-        });
-      }
-
-      return campaign;
+      return getCampaignWithTemplate(
+        ctx.db,
+        input.id,
+        ctx.auth.isSuperAdmin ? undefined : orgId,
+      );
     }),
 
   // Get recent runs for a campaign
@@ -210,13 +268,24 @@ export const campaignRouter = createTRPCRouter({
         agentId: z.string().min(1),
         llmId: z.string().min(1),
         direction: z.string().min(1),
-        config: campaignConfigSchema,
+        basePrompt: z.string().min(1),
+        voicemailMessage: z.string().optional(),
+        variablesConfig: templateConfigSchema.shape.variablesConfig,
+        analysisConfig: templateConfigSchema.shape.analysisConfig,
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const {
+        basePrompt,
+        voicemailMessage,
+        variablesConfig,
+        analysisConfig,
+        ...campaignData
+      } = input;
+
       // First, verify the Retell agent ID is valid
       try {
-        const agentInfo = await retell.agent.retrieve(input.agentId);
+        const agentInfo = await retell.agent.retrieve(campaignData.agentId);
         if (!agentInfo) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -231,121 +300,91 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
-      // Create the campaign with explicit type assertion
-      const [campaign] = await ctx.db
-        .insert(campaigns)
+      // First create a template
+      const [template] = await ctx.db
+        .insert(campaignTemplates)
         .values({
-          orgId: input.orgId,
-          name: input.name,
-          agentId: input.agentId,
-          llmId: input.llmId,
-          direction: input.direction as CallDirection,
-          config: input.config as typeof campaigns.$inferInsert.config,
+          name: `Template for ${campaignData.name}`,
+          description: "Auto-generated from campaign creation",
+          agentId: campaignData.agentId,
+          llmId: campaignData.llmId,
+          basePrompt,
+          voicemailMessage,
+          variablesConfig,
+          analysisConfig,
         })
         .returning();
 
-      return campaign;
+      // Then create the campaign with a reference to the template
+      const [campaign] = await ctx.db
+        .insert(campaigns)
+        .values({
+          orgId: campaignData.orgId,
+          name: campaignData.name,
+          agentId: campaignData.agentId,
+          llmId: campaignData.llmId,
+          direction: campaignData.direction as CallDirection,
+          templateId: template.id,
+          isActive: true,
+        })
+        .returning();
+
+      return getCampaignWithTemplate(ctx.db, campaign.id);
     }),
 
-  // Update a campaign (super admin only)
+  // Update a campaign template (super admin only)
   update: superAdminProcedure
     .input(
       z.object({
         id: z.string().uuid(),
         name: z.string().min(1).optional(),
-        agentId: z.string().min(1).optional(),
-        llmId: z.string().min(1).optional(),
-        direction: z.string().min(1).optional(),
+        basePrompt: z.string().min(1).optional(),
+        voicemailMessage: z.string().optional(),
+        variablesConfig: templateConfigSchema.shape.variablesConfig.optional(),
+        analysisConfig: templateConfigSchema.shape.analysisConfig.optional(),
         isActive: z.boolean().optional(),
-        config: campaignConfigSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const {
+        id,
+        name,
+        basePrompt,
+        voicemailMessage,
+        variablesConfig,
+        analysisConfig,
+        isActive,
+      } = input;
 
-      // If updating the agent ID, verify it's valid
-      if (updateData.agentId) {
-        try {
-          const agentInfo = await retell.agent.retrieve(updateData.agentId);
-          if (!agentInfo) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Invalid Retell agent ID",
-            });
-          }
-        } catch (error) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Failed to verify Retell agent ID",
-            cause: error,
-          });
-        }
+      // Get the campaign with template
+      const campaignWithTemplate = await getCampaignWithTemplate(ctx.db, id);
+
+      // Update the campaign if name or isActive changed
+      if (name || isActive !== undefined) {
+        await ctx.db
+          .update(campaigns)
+          .set({
+            ...(name ? { name } : {}),
+            ...(isActive !== undefined ? { isActive } : {}),
+          })
+          .where(eq(campaigns.id, id));
       }
 
-      // Update the campaign
-      // First, ensure any fields we use have the correct required properties
-      let updatedConfig = undefined;
-
-      if (updateData.config) {
-        const processedStandardFields =
-          updateData.config.analysis?.standard?.fields?.filter(
-            (field) =>
-              typeof field.key === "string" &&
-              typeof field.label === "string" &&
-              field.type &&
-              typeof field.required === "boolean",
-          ) || [];
-
-        const processedCampaignFields =
-          updateData.config.analysis?.campaign?.fields?.filter(
-            (field) =>
-              typeof field.key === "string" &&
-              typeof field.label === "string" &&
-              field.type &&
-              typeof field.required === "boolean",
-          ) || [];
-
-        updatedConfig = {
-          ...updateData.config,
-          analysis: {
-            ...updateData.config.analysis,
-            standard: {
-              ...updateData.config.analysis?.standard,
-              fields: processedStandardFields,
-            },
-            campaign: {
-              ...updateData.config.analysis?.campaign,
-              fields: processedCampaignFields,
-            },
-          },
-        } as typeof campaigns.$inferInsert.config;
+      // Update the template if any template-related fields changed
+      if (basePrompt || voicemailMessage || variablesConfig || analysisConfig) {
+        await ctx.db
+          .update(campaignTemplates)
+          .set({
+            ...(basePrompt ? { basePrompt } : {}),
+            ...(voicemailMessage ? { voicemailMessage } : {}),
+            ...(variablesConfig ? { variablesConfig } : {}),
+            ...(analysisConfig ? { analysisConfig } : {}),
+          })
+          .where(eq(campaignTemplates.id, campaignWithTemplate.templateId));
       }
 
-      const [updatedCampaign] = await ctx.db
-        .update(campaigns)
-        .set({
-          ...(updateData.name && { name: updateData.name }),
-          ...(updateData.agentId && { agentId: updateData.agentId }),
-          ...(updateData.direction && {
-            direction: updateData.direction as CallDirection,
-          }),
-          ...(updateData.isActive !== undefined && {
-            isActive: updateData.isActive,
-          }),
-          ...(updateData.llmId && { llmId: updateData.llmId }),
-          ...(updatedConfig && { config: updatedConfig }),
-        })
-        .where(eq(campaigns.id, id))
-        .returning();
-
-      if (!updatedCampaign) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Campaign not found",
-        });
-      }
-
-      return updatedCampaign;
+      // Get and return the updated campaign
+      return getCampaignWithTemplate(ctx.db, id);
     }),
 
   // Update agent prompt via Retell API

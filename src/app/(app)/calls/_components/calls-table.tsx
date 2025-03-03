@@ -23,7 +23,7 @@ import {
   PhoneOutgoing,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CallsTableFilters } from "./calls-table-filters";
 
@@ -82,6 +82,8 @@ type Call = {
 
 export function CallsTable() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [page, setPage] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -103,6 +105,16 @@ export function CallsTable() {
     status: statusFilter !== "all" ? statusFilter : undefined,
     direction: directionFilter !== "all" ? directionFilter : undefined,
   });
+
+  // Handle call row click to open call details
+  const handleCallRowClick = (callId: string) => {
+    // Create new search params with current filters plus the callId
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("callId", callId);
+
+    // Update URL to include callId which will open the sheet
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   // Define columns for the data table
   const columns: ColumnDef<Call>[] = [
@@ -446,7 +458,7 @@ export function CallsTable() {
       cell: ({ row }) => {
         return (
           <Link
-            href={`/calls/${row.original.id}`}
+            href={`/calls?callId=${row.original.id}`}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
               "whitespace-nowrap",
@@ -459,26 +471,52 @@ export function CallsTable() {
     },
   ];
 
+  // Add a meta column for row ID that we'll use for click handling
+  const columnsWithRowClick: ColumnDef<Call>[] = [
+    // Add a meta column for row click handling
+    {
+      id: "clickHandler",
+      cell: ({ row }) => {
+        return (
+          <div
+            className="absolute inset-0 cursor-pointer"
+            onClick={() => handleCallRowClick(row.original.id)}
+            aria-hidden="true"
+          />
+        );
+      },
+    },
+    ...columns,
+  ];
+
+  // Type check and convert the data to the required format
+  const callsData = (data?.calls || []) as unknown as Call[];
+
   return (
-    <>
-      <CallsTableFilters />
-      <DataTable
-        columns={columns}
-        data={(data?.calls || []) as Call[]}
-        pagination={{
-          hasNextPage: data?.hasMore || false,
-          onNextPage: () => setPage(page + 1),
-        }}
-        searchable={true}
-        onSearch={setSearchQuery}
-        isLoading={isLoading}
-      />
+    <div className="space-y-4">
+      <div className="relative rounded-md border">
+        <CallsTableFilters />
+        <DataTable
+          columns={columnsWithRowClick}
+          data={callsData}
+          isLoading={isLoading}
+          pagination={{
+            hasNextPage: data?.hasMore || false,
+            onNextPage: () => setPage(page + 1),
+          }}
+          searchable={true}
+          onSearch={setSearchQuery}
+        />
+      </div>
 
       {!isLoading && data?.calls.length === 0 && (
-        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-          No calls found with the selected filters
+        <div className="flex flex-col items-center justify-center py-10">
+          <p className="mb-2 text-lg font-medium">No calls found</p>
+          <p className="text-muted-foreground">
+            Try changing your filters to see more results.
+          </p>
         </div>
       )}
-    </>
+    </div>
   );
 }

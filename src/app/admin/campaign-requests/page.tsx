@@ -1,4 +1,4 @@
-import { CreateCampaignForm } from "@/components/forms/campaign-create-form";
+import { CampaignCreateForm } from "@/components/forms/campaign-create-form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -52,7 +52,7 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
             <TriggerSheet
               buttonIcon={<Plus />}
               buttonText="Create Campaign"
-              form={<CreateCampaignForm agents={agentsList} />}
+              form={<CampaignCreateForm agents={agentsList} />}
               title="Create Campaign"
             />
           }

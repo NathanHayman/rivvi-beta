@@ -9,6 +9,14 @@ import { Badge } from "./ui/badge";
 const SuperAdminWidget = () => {
   const { data, isLoading } = api.organizations.isSuperAdmin.useQuery();
 
+  if (isLoading) {
+    return null;
+  }
+
+  if (!data) {
+    return null;
+  }
+
   return (
     <div className="fixed bottom-4 left-0 right-0 z-[9999] flex justify-center">
       <Link href="/admin" className="">

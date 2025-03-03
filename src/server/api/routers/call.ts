@@ -1,5 +1,5 @@
 // src/server/api/routers/call.ts
-import { retell } from "@/lib/retell-client";
+import { retell } from "@/lib/retell/retell-client";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import { calls, campaigns, patients, rows, runs } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";

@@ -1,1 +1,0 @@
-ALTER TABLE "rivvi_campaign" ADD COLUMN "llm_id" varchar(256) NOT NULL;

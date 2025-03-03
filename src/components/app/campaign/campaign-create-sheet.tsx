@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 
-import { CreateCampaignForm } from "@/components/forms/campaign-create-form";
+import { CampaignCreateForm } from "@/components/forms/campaign-create-form";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 
 interface CampaignCreateSheetProps {
@@ -19,7 +19,7 @@ export function CampaignCreateSheet({
       title="Create New Campaign"
       description="Set up a new campaign for your organization"
       className={className}
-      form={<CreateCampaignForm agents={agents} />}
+      form={<CampaignCreateForm agents={agents} />}
     />
   );
 }

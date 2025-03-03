@@ -11,6 +11,7 @@ import { api } from "@/trpc/server";
 import { Edit, Phone } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 interface PageProps {
   params: {
@@ -64,7 +65,9 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
             }
           />
           <AppContent>
-            <OrganizationDetails organizationId={params.orgId} />
+            <Suspense fallback={<div>Loading...</div>}>
+              <OrganizationDetails organizationId={params.orgId} />
+            </Suspense>
           </AppContent>
         </AppBody>
       </AppPage>
