@@ -21,14 +21,14 @@ export function useRuns(campaignId: string, initialLimit = 10) {
     isLoading,
     error,
     refetch,
-  } = api.run.getAll.useQuery({
+  } = api.runs.getAll.useQuery({
     campaignId,
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
   });
 
   // Create run mutation
-  const createRunMutation = api.run.create.useMutation({
+  const createRunMutation = api.runs.create.useMutation({
     onSuccess: (data) => {
       toast.success("Run created successfully");
       router.push(`/campaigns/${campaignId}/runs/${data?.id}`);
@@ -77,7 +77,7 @@ export function useRun(runId: string) {
     data: run,
     isLoading,
     error,
-  } = api.run.getById.useQuery(
+  } = api.runs.getById.useQuery(
     { id: runId },
     {
       enabled: !!runId,
@@ -88,21 +88,21 @@ export function useRun(runId: string) {
   // Setup real-time updates
   useRunEvents(runId, {
     onCallStarted: () => {
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onCallCompleted: () => {
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onMetricsUpdated: () => {
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
   });
 
   // Start run mutation
-  const startRunMutation = api.run.start.useMutation({
+  const startRunMutation = api.runs.start.useMutation({
     onSuccess: () => {
       toast.success("Run started successfully");
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onError: (error) => {
       toast.error(`Error starting run: ${error.message}`);
@@ -110,10 +110,10 @@ export function useRun(runId: string) {
   });
 
   // Pause run mutation
-  const pauseRunMutation = api.run.pause.useMutation({
+  const pauseRunMutation = api.runs.pause.useMutation({
     onSuccess: () => {
       toast.success("Run paused successfully");
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onError: (error) => {
       toast.error(`Error pausing run: ${error.message}`);
@@ -139,10 +139,10 @@ export function useRun(runId: string) {
   };
 
   // Update run prompt
-  const updatePromptMutation = api.run.updatePrompt.useMutation({
+  const updatePromptMutation = api.runs.updatePrompt.useMutation({
     onSuccess: () => {
       toast.success("Run prompt updated successfully");
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onError: (error) => {
       toast.error(`Error updating run prompt: ${error.message}`);
@@ -159,7 +159,7 @@ export function useRun(runId: string) {
   };
 
   // File upload mutation
-  const uploadFileMutation = api.run.uploadFile.useMutation({
+  const uploadFileMutation = api.runs.uploadFile.useMutation({
     onSuccess: (data) => {
       toast.success(
         `File processed successfully: ${data.rowsAdded} rows added`,
@@ -167,7 +167,7 @@ export function useRun(runId: string) {
       if (data.invalidRows > 0) {
         toast.warning(`${data.invalidRows} invalid rows were skipped`);
       }
-      utils.run.getById.invalidate({ id: runId });
+      utils.runs.getById.invalidate({ id: runId });
     },
     onError: (error) => {
       toast.error(`Error processing file: ${error.message}`);
@@ -215,7 +215,7 @@ export function useRun(runId: string) {
     uploadFile,
     isUploadingFile: uploadFileMutation.isPending,
 
-    refetch: () => utils.run.getById.invalidate({ id: runId }),
+    refetch: () => utils.runs.getById.invalidate({ id: runId }),
   };
 }
 
@@ -230,7 +230,7 @@ export function useRunRows(runId: string) {
   const [filter, setFilter] = useState<string | undefined>(undefined);
 
   // Get rows for a run with pagination
-  const { data, isLoading, error, refetch } = api.run.getRows.useQuery({
+  const { data, isLoading, error, refetch } = api.runs.getRows.useQuery({
     runId,
     page: pagination.pageIndex + 1,
     pageSize: pagination.pageSize,

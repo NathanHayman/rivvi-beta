@@ -30,63 +30,62 @@ type PatientResult = {
   metadata?: Record<string, unknown>;
 };
 
-/**
- * Generate an enhanced hash for patient identification and deduplication
- * Uses multiple patient attributes for more reliable matching
- */
-export function generatePatientHash(
-  firstName: string,
-  lastName: string,
-  dob: string,
-  phone: string,
-): string {
-  // Normalize all inputs to improve match rates
-  const normalizedPhone = String(phone).replace(/\D/g, "").substring(0, 10);
-  const normalizedDob = String(dob).replace(/\D/g, "");
-  const normalizedFirstName = String(firstName)
-    .toLowerCase()
-    .trim()
-    .substring(0, 3); // First 3 chars
-  const normalizedLastName = String(lastName).toLowerCase().trim();
-
-  // Primary hash components (phone + DOB)
-  const primaryComponents = `${normalizedPhone}-${normalizedDob}`;
-
-  // Secondary validation with name components
-  const nameComponent = `${normalizedFirstName}-${normalizedLastName.substring(0, 3)}`;
-
-  // Create composite hash
-  const hash = createHash("sha256");
-  hash.update(`${primaryComponents}-${nameComponent}`);
-  return hash.digest("hex");
-}
-
-/**
- * Secondary hash for fuzzy matching when primary hash fails
- */
-export function generateSecondaryPatientHash(
-  lastName: string,
-  dob: string,
-  phone: string,
-): string {
-  // Use only last name (more reliable than first name), DOB and last 4 of phone
-  const normalizedPhone = String(phone).replace(/\D/g, "").slice(-4);
-  const normalizedDob = String(dob).replace(/\D/g, "");
-  const normalizedLastName = String(lastName)
-    .toLowerCase()
-    .trim()
-    .substring(0, 5); // First 5 chars
-
-  const hash = createHash("sha256");
-  hash.update(`${normalizedLastName}-${normalizedDob}-${normalizedPhone}`);
-  return hash.digest("hex");
-}
-
 export class PatientService {
   private db: DatabaseClient;
 
   constructor(db: DatabaseClient) {
     this.db = db;
+  }
+  /**
+   * Generate an enhanced hash for patient identification and deduplication
+   * Uses multiple patient attributes for more reliable matching
+   */
+  generatePatientHash(
+    firstName: string,
+    lastName: string,
+    dob: string,
+    phone: string,
+  ): string {
+    // Normalize all inputs to improve match rates
+    const normalizedPhone = String(phone).replace(/\D/g, "").substring(0, 10);
+    const normalizedDob = String(dob).replace(/\D/g, "");
+    const normalizedFirstName = String(firstName)
+      .toLowerCase()
+      .trim()
+      .substring(0, 3); // First 3 chars
+    const normalizedLastName = String(lastName).toLowerCase().trim();
+
+    // Primary hash components (phone + DOB)
+    const primaryComponents = `${normalizedPhone}-${normalizedDob}`;
+
+    // Secondary validation with name components
+    const nameComponent = `${normalizedFirstName}-${normalizedLastName.substring(0, 3)}`;
+
+    // Create composite hash
+    const hash = createHash("sha256");
+    hash.update(`${primaryComponents}-${nameComponent}`);
+    return hash.digest("hex");
+  }
+
+  /**
+   * Secondary hash for fuzzy matching when primary hash fails
+   */
+  generateSecondaryPatientHash(
+    lastName: string,
+    dob: string,
+    phone: string,
+  ): string {
+    // Use only last name (more reliable than first name), DOB and last 4 of phone
+    const normalizedPhone = String(phone).replace(/\D/g, "").slice(-4);
+    const normalizedDob = String(dob).replace(/\D/g, "");
+    const normalizedLastName = String(lastName)
+      .toLowerCase()
+      .trim()
+      .substring(0, 5); // First 5 chars
+
+    const hash = createHash("sha256");
+    hash.update(`${normalizedLastName}-${normalizedDob}-${normalizedPhone}`);
+    return hash.digest("hex");
   }
 
   /**
@@ -267,7 +266,12 @@ export class PatientService {
 
     try {
       // Generate a hash for deduplication
-      const patientHash = generatePatientHash(firstName, lastName, dob, phone);
+      const patientHash = this.generatePatientHash(
+        firstName,
+        lastName,
+        dob,
+        phone,
+      );
 
       // Check if patient already exists
       const existingPatients = await this.db

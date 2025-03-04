@@ -22,6 +22,16 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +50,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { api } from "@/trpc/react";
+import { toast } from "sonner";
 import { CreateRunModal } from "../app/run/create-run-modal";
 import { RequestCampaignButton } from "../buttons/request-campaign-button";
 import { CampaignEditForm } from "../forms/campaign-edit-form";
@@ -68,6 +79,8 @@ export function AdminCampaignsTable() {
     pageIndex: 0,
     pageSize: 10,
   });
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
 
   const isAdmin = pathname.includes("/admin");
 
@@ -75,6 +88,17 @@ export function AdminCampaignsTable() {
   const { data, isLoading, refetch } = api.admin.getAllCampaigns.useQuery({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
+  });
+
+  // Delete campaign mutation
+  const deleteCampaignMutation = api.admin.deleteCampaign.useMutation({
+    onSuccess: () => {
+      toast.success("Campaign deleted successfully");
+      void refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete campaign: ${error.message}`);
+    },
   });
 
   // Map API response to Campaign interface
@@ -92,6 +116,17 @@ export function AdminCampaignsTable() {
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
     setIsCreateRunModalOpen(true);
+  };
+
+  const handleDeleteCampaign = (campaignId: string) => {
+    setCampaignToDelete(campaignId);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const deleteCampaign = (campaignId: string) => {
+    deleteCampaignMutation.mutate({ campaignId });
+    setIsDeleteDialogOpen(false);
+    setCampaignToDelete(null);
   };
 
   const columns: ColumnDef<Campaign>[] = [
@@ -226,6 +261,14 @@ export function AdminCampaignsTable() {
                       e.stopPropagation();
                     }}
                   />
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteCampaign(campaign.id);
+                  }}
+                >
+                  Delete Campaign
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -408,6 +451,32 @@ export function AdminCampaignsTable() {
           onOpenChange={setIsCreateRunModalOpen}
         />
       )}
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              campaign and all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                campaignToDelete && deleteCampaign(campaignToDelete)
+              }
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

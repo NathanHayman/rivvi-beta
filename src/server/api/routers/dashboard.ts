@@ -1,5 +1,4 @@
 // src/server/api/routers/dashboard.ts
-import { CallAnalytics } from "@/lib/call/call-analytics";
 import {
   createTRPCRouter,
   orgProcedure,
@@ -12,6 +11,7 @@ import {
   patients,
   runs,
 } from "@/server/db/schema";
+import { CallAnalytics } from "@/services/call";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";

@@ -1,4 +1,4 @@
-// src/server/db/schema.ts
+// src/server/db/schema.ts - Updated with new columns
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -16,18 +16,9 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-/**
- * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
- * database instance for multiple projects.
- *
- * @see https://orm.drizzle.team/docs/goodies#multi-project-schema
- */
 export const createTable = pgTableCreator((name) => `rivvi_${name}`);
 
-// ------------------------
-// Define native PostgreSQL enums using pgEnum
-// ------------------------
-
+// Enums - unchanged
 export const runStatusEnum = pgEnum("run_status", [
   "draft",
   "processing",
@@ -68,7 +59,7 @@ export const campaignRequestStatusEnum = pgEnum("campaign_request_status", [
   "completed",
 ]);
 
-// Optionally keep TypeScript union types if needed elsewhere in your code:
+// Type definitions - unchanged
 export type RunStatus =
   | "draft"
   | "processing"
@@ -102,10 +93,9 @@ export type CampaignRequestStatus =
   | "rejected"
   | "completed";
 
-// ------------------------
-// Table Definitions
-// ------------------------
+// Table Definitions - Updated with new columns
 
+// Organizations - unchanged
 export const organizations = createTable(
   "organization",
   {
@@ -139,6 +129,7 @@ export const organizations = createTable(
   }),
 );
 
+// Users - unchanged
 export const users = createTable(
   "user",
   {
@@ -166,13 +157,17 @@ export const users = createTable(
   }),
 );
 
+// Patients - updated with new columns
 export const patients = createTable(
   "patient",
   {
     id: uuid("id")
       .primaryKey()
       .default(sql`gen_random_uuid()`),
-    patientHash: varchar("patient_hash", { length: 256 }).notNull().unique(), // Hash of phone + DOB for deduplication
+    patientHash: varchar("patient_hash", { length: 256 }).notNull().unique(),
+    // New columns for better deduplication
+    secondaryHash: varchar("secondary_hash", { length: 256 }),
+    normalizedPhone: varchar("normalized_phone", { length: 20 }),
     firstName: varchar("first_name", { length: 256 }).notNull(),
     lastName: varchar("last_name", { length: 256 }).notNull(),
     dob: date("dob").notNull(),
@@ -191,10 +186,17 @@ export const patients = createTable(
   (table) => ({
     patientHashIdx: index("patient_hash_idx").on(table.patientHash),
     phoneIdx: index("patient_phone_idx").on(table.primaryPhone),
+    // New indexes
+    secondaryHashIdx: index("patient_secondary_hash_idx").on(
+      table.secondaryHash,
+    ),
+    normalizedPhoneIdx: index("patient_normalized_phone_idx").on(
+      table.normalizedPhone,
+    ),
   }),
 );
 
-// Junction table for organization-patient relationship
+// Organization Patients - unchanged
 export const organizationPatients = createTable(
   "organization_patient",
   {
@@ -220,10 +222,7 @@ export const organizationPatients = createTable(
   }),
 );
 
-/**
- * Campaign Templates - Store reusable configurations for campaigns
- * This centralizes agent settings, prompts, webhook URLs, and field definitions
- */
+// Campaign Templates - unchanged
 export const campaignTemplates = createTable(
   "campaign_template",
   {
@@ -232,16 +231,12 @@ export const campaignTemplates = createTable(
       .default(sql`gen_random_uuid()`),
     name: varchar("name", { length: 256 }).notNull(),
     description: text("description"),
-    // Retell agent configuration
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     llmId: varchar("llm_id", { length: 256 }).notNull(),
-    // Base messages
     basePrompt: text("base_prompt").notNull(),
     voicemailMessage: text("voicemail_message"),
-    // Webhook configuration
     postCallWebhookUrl: varchar("post_call_webhook_url", { length: 512 }),
     inboundWebhookUrl: varchar("inbound_webhook_url", { length: 512 }),
-    // Configuration for patient and campaign fields
     variablesConfig: json("variables_config")
       .$type<{
         patient: {
@@ -283,7 +278,6 @@ export const campaignTemplates = createTable(
         };
       }>()
       .notNull(),
-    // Retell post-call analysis field definitions
     analysisConfig: json("analysis_config")
       .$type<{
         standard: {
@@ -326,7 +320,7 @@ export const campaignTemplates = createTable(
   }),
 );
 
-// Campaign Type: appointment_confirmation, annual_wellness_visit, medication_adherence, etc.
+// Campaigns - unchanged
 export const campaigns = createTable(
   "campaign",
   {
@@ -338,15 +332,12 @@ export const campaigns = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
-    // Reference to the campaign template
     templateId: uuid("template_id")
       .references(() => campaignTemplates.id, { onDelete: "set null" })
       .notNull(),
-    // Direction for this campaign
     direction: callDirectionEnum("direction").notNull(),
     isActive: boolean("is_active").default(true),
     isDefaultInbound: boolean("is_default_inbound").default(false),
-    // Any campaign-specific overrides or settings
     metadata: json("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
@@ -361,10 +352,7 @@ export const campaigns = createTable(
   }),
 );
 
-/**
- * Agent Variations - Generated prompt variations for specific runs
- * Created by AI using Vercel AI SDK and Anthropic
- */
+// Agent Variations - unchanged
 export const agentVariations = createTable(
   "agent_variation",
   {
@@ -374,12 +362,9 @@ export const agentVariations = createTable(
     campaignId: uuid("campaign_id")
       .references(() => campaigns.id, { onDelete: "cascade" })
       .notNull(),
-    // User's natural language input for customization
     userInput: text("user_input").notNull(),
-    // Original content before customization (from template)
     originalBasePrompt: text("original_base_prompt").notNull(),
     originalVoicemailMessage: text("original_voicemail_message"),
-    // AI-generated content
     customizedPrompt: text("customized_prompt").notNull(),
     customizedVoicemailMessage: text("customized_voicemail_message"),
     suggestedRunName: varchar("suggested_run_name", { length: 256 }),
@@ -399,10 +384,7 @@ export const agentVariations = createTable(
   }),
 );
 
-/**
- * Runs table with reference to agent variation
- * This links runs with their customized prompt and voicemail message
- */
+// Runs - updated with new columns
 export const runs = createTable(
   "run",
   {
@@ -416,10 +398,13 @@ export const runs = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
-    // Store variation details directly to avoid circular references
     customPrompt: text("custom_prompt"),
     customVoicemailMessage: text("custom_voicemail_message"),
     variationNotes: text("variation_notes"),
+    // New columns for AI prompt generation
+    naturalLanguageInput: text("natural_language_input"),
+    promptVersion: integer("prompt_version").default(1),
+    aiGenerated: boolean("ai_generated").default(false),
     status: runStatusEnum("status").default("draft").notNull(),
     metadata: json("metadata").$type<{
       rows: {
@@ -471,6 +456,7 @@ export const runs = createTable(
   }),
 );
 
+// Rows - updated with new columns
 export const rows = createTable(
   "row",
   {
@@ -487,11 +473,18 @@ export const rows = createTable(
       onDelete: "set null",
     }),
     variables: json("variables").$type<Record<string, unknown>>().notNull(),
+    // New column for storing preprocessed variables
+    processedVariables: json("processed_variables").$type<
+      Record<string, unknown>
+    >(),
     analysis: json("analysis").$type<Record<string, unknown>>(),
     status: rowStatusEnum("status").default("pending").notNull(),
     error: text("error"),
     retellCallId: varchar("retell_call_id", { length: 256 }),
-    sortIndex: integer("sort_index").notNull(), // For preserving the original order in the spreadsheet
+    sortIndex: integer("sort_index").notNull(),
+    // New columns for better processing
+    priority: integer("priority").default(0),
+    batchEligible: boolean("batch_eligible").default(true),
     retryCount: integer("retry_count").default(0),
     callAttempts: integer("call_attempts").default(0),
     metadata: json("metadata").$type<Record<string, unknown>>(),
@@ -507,9 +500,12 @@ export const rows = createTable(
     orgIdIdx: index("row_org_id_idx").on(table.orgId),
     patientIdIdx: index("row_patient_id_idx").on(table.patientId),
     statusIdx: index("row_status_idx").on(table.status),
+    // New index for priority
+    priorityIdx: index("row_priority_idx").on(table.priority),
   }),
 );
 
+// Calls - updated with new columns
 export const calls = createTable(
   "call",
   {
@@ -527,7 +523,6 @@ export const calls = createTable(
     patientId: uuid("patient_id").references(() => patients.id, {
       onDelete: "set null",
     }),
-    // Agent ID from Retell, not a foreign key reference
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     direction: callDirectionEnum("direction").notNull(),
     status: callStatusEnum("status").default("pending").notNull(),
@@ -535,6 +530,11 @@ export const calls = createTable(
     recordingUrl: varchar("recording_url", { length: 512 }),
     toNumber: varchar("to_number", { length: 20 }).notNull(),
     fromNumber: varchar("from_number", { length: 20 }).notNull(),
+    // New columns for better batch management
+    batchId: varchar("batch_id", { length: 256 }),
+    retryCount: integer("retry_count").default(0),
+    nextRetryTime: timestamp("next_retry_time", { withTimezone: true }),
+    callMetrics: json("call_metrics").$type<Record<string, unknown>>(),
     metadata: json("metadata").$type<Record<string, unknown>>(),
     analysis: json("analysis").$type<Record<string, unknown>>(),
     transcript: text("transcript"),
@@ -566,9 +566,12 @@ export const calls = createTable(
     retellCallIdUniqueIdx: uniqueIndex("call_retell_call_id_unique_idx").on(
       table.retellCallId,
     ),
+    // New index for batch_id
+    batchIdIdx: index("call_batch_id_idx").on(table.batchId),
   }),
 );
 
+// Campaign Requests - updated with new columns
 export const campaignRequests = createTable(
   "campaign_request",
   {
@@ -584,6 +587,15 @@ export const campaignRequests = createTable(
     name: varchar("name", { length: 256 }).notNull(),
     direction: callDirectionEnum("direction").default("outbound").notNull(),
     description: text("description").notNull(),
+    mainGoal: text("main_goal"),
+    desiredAnalysis: json("desired_analysis").$type<string[]>(),
+    exampleSheets: json("example_sheets").$type<
+      Array<{
+        name: string;
+        url: string;
+        fileType: string;
+      }>
+    >(),
     status: campaignRequestStatusEnum("status").default("pending").notNull(),
     adminNotes: text("admin_notes"),
     resultingCampaignId: uuid("resulting_campaign_id").references(

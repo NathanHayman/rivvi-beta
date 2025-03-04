@@ -1,14 +1,9 @@
 "use client";
 
+import type React from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  AlertCircle,
-  Calendar,
-  ChevronRight,
-  Info,
-  Loader2,
-  Upload,
-} from "lucide-react";
+import { ArrowUpIcon, Check, ChevronRight, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -16,14 +11,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -34,10 +21,11 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Switch as UISwitch } from "@/components/ui/switch";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
-import { addDays, format } from "date-fns";
+import { format } from "date-fns";
 
 // Define the form schema for creating a run
 const runFormSchema = z.object({
@@ -47,6 +35,7 @@ const runFormSchema = z.object({
   scheduleForLater: z.boolean().default(false),
   scheduledDate: z.date().optional().nullable(),
   scheduledTime: z.string().optional(),
+  useAiGeneration: z.boolean().default(false),
 });
 
 type RunFormValues = z.infer<typeof runFormSchema>;
@@ -56,6 +45,10 @@ interface RunCreateFormProps {
   onSuccess?: (runId?: string) => void;
   onCancel?: () => void;
   defaultValues?: Partial<RunFormValues>;
+  campaignBasePrompt?: string;
+  campaignVoicemailMessage?: string;
+  campaignName?: string;
+  campaignDescription?: string;
 }
 
 export function RunCreateForm({
@@ -63,13 +56,23 @@ export function RunCreateForm({
   onSuccess,
   onCancel,
   defaultValues,
+  campaignBasePrompt = "",
+  campaignVoicemailMessage = "",
+  campaignName = "",
+  campaignDescription = "",
 }: RunCreateFormProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [processedData, setProcessedData] = useState<any>(null);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [calendarDates, setCalendarDates] = useState<Date[]>([]);
+  const [fileContentBase64, setFileContentBase64] = useState<string>("");
+
+  // Step management
+  const [currentStep, setCurrentStep] = useState(0);
+  const steps = ["Upload & Validate", "Configure Prompt", "Schedule & Name"];
+
+  // AI-related states
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
   // Initialize the form with default values
   const form = useForm<RunFormValues>({
@@ -80,26 +83,31 @@ export function RunCreateForm({
       scheduleForLater: defaultValues?.scheduleForLater || false,
       scheduledDate: defaultValues?.scheduledDate || null,
       scheduledTime: defaultValues?.scheduledTime || "",
+      useAiGeneration: defaultValues?.useAiGeneration || false,
+    },
+    mode: "onChange",
+  });
+
+  // Watch form fields for conditional rendering and validation
+  const scheduleForLater = form.watch("scheduleForLater");
+  const useAiGeneration = form.watch("useAiGeneration");
+  const customPrompt = form.watch("customPrompt");
+
+  // tRPC mutations
+  const validateDataMutation = api.runs.validateData.useMutation({
+    onSuccess: (data) => {
+      setProcessedData(data);
+      setIsProcessingFile(false);
+      toast.success(
+        `File validated successfully. Found ${data.parsedData?.rows?.length || 0} rows.`,
+      );
+    },
+    onError: (error) => {
+      toast.error(`Error validating file: ${error.message}`);
+      setIsProcessingFile(false);
     },
   });
 
-  // Watch the scheduleForLater field to conditionally show date/time fields
-  const scheduleForLater = form.watch("scheduleForLater");
-  const scheduledDate = form.watch("scheduledDate");
-
-  // Generate calendar dates (next 31 days) for the date picker
-  useEffect(() => {
-    const dates: Date[] = [];
-    const today = new Date();
-
-    for (let i = 0; i < 31; i++) {
-      dates.push(addDays(today, i));
-    }
-
-    setCalendarDates(dates);
-  }, []);
-
-  // tRPC mutations
   const createRunMutation = api.runs.create.useMutation({
     onSuccess: (data) => {
       if (data?.id && file) {
@@ -118,18 +126,6 @@ export function RunCreateForm({
     },
   });
 
-  const validateDataMutation = api.runs.validateData.useMutation({
-    onSuccess: (data) => {
-      setProcessedData(data);
-      setIsProcessingFile(false);
-      toast.success("File validated successfully");
-    },
-    onError: (error) => {
-      toast.error(`Error validating file: ${error.message}`);
-      setIsProcessingFile(false);
-    },
-  });
-
   const uploadFileMutation = api.runs.uploadFile.useMutation({
     onSuccess: (data) => {
       toast.success(`File uploaded successfully: ${data.rowsAdded} rows added`);
@@ -144,67 +140,120 @@ export function RunCreateForm({
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
+
+      // Auto-process the file when selected
+      processSelectedFile(selectedFile);
     }
   };
+
+  // Process the selected file
+  const processSelectedFile = useCallback(
+    async (selectedFile: File) => {
+      try {
+        setIsProcessingFile(true);
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const content = e.target?.result as string;
+          setFileContentBase64(content);
+
+          // Validate the file data
+          await validateDataMutation.mutateAsync({
+            campaignId,
+            fileContent: content,
+            fileName: selectedFile.name,
+          });
+        };
+
+        reader.onerror = () => {
+          setIsProcessingFile(false);
+          toast.error("Failed to read file");
+        };
+
+        reader.readAsDataURL(selectedFile);
+      } catch (error) {
+        setIsProcessingFile(false);
+        console.error("Error processing file:", error);
+        toast.error("Failed to process file");
+      }
+    },
+    [campaignId, validateDataMutation],
+  );
 
   // Handle file removal
   const handleFileRemove = () => {
     setFile(null);
     setProcessedData(null);
+    setFileContentBase64("");
   };
 
-  // Store file content as base64 for API calls
-  const [fileContentBase64, setFileContentBase64] = useState<string>("");
+  // Function to generate prompt using AI
+  const generatePromptFromDescription = useCallback(
+    async (description: string) => {
+      if (!description || isGeneratingPrompt) return;
 
-  // Process the selected file
-  const processFile = useCallback(async () => {
-    if (!file) {
-      toast.error("Please select a file to upload");
-      return false;
-    }
+      setIsGeneratingPrompt(true);
 
-    try {
-      setIsProcessingFile(true);
-
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const content = e.target?.result as string;
-        setFileContentBase64(content);
-
-        // Validate the file data
-        await validateDataMutation.mutateAsync({
-          campaignId,
-          fileContent: content,
-          fileName: file.name,
+      try {
+        // Call the API route
+        const response = await fetch("/api/ai/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            basePrompt: campaignBasePrompt,
+            baseVoicemailMessage: campaignVoicemailMessage,
+            naturalLanguageInput: description,
+            campaignContext: {
+              name: campaignName,
+              description: campaignDescription,
+            },
+          }),
         });
-      };
 
-      reader.onerror = () => {
-        setIsProcessingFile(false);
-        toast.error("Failed to read file");
-      };
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to generate content");
+        }
 
-      reader.readAsDataURL(file);
-      return true;
-    } catch (error) {
-      setIsProcessingFile(false);
-      console.error("Error processing file:", error);
-      toast.error("Failed to process file");
-      return false;
-    }
-  }, [file, campaignId, validateDataMutation]);
+        // Parse the response
+        const enhancedContent = await response.json();
+
+        // Update the custom prompt with the generated content
+        form.setValue("customPrompt", enhancedContent.newPrompt);
+
+        // If run name isn't manually set yet, suggest the AI-generated name
+        if (!form.getValues("name")) {
+          form.setValue("name", enhancedContent.suggestedRunName);
+        }
+
+        toast.success("Prompt generated successfully!");
+      } catch (error) {
+        console.error("Error generating AI prompt:", error);
+        toast.error(
+          "Failed to generate prompt. Please try again or enter manually.",
+        );
+      } finally {
+        setIsGeneratingPrompt(false);
+      }
+    },
+    [
+      campaignBasePrompt,
+      campaignDescription,
+      campaignName,
+      campaignVoicemailMessage,
+      form,
+      isGeneratingPrompt,
+    ],
+  );
 
   // Handle form submission
   const onSubmit = async (values: RunFormValues) => {
     try {
       setIsProcessingFile(true);
-
-      // Process file if not already processed
-      if (file && !processedData && !fileContentBase64) {
-        const processed = await processFile();
-        if (!processed) return;
-      }
 
       // Prepare scheduled date/time if applicable
       let scheduledAt = null;
@@ -246,320 +295,439 @@ export function RunCreateForm({
     }
   };
 
+  // Navigation between steps
+  const nextStep = () => {
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  // Check if current step can proceed
+  const canProceedFromCurrentStep = () => {
+    switch (currentStep) {
+      case 0: // Upload & Validate
+        return !!processedData;
+      case 1: // Configure Prompt
+        return true; // Always allow proceeding from prompt step
+      case 2: // Schedule & Name
+        return !!form.getValues("name");
+      default:
+        return false;
+    }
+  };
+
+  // Effect to handle AI prompt generation when toggle changes
+  useEffect(() => {
+    if (useAiGeneration && currentStep === 1) {
+      // Generate a default description if none provided
+      const defaultDescription = `Generate a friendly prompt for ${campaignName} that is professional and concise.`;
+      void generatePromptFromDescription(defaultDescription);
+    }
+  }, [
+    useAiGeneration,
+    currentStep,
+    generatePromptFromDescription,
+    campaignName,
+  ]);
+
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Create New Run</CardTitle>
-            <CardDescription>
-              Start a new run to make calls for this campaign.
-            </CardDescription>
-          </CardHeader>
+    <div className="mx-auto max-w-[500px]">
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold">Create New Run</h2>
+        <p className="text-sm text-muted-foreground">
+          Start a new run to make calls for this campaign.
+        </p>
 
-          <CardContent className="space-y-6">
-            {/* Run Name */}
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Run Name</FormLabel>
-                  <FormControl>
+        {/* Step indicator */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between">
+            {steps.map((step, index) => (
+              <div key={index} className="flex flex-col items-center">
+                <div
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium",
+                    currentStep === index
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : currentStep > index
+                        ? "border-green-500 bg-green-500 text-white"
+                        : "border-gray-200 bg-gray-50 text-gray-500",
+                  )}
+                >
+                  {currentStep > index ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+                <span className="text-gray-500 mt-1 text-xs font-medium">
+                  {step}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="relative mt-2">
+            <div className="bg-gray-200 absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2"></div>
+            <div
+              className="absolute left-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary transition-all duration-300"
+              style={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Step 1: Upload & Validate */}
+          {currentStep === 0 && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="mb-2 text-base font-medium">Data File</h3>
+                {!file ? (
+                  <div className="relative">
                     <Input
-                      placeholder="Weekly Appointment Confirmations"
-                      {...field}
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="file-upload"
                     />
-                  </FormControl>
-                  <FormDescription>
-                    Give your run a descriptive name
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* File Upload */}
-            <div className="space-y-2">
-              <FormLabel>Data File</FormLabel>
-              {!file ? (
-                <div className="relative">
-                  <Input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="file-upload"
-                  />
-                  <label
-                    htmlFor="file-upload"
-                    className="border-gray-300 hover:bg-gray-50 flex h-32 w-full cursor-pointer items-center justify-center rounded-md border border-dashed px-3 py-2 text-sm"
-                  >
-                    <div className="flex flex-col items-center">
-                      <Upload className="text-gray-400 mb-2 h-8 w-8" />
+                    <label
+                      htmlFor="file-upload"
+                      className="border-gray-300 hover:bg-gray-50 flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-2 text-sm"
+                    >
+                      <ArrowUpIcon className="text-gray-400 mb-2 h-8 w-8" />
                       <p className="font-medium">Upload Excel or CSV file</p>
                       <p className="text-xs text-muted-foreground">
                         Drag and drop or click to select
                       </p>
-                    </div>
-                  </label>
-                </div>
-              ) : (
-                <div className="bg-gray-50 rounded-md border p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="rounded-md bg-primary/10 p-2">
-                        <Info className="h-5 w-5 text-primary" />
-                      </div>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 rounded-md border p-4">
+                    <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">{file.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {(file.size / 1024).toFixed(2)} KB
                         </p>
                       </div>
-                    </div>
-                    <div className="flex space-x-2">
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         onClick={handleFileRemove}
                       >
-                        Remove
+                        <X className="mr-1 h-4 w-4" /> Remove
                       </Button>
-                      {!processedData && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={processFile}
-                          disabled={isProcessingFile}
-                        >
-                          {isProcessingFile ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Validating
-                            </>
-                          ) : (
-                            "Validate"
-                          )}
-                        </Button>
-                      )}
                     </div>
-                  </div>
 
-                  {processedData && (
-                    <div className="mt-4 rounded-md bg-green-50 p-3 text-green-800">
-                      <div className="flex">
-                        <AlertCircle className="h-5 w-5 text-green-500" />
-                        <div className="ml-3">
-                          <p className="text-sm font-medium">File Validated</p>
-                          <p className="mt-1 text-xs">
-                            The file has been validated and is ready for upload.
-                          </p>
+                    {isProcessingFile && (
+                      <div className="mt-4 flex items-center space-x-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Validating file...</span>
+                      </div>
+                    )}
+
+                    {processedData && (
+                      <div className="mt-4 rounded-md bg-green-50 p-3 text-green-800">
+                        <div className="flex">
+                          <Check className="h-5 w-5 text-green-500" />
+                          <div className="ml-3">
+                            <p className="text-sm font-medium">
+                              File Validated
+                            </p>
+                            <p className="mt-1 text-xs">
+                              The file has been validated and is ready for
+                              upload.
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <FormDescription>
-                Upload an Excel or CSV file with your patient appointment data
-              </FormDescription>
+                    )}
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Upload an Excel or CSV file with your patient appointment data
+                </p>
+              </div>
             </div>
+          )}
 
-            {/* Custom Prompt */}
-            <FormField
-              control={form.control}
-              name="customPrompt"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Campaign Intent (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Describe the intent of this campaign in natural language (e.g., 'This is an urgent notice about upcoming appointments that need confirmation')"
-                      className="min-h-[120px] resize-none"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Your natural language input will be combined with the base
-                    prompt to tailor the messaging for this run
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Schedule for Later */}
-            <FormField
-              control={form.control}
-              name="scheduleForLater"
-              render={({ field }) => (
-                <FormItem className="rounded-md border p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <FormLabel className="text-base">
-                        Schedule for Later
-                      </FormLabel>
-                      <FormDescription>
-                        Run will start at the scheduled time
-                      </FormDescription>
+          {/* Step 2: Configure Prompt */}
+          {currentStep === 1 && (
+            <div className="space-y-6">
+              {/* AI Prompt Generation Toggle */}
+              <FormField
+                control={form.control}
+                name="useAiGeneration"
+                render={({ field }) => (
+                  <FormItem className="rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FormLabel className="text-base">
+                          Use AI Prompt Generation
+                        </FormLabel>
+                        <FormDescription>
+                          Let AI enhance the prompt based on your description
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
                     </div>
+                  </FormItem>
+                )}
+              />
+
+              {/* Custom Prompt */}
+              <FormField
+                control={form.control}
+                name="customPrompt"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Custom Prompt</FormLabel>
                     <FormControl>
-                      <UISwitch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
+                      <Textarea
+                        placeholder={
+                          useAiGeneration
+                            ? "AI-generated prompt will appear here"
+                            : "Enter a custom prompt or leave blank to use the campaign's default"
+                        }
+                        className="min-h-[120px] resize-none"
+                        {...field}
+                        readOnly={useAiGeneration && isGeneratingPrompt}
                       />
                     </FormControl>
-                  </div>
+                    <FormDescription>
+                      {useAiGeneration
+                        ? "This AI-generated prompt will be used for all calls in this run"
+                        : "Your custom prompt will be combined with the base prompt"}
+                    </FormDescription>
+                    <FormMessage />
 
-                  {scheduleForLater && (
-                    <div className="mt-4 grid grid-cols-2 gap-4">
-                      {/* Date Picker */}
-                      <FormField
-                        control={form.control}
-                        name="scheduledDate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Date</FormLabel>
-                            <div className="relative">
+                    {/* Generating indicator */}
+                    {isGeneratingPrompt && (
+                      <div className="mt-2 flex items-center text-sm text-muted-foreground">
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        Generating prompt...
+                      </div>
+                    )}
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
+
+          {/* Step 3: Schedule & Name */}
+          {currentStep === 2 && (
+            <div className="space-y-6">
+              {/* Run Name */}
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Run Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Weekly Appointment Confirmations"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Give your run a descriptive name
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Schedule for Later */}
+              <FormField
+                control={form.control}
+                name="scheduleForLater"
+                render={({ field }) => (
+                  <FormItem className="rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FormLabel className="text-base">
+                          Schedule for Later
+                        </FormLabel>
+                        <FormDescription>
+                          Run will start at the scheduled time
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </div>
+
+                    {scheduleForLater && (
+                      <div className="mt-4 grid grid-cols-2 gap-4">
+                        {/* Date Picker */}
+                        <FormField
+                          control={form.control}
+                          name="scheduledDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Date</FormLabel>
                               <FormControl>
                                 <Input
-                                  type="text"
-                                  readOnly
+                                  type="date"
+                                  min={format(new Date(), "yyyy-MM-dd")}
+                                  {...field}
                                   value={
                                     field.value
-                                      ? format(field.value, "PPP")
+                                      ? format(field.value, "yyyy-MM-dd")
                                       : ""
                                   }
-                                  placeholder="Pick a date"
-                                  className="cursor-pointer"
-                                  onClick={() => setShowCalendar(!showCalendar)}
+                                  onChange={(e) => {
+                                    const date = e.target.value
+                                      ? new Date(e.target.value)
+                                      : null;
+                                    field.onChange(date);
+                                  }}
                                 />
                               </FormControl>
-                              <Calendar className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
-                              {showCalendar && (
-                                <div className="absolute left-0 top-full z-10 mt-1 rounded-md border bg-white p-3 shadow-md">
-                                  <div className="mb-2 flex items-center justify-between">
-                                    <h4 className="text-sm font-medium">
-                                      {format(new Date(), "MMMM yyyy")}
-                                    </h4>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 w-7 p-0"
-                                      onClick={() => setShowCalendar(false)}
-                                    >
-                                      <span className="sr-only">Close</span>×
-                                    </Button>
-                                  </div>
+                        {/* Time Picker */}
+                        <FormField
+                          control={form.control}
+                          name="scheduledTime"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Time</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="time"
+                                  {...field}
+                                  disabled={!form.getValues("scheduledDate")}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    )}
+                  </FormItem>
+                )}
+              />
 
-                                  <div className="grid grid-cols-7 gap-1 text-center">
-                                    {[
-                                      "Su",
-                                      "Mo",
-                                      "Tu",
-                                      "We",
-                                      "Th",
-                                      "Fr",
-                                      "Sa",
-                                    ].map((day) => (
-                                      <div
-                                        key={day}
-                                        className="text-xs font-medium"
-                                      >
-                                        {day}
-                                      </div>
-                                    ))}
-
-                                    {calendarDates.map((date, i) => (
-                                      <Button
-                                        key={i}
-                                        variant="ghost"
-                                        size="sm"
-                                        className={`h-7 w-7 p-0 ${
-                                          scheduledDate &&
-                                          date.getDate() ===
-                                            scheduledDate.getDate() &&
-                                          date.getMonth() ===
-                                            scheduledDate.getMonth() &&
-                                          date.getFullYear() ===
-                                            scheduledDate.getFullYear()
-                                            ? "bg-primary text-primary-foreground"
-                                            : ""
-                                        }`}
-                                        onClick={() => {
-                                          field.onChange(date);
-                                          setShowCalendar(false);
-                                        }}
-                                      >
-                                        {date.getDate()}
-                                      </Button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {/* Time Picker */}
-                      <FormField
-                        control={form.control}
-                        name="scheduledTime"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Time</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="time"
-                                {...field}
-                                disabled={!scheduledDate}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+              {/* Summary of the run */}
+              {processedData && (
+                <div className="bg-gray-50 rounded-md p-4">
+                  <h3 className="mb-2 font-medium">Run Summary</h3>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Rows:</span>
+                      <span className="font-medium">
+                        {processedData.totalRows || 0}
+                      </span>
                     </div>
-                  )}
-                </FormItem>
+                    {processedData.invalidRows > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Invalid Rows:
+                        </span>
+                        <span className="font-medium text-amber-600">
+                          {processedData.invalidRows}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Valid Calls:
+                      </span>
+                      <span className="font-medium text-green-600">
+                        {(processedData.totalRows || 0) -
+                          (processedData.invalidRows || 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               )}
-            />
-          </CardContent>
+            </div>
+          )}
 
-          <CardFooter className="flex justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onCancel}
-              disabled={isProcessingFile}
-            >
-              Cancel
-            </Button>
+          {/* Navigation buttons */}
+          <div className="flex justify-between pt-4">
+            {currentStep === 0 ? (
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={prevStep}
+                disabled={isProcessingFile || isGeneratingPrompt}
+              >
+                Back
+              </Button>
+            )}
 
-            <Button
-              type="submit"
-              disabled={isProcessingFile || (!processedData && !!file)}
-            >
-              {isProcessingFile && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {isProcessingFile ? (
-                "Processing..."
-              ) : (
-                <>
-                  Create Run <ChevronRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </CardFooter>
-        </Card>
-      </form>
-    </Form>
+            {currentStep < steps.length - 1 ? (
+              <Button
+                type="button"
+                onClick={nextStep}
+                disabled={
+                  !canProceedFromCurrentStep() ||
+                  isProcessingFile ||
+                  isGeneratingPrompt
+                }
+              >
+                {isProcessingFile || isGeneratingPrompt ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {currentStep === 0 ? "Validating..." : "Processing..."}
+                  </>
+                ) : (
+                  <>
+                    Next <ChevronRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                disabled={
+                  !canProceedFromCurrentStep() ||
+                  isProcessingFile ||
+                  isGeneratingPrompt
+                }
+              >
+                {isProcessingFile ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    Create Run <ChevronRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </form>
+      </Form>
+    </div>
   );
 }

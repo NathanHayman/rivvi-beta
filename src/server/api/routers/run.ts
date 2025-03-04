@@ -1,6 +1,4 @@
 // src/server/api/routers/run.ts
-import { CallProcessor } from "@/lib/call/call-processor";
-import { parseFileContent, processExcelFile } from "@/lib/excel-processor";
 import { pusherServer } from "@/lib/pusher-server";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import {
@@ -10,6 +8,8 @@ import {
   rows,
   runs,
 } from "@/server/db/schema";
+import { CallProcessor } from "@/services/call";
+import { parseFileContent, processExcelFile } from "@/services/file";
 import { TCampaignTemplate } from "@/types/db";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq } from "drizzle-orm";

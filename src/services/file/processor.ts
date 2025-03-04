@@ -1,10 +1,10 @@
-// src/lib/excel-processor.ts - Enhanced
+// src/lib/excel-processor.ts - Complete Fixed Version
 import { db } from "@/server/db";
+import { PatientService } from "@/services/patient";
 import { nanoid } from "nanoid";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { formatDate, formatPhoneNumber, isValidDate } from "./format-utils";
-import { generatePatientHash, PatientService } from "./patient/patient-service";
+import { formatDate, formatPhoneNumber, isValidDate } from "./utils";
 
 // Types for campaign configuration
 type FieldConfig = {
@@ -21,8 +21,6 @@ type FieldConfig = {
   required: boolean;
   description?: string;
 };
-
-// Additional type definitions omitted for brevity...
 
 /**
  * Parse file content based on file type (Excel or CSV)
@@ -78,7 +76,9 @@ export function parseFileContent(
 
       if (errors.length > 0) {
         console.error("CSV parsing errors:", errors);
-        throw new Error(`CSV parsing error: ${errors[0]?.message}`);
+        throw new Error(
+          `CSV parsing error: ${errors[0]?.message || "Unknown error"}`,
+        );
       }
 
       // Alert if no data
@@ -140,7 +140,7 @@ export function parseFileContent(
 
 /**
  * Find a matching column in the row data based on possible column names
- * Enhanced with fuzzy matching and scoring
+ * Improved with more deterministic matching logic
  */
 function findMatchingColumn(
   headers: string[],
@@ -150,26 +150,17 @@ function findMatchingColumn(
     return null;
   }
 
-  // Normalize all headers (lowercase, trim, remove special chars)
-  const normalizedHeaders = headers.map((key) => ({
-    original: key,
-    normalized: key
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]/g, ""),
+  // Normalize all headers (lowercase, remove spaces, special chars)
+  const normalizedHeaders = headers.map((h) => ({
+    original: h,
+    normalized: h.toLowerCase().replace(/[^a-z0-9]/g, ""),
   }));
 
-  // Track best match with scoring
-  let bestMatch = null;
-  let bestScore = 0;
-
+  // Try exact match first (case insensitive)
   for (const column of possibleColumns) {
-    const normalizedColumn = column
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]/g, "");
+    const normalizedColumn = column.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-    // Try exact match (highest priority)
+    // Check for exact match
     const exactMatch = normalizedHeaders.find(
       (h) =>
         h.normalized === normalizedColumn ||
@@ -179,58 +170,39 @@ function findMatchingColumn(
     if (exactMatch) {
       return exactMatch.original;
     }
+  }
 
-    // Try contains match with scoring based on length ratio
+  // Try key word matching for more reliable partial matches
+  for (const column of possibleColumns) {
+    const columnWords = column.toLowerCase().split(/\s+/);
+
     for (const header of normalizedHeaders) {
-      // Different match types with scores
-      let score = 0;
-
-      // Header contains the column name
-      if (header.normalized.includes(normalizedColumn)) {
-        // Score based on how much of the header is the column name
-        score = (normalizedColumn.length / header.normalized.length) * 100;
-      }
-      // Column name contains the header
-      else if (
-        normalizedColumn.includes(header.normalized) &&
-        header.normalized.length > 3
+      // Check if header contains all words in the column name
+      if (
+        columnWords.every(
+          (word) => word.length > 2 && header.normalized.includes(word),
+        )
       ) {
-        // Score based on how much of the column name is the header
-        score = (header.normalized.length / normalizedColumn.length) * 90; // Slightly lower priority
-      }
-      // Word-by-word matching
-      else {
-        const columnWords = normalizedColumn.split(/[^a-z0-9]+/);
-        const headerWords = header.normalized.split(/[^a-z0-9]+/);
-
-        // Count matching words
-        let matchingWords = 0;
-        for (const word of columnWords) {
-          if (
-            word.length > 2 &&
-            headerWords.some((hw) => hw.includes(word) || word.includes(hw))
-          ) {
-            matchingWords++;
-          }
-        }
-
-        if (matchingWords > 0) {
-          score =
-            (matchingWords / Math.max(columnWords.length, headerWords.length)) *
-            80;
-        }
-      }
-
-      // Update best match if we found a better score
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = header.original;
+        return header.original;
       }
     }
   }
 
-  // Set minimum threshold for match quality (60%)
-  return bestScore >= 60 ? bestMatch : null;
+  // Try contains matching as last resort
+  for (const column of possibleColumns) {
+    const normalizedColumn = column.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    for (const header of normalizedHeaders) {
+      if (
+        header.normalized.includes(normalizedColumn) &&
+        normalizedColumn.length > 3
+      ) {
+        return header.original;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -280,7 +252,9 @@ function transformValue(value: unknown, transform?: string): unknown {
   }
 }
 
-// Enhanced date formatting with better format detection
+/**
+ * Enhanced date formatting with better format detection
+ */
 function formatShortDate(dateString: string): string {
   try {
     // Handle Excel date (number of days since 1/1/1900)
@@ -304,21 +278,59 @@ function formatShortDate(dateString: string): string {
         }
         return null;
       },
-      // MM/DD/YYYY
+      // MM/DD/YY or MM/DD/YYYY
       () => {
-        const match = dateString.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+        const match = dateString.match(
+          /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/,
+        );
         if (match) {
-          const [_, month, day, year] = match;
-          return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          const [_, month, day, yearStr] = match;
+          let year = parseInt(yearStr);
+
+          // Handle 2-digit years - use threshold of 25
+          // Years 00-25 → 2000-2025, Years 26-99 → 1926-1999
+          if (year < 100) {
+            year += year < 25 ? 2000 : 1900;
+          }
+
+          // Ensure the date is valid
+          const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
+          if (
+            parsedDate.getFullYear() === year &&
+            parsedDate.getMonth() === parseInt(month) - 1 &&
+            parsedDate.getDate() === parseInt(day)
+          ) {
+            return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          }
+          return null;
         }
         return null;
       },
-      // DD/MM/YYYY
+      // DD/MM/YY or DD/MM/YYYY
       () => {
-        const match = dateString.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+        const match = dateString.match(
+          /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/,
+        );
         if (match) {
-          const [_, day, month, year] = match;
-          return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          const [_, day, month, yearStr] = match;
+          let year = parseInt(yearStr);
+
+          // Handle 2-digit years - use threshold of 25
+          // Years 00-25 → 2000-2025, Years 26-99 → 1926-1999
+          if (year < 100) {
+            year += year < 25 ? 2000 : 1900;
+          }
+
+          // Ensure the date is valid
+          const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
+          if (
+            parsedDate.getFullYear() === year &&
+            parsedDate.getMonth() === parseInt(month) - 1 &&
+            parsedDate.getDate() === parseInt(day)
+          ) {
+            return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          }
+          return null;
         }
         return null;
       },
@@ -338,411 +350,43 @@ function formatShortDate(dateString: string): string {
   }
 }
 
-// Other helper functions (formatLongDate, formatTimeValue, formatProviderName)...
-
 /**
- * Process Excel or CSV file content according to campaign configuration
- * Enhanced with better deduplication, validation and error reporting
+ * Format a date for long date display (e.g., Tuesday, March 10, 2025)
  */
-export async function processExcelFile(
-  fileContent: string | ArrayBuffer,
-  fileName: string,
-  config: any,
-  orgId: string,
-): Promise<any> {
-  console.log("Processing file with enhanced processor");
-  const patientService = new PatientService(db);
-  const result = {
-    validRows: [],
-    invalidRows: [],
-    stats: {
-      totalRows: 0,
-      validRows: 0,
-      invalidRows: 0,
-      uniquePatients: 0,
-      duplicatePatients: 0,
-      newPatients: 0,
-      existingPatients: 0,
-    },
-    columnMappings: {},
-    matchedColumns: [],
-    unmatchedColumns: [],
-    sampleRows: [],
-    errors: [],
-    rawFileUrl: "",
-    processedFileUrl: "",
-  };
-
+function formatLongDate(dateString: string): string {
   try {
-    // Parse the file
-    const { headers, rows } = parseFileContent(fileContent, fileName);
-    result.stats.totalRows = rows.length;
-
-    if (rows.length === 0) {
-      throw new Error("No data found in the uploaded file");
+    // Handle Excel date (number of days since 1/1/1900)
+    if (!isNaN(Number(dateString))) {
+      const excelDate = Number(dateString);
+      const date = new Date(Date.UTC(1900, 0, excelDate - 1));
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
     }
 
-    // Keep track of all columns for reporting
-    const allColumns = new Set(headers);
-    const matchedColumns = new Set<string>();
-
-    // Track column mappings for all fields
-    const allColumnMappings: Record<string, string> = {};
-
-    // Track unique patients for deduplication
-    const patientHashes = new Map<string, number>(); // Hash -> Row index
-    const patientIds = new Map<string, string>(); // Hash -> Patient ID
-
-    // Store sample rows for preview (first 5 valid, first 5 invalid)
-    const sampleValidRows: any[] = [];
-    const sampleInvalidRows: any[] = [];
-
-    // Process each row
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row) continue; // Skip undefined rows
-
-      try {
-        // Extract patient data
-        const {
-          extractedData: patientData,
-          columnMappings: patientColumnMappings,
-          missingRequired: missingPatientFields,
-        } = extractFields(row, headers, config.variables.patient.fields);
-
-        // Track matched columns
-        Object.values(patientColumnMappings).forEach((col) =>
-          matchedColumns.add(col),
-        );
-
-        // Merge column mappings
-        Object.assign(allColumnMappings, patientColumnMappings);
-
-        // Check for missing required patient fields
-        if (missingPatientFields.length > 0) {
-          throw new Error(
-            `Missing required patient fields: ${missingPatientFields.join(", ")}`,
-          );
-        }
-
-        // Validate patient data
-        const validationError = validatePatientData(
-          patientData,
-          config.variables.patient.validation,
-        );
-        if (validationError) {
-          throw new Error(validationError);
-        }
-
-        // Extract campaign data
-        const {
-          extractedData: campaignData,
-          columnMappings: campaignColumnMappings,
-          missingRequired: missingCampaignFields,
-        } = extractFields(row, headers, config.variables.campaign.fields);
-
-        // Track matched columns
-        Object.values(campaignColumnMappings).forEach((col) =>
-          matchedColumns.add(col),
-        );
-
-        // Merge column mappings
-        Object.assign(allColumnMappings, campaignColumnMappings);
-
-        // Check for missing required campaign fields
-        if (missingCampaignFields.length > 0) {
-          throw new Error(
-            `Missing required campaign fields: ${missingCampaignFields.join(", ")}`,
-          );
-        }
-
-        // Generate patient hash for deduplication
-        let patientHash: string | null = null;
-        let patientId: string | null = null;
-        let isNewPatient = true;
-
-        if (
-          patientData.firstName &&
-          patientData.lastName &&
-          (patientData.primaryPhone ||
-            patientData.phoneNumber ||
-            patientData.cellPhone) &&
-          patientData.dob
-        ) {
-          const phoneToUse =
-            patientData.primaryPhone ||
-            patientData.phoneNumber ||
-            patientData.cellPhone;
-
-          // Generate primary hash
-          patientHash = generatePatientHash(
-            String(patientData.firstName),
-            String(patientData.lastName),
-            String(patientData.dob),
-            String(phoneToUse),
-          );
-
-          // Check if this patient has been seen before in this file
-          if (patientHashes.has(patientHash)) {
-            result.stats.duplicatePatients++;
-            const originalRowIndex = patientHashes.get(patientHash);
-            console.log(
-              `Duplicate patient found in rows ${originalRowIndex} and ${i + 2}`,
-            );
-
-            // Use existing patient ID if available
-            patientId = patientIds.get(patientHash) || null;
-            isNewPatient = false;
-          } else {
-            patientHashes.set(patientHash, i + 2); // Store 1-based row index for reporting
-            result.stats.uniquePatients++;
-
-            // Process patient record - find or create in database
-            try {
-              const patient = await patientService.findOrCreatePatient({
-                firstName: String(patientData.firstName),
-                lastName: String(patientData.lastName),
-                dob: String(patientData.dob),
-                phone: String(phoneToUse),
-                emrId:
-                  patientData.emrId || patientData.patientNumber
-                    ? String(patientData.emrId || patientData.patientNumber)
-                    : undefined,
-                orgId,
-              });
-
-              if (patient) {
-                patientId = patient.id;
-                patientIds.set(patientHash, patientId);
-                isNewPatient = patient.isNewPatient;
-
-                // Update stats
-                if (isNewPatient) {
-                  result.stats.newPatients++;
-                } else {
-                  result.stats.existingPatients++;
-                }
-              }
-            } catch (error) {
-              console.error("Error finding/creating patient:", error);
-              throw new Error(
-                `Patient record error: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
-          }
-        }
-
-        // Combine all variables into a structured format
-        const processedRow = {
-          id: nanoid(),
-          isValid: true,
-          patientId,
-          patientHash,
-          patientData,
-          campaignData,
-          isNewPatient,
-          validationErrors: [],
-        };
-
-        // Add to valid rows
-        result.validRows.push({
-          patientId,
-          patientHash,
-          variables: {
-            ...patientData,
-            ...campaignData,
-          },
-        });
-
-        // Add to sample rows for preview (up to 5)
-        if (sampleValidRows.length < 5) {
-          sampleValidRows.push(processedRow);
-        }
-
-        result.stats.validRows++;
-      } catch (error) {
-        // Collect error info
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-
-        // Add to invalid rows with detailed context
-        const invalidRow = {
-          id: nanoid(),
-          index: i + 2, // +2 for 1-based index and header row
-          isValid: false,
-          rawData: row,
-          error: errorMessage,
-          validationErrors: [errorMessage],
-          patientData: {}, // Default empty objects
-          campaignData: {},
-        };
-
-        // Try to extract partial data even if validation failed
-        try {
-          // Get whatever patient data we can
-          const { extractedData: partialPatientData } = extractFields(
-            row,
-            headers,
-            config.variables.patient.fields,
-            false, // Don't require fields for invalid rows
-          );
-
-          // Get whatever campaign data we can
-          const { extractedData: partialCampaignData } = extractFields(
-            row,
-            headers,
-            config.variables.campaign.fields,
-            false, // Don't require fields for invalid rows
-          );
-
-          // Add partial data to the invalid row
-          invalidRow.patientData = partialPatientData;
-          invalidRow.campaignData = partialCampaignData;
-        } catch (e) {
-          // Ignore extraction errors for invalid rows
-        }
-
-        result.invalidRows.push(invalidRow);
-
-        // Add to sample invalid rows for preview (up to 5)
-        if (sampleInvalidRows.length < 5) {
-          sampleInvalidRows.push(invalidRow);
-        }
-
-        result.stats.invalidRows++;
-      }
+    // Format as full date
+    const date = new Date(dateString);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
     }
 
-    // Add all sample rows
-    result.sampleRows = [...sampleValidRows, ...sampleInvalidRows];
-
-    // Store overall column mappings
-    result.columnMappings = allColumnMappings;
-
-    // Calculate unmatched columns
-    result.matchedColumns = Array.from(matchedColumns);
-    result.unmatchedColumns = Array.from(allColumns).filter(
-      (col) => !matchedColumns.has(col),
-    );
-
-    // Store file URLs (in a real implementation, you might upload to S3 or another storage service)
-    const fileId = nanoid();
-    result.rawFileUrl = `/uploads/${fileId}_raw.${fileName.split(".").pop()}`;
-    result.processedFileUrl = `/uploads/${fileId}_processed.xlsx`;
-
-    // Collect general errors
-    if (result.validRows.length === 0 && rows.length > 0) {
-      result.errors.push("No valid rows could be processed from the file");
-    }
-
-    // Report unmatched columns if there are any
-    if (result.unmatchedColumns.length > 0) {
-      result.errors.push(
-        `${result.unmatchedColumns.length} columns were not mapped: ${result.unmatchedColumns.join(", ")}`,
-      );
-    }
+    return dateString;
   } catch (error) {
-    console.error("File processing error:", error);
-    result.errors.push(error instanceof Error ? error.message : String(error));
+    return dateString;
   }
-
-  return result;
 }
 
 /**
- * Extract field values from a row based on field configuration
- * Enhanced with better error handling and optional requirements
+ * Format a time value (handles various time formats)
  */
-function extractFields(
-  row: Record<string, unknown>,
-  headers: string[],
-  fields: FieldConfig[],
-  enforceRequired = true,
-): {
-  extractedData: Record<string, unknown>;
-  columnMappings: Record<string, string>;
-  missingRequired: string[];
-} {
-  const extractedData: Record<string, unknown> = {};
-  const columnMappings: Record<string, string> = {};
-  const missingRequired: string[] = [];
-
-  for (const field of fields) {
-    const columnName = findMatchingColumn(headers, field.possibleColumns);
-
-    if (columnName) {
-      columnMappings[field.key] = columnName;
-      const rawValue = row[columnName];
-      extractedData[field.key] = transformValue(rawValue, field.transform);
-    } else if (field.required && enforceRequired) {
-      missingRequired.push(field.label);
-    }
-  }
-
-  return { extractedData, columnMappings, missingRequired };
-}
-
-/**
- * Validate a patient record against the configuration
- * Enhanced with more detailed validation
- */
-function validatePatientData(
-  patientData: Record<string, unknown>,
-  validation: {
-    requireValidPhone: boolean;
-    requireValidDOB: boolean;
-    requireName: boolean;
-  },
-): string | null {
-  const errors = [];
-
-  // Check for required phone
-  if (validation.requireValidPhone) {
-    const phone =
-      patientData.primaryPhone ||
-      patientData.phoneNumber ||
-      patientData.cellPhone;
-
-    if (!phone) {
-      errors.push("Valid phone number is required");
-    } else {
-      // Basic phone validation - should have at least 10 digits
-      const digitsOnly = String(phone).replace(/\D/g, "");
-      if (digitsOnly.length < 10) {
-        errors.push(`Phone number ${phone} does not appear to be valid`);
-      }
-    }
-  }
-
-  // Check for valid DOB
-  if (validation.requireValidDOB) {
-    if (!patientData.dob) {
-      errors.push("Date of birth is required");
-    } else if (!isValidDate(String(patientData.dob))) {
-      errors.push(`Date of birth "${patientData.dob}" is not a valid date`);
-    } else {
-      // Additional check - date shouldn't be in the future
-      const dobDate = new Date(String(patientData.dob));
-      if (dobDate > new Date()) {
-        errors.push("Date of birth cannot be in the future");
-      }
-    }
-  }
-
-  // Check for name
-  if (validation.requireName) {
-    if (!patientData.firstName) {
-      errors.push("First name is required");
-    }
-    if (!patientData.lastName) {
-      errors.push("Last name is required");
-    }
-  }
-
-  return errors.length > 0 ? errors.join("; ") : null;
-}
-
-// Helper functions for date and time formatting
 function formatTimeValue(timeString: string): string {
   try {
     // If it's a number, treat as Excel time (fraction of day)
@@ -791,37 +435,9 @@ function formatTimeValue(timeString: string): string {
   }
 }
 
-function formatLongDate(dateString: string): string {
-  try {
-    // Handle Excel date (number of days since 1/1/1900)
-    if (!isNaN(Number(dateString))) {
-      const excelDate = Number(dateString);
-      const date = new Date(Date.UTC(1900, 0, excelDate - 1));
-      return date.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    }
-
-    // Format as full date (e.g., Tuesday, March 10, 2025)
-    const date = new Date(dateString);
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-    }
-
-    return dateString;
-  } catch (error) {
-    return dateString;
-  }
-}
-
+/**
+ * Format provider name with proper capitalization
+ */
 function formatProviderName(providerName: string): string {
   try {
     // Normalize provider name format (capitalize properly)
@@ -838,6 +454,483 @@ function formatProviderName(providerName: string): string {
   } catch (error) {
     return providerName;
   }
+}
+
+/**
+ * Process Excel or CSV file content according to campaign configuration
+ * Enhanced with better deduplication, validation and error reporting
+ */
+export async function processExcelFile(
+  fileContent: string | ArrayBuffer,
+  fileName: string,
+  config: any,
+  orgId: string,
+): Promise<any> {
+  console.log("Processing file with enhanced processor");
+  const patientService = new PatientService(db);
+  const result = {
+    validRows: [],
+    invalidRows: [],
+    stats: {
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      uniquePatients: 0,
+      duplicatePatients: 0,
+      newPatients: 0,
+      existingPatients: 0,
+    },
+    columnMappings: {},
+    matchedColumns: [],
+    unmatchedColumns: [],
+    sampleRows: [],
+    errors: [],
+    rawFileUrl: "",
+    processedFileUrl: "",
+  };
+
+  try {
+    // Parse the file
+    const { headers, rows } = parseFileContent(fileContent, fileName);
+    result.stats.totalRows = rows.length;
+
+    console.log(
+      `Parsed ${rows.length} rows with headers: ${headers.join(", ")}`,
+    );
+
+    if (rows.length === 0) {
+      throw new Error("No data found in the uploaded file");
+    }
+
+    // Validate that required config sections exist
+    if (
+      !config.variables?.patient?.fields ||
+      !config.variables?.campaign?.fields
+    ) {
+      throw new Error(
+        "Invalid campaign configuration: missing required field definitions",
+      );
+    }
+
+    // Track all columns for reporting
+    const allColumns = new Set(headers);
+    const matchedColumns = new Set<string>();
+
+    // Track column mappings for all fields
+    const allColumnMappings: Record<string, string> = {};
+
+    // Track unique patients for deduplication
+    const patientHashes = new Map<string, number>();
+    const patientIds = new Map<string, string>();
+
+    // Store sample rows for preview
+    const sampleValidRows: any[] = [];
+    const sampleInvalidRows: any[] = [];
+
+    // Process each row
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+
+      try {
+        // Extract patient data with better logging
+        console.log(`Extracting patient data for row ${i + 1}`);
+
+        const {
+          extractedData: patientData,
+          columnMappings: patientColumnMappings,
+          missingRequired: missingPatientFields,
+        } = extractFields(row, headers, config.variables.patient.fields);
+
+        console.log(`Patient data extracted:`, JSON.stringify(patientData));
+        console.log(
+          `Patient column mappings:`,
+          JSON.stringify(patientColumnMappings),
+        );
+
+        // Track matched columns
+        Object.values(patientColumnMappings).forEach((col) =>
+          matchedColumns.add(col),
+        );
+
+        // Merge column mappings
+        Object.assign(allColumnMappings, patientColumnMappings);
+
+        // Check for missing required patient fields
+        if (missingPatientFields.length > 0) {
+          throw new Error(
+            `Missing required patient fields: ${missingPatientFields.join(", ")}`,
+          );
+        }
+
+        // Validate patient data
+        const validationError = validatePatientData(
+          patientData,
+          config.variables.patient.validation,
+        );
+        if (validationError) {
+          throw new Error(validationError);
+        }
+
+        // Extract campaign data
+        console.log(`Extracting campaign data for row ${i + 1}`);
+
+        const {
+          extractedData: campaignData,
+          columnMappings: campaignColumnMappings,
+          missingRequired: missingCampaignFields,
+        } = extractFields(row, headers, config.variables.campaign.fields);
+
+        console.log(`Campaign data extracted:`, JSON.stringify(campaignData));
+        console.log(
+          `Campaign column mappings:`,
+          JSON.stringify(campaignColumnMappings),
+        );
+
+        // Track matched columns
+        Object.values(campaignColumnMappings).forEach((col) =>
+          matchedColumns.add(col),
+        );
+
+        // Merge column mappings
+        Object.assign(allColumnMappings, campaignColumnMappings);
+
+        // Check for missing required campaign fields
+        if (missingCampaignFields.length > 0) {
+          throw new Error(
+            `Missing required campaign fields: ${missingCampaignFields.join(", ")}`,
+          );
+        }
+
+        // Generate patient hash for deduplication with improved phone handling
+        let patientHash: string | null = null;
+        let patientId: string | null = null;
+        let isNewPatient = true;
+
+        // Make sure we have minimum required patient data
+        if (
+          patientData.firstName &&
+          patientData.lastName &&
+          (patientData.primaryPhone ||
+            patientData.phone ||
+            patientData.phoneNumber) &&
+          patientData.dob
+        ) {
+          // Make sure we have a phone number in a standard field
+          const phoneToUse =
+            patientData.primaryPhone ||
+            patientData.phone ||
+            patientData.phoneNumber;
+
+          if (!phoneToUse) {
+            throw new Error("No valid phone number found for patient");
+          }
+
+          // Generate primary hash
+          patientHash = patientService.generatePatientHash(
+            String(patientData.firstName),
+            String(patientData.lastName),
+            String(patientData.dob),
+            String(phoneToUse),
+          );
+
+          console.log(
+            `Generated patient hash: ${patientHash} for row ${i + 1}`,
+          );
+
+          // Check if this patient has been seen before in this file
+          if (patientHashes.has(patientHash)) {
+            result.stats.duplicatePatients++;
+            const originalRowIndex = patientHashes.get(patientHash);
+            console.log(
+              `Duplicate patient found in rows ${originalRowIndex} and ${i + 2}`,
+            );
+
+            // Use existing patient ID if available
+            patientId = patientIds.get(patientHash) || null;
+            isNewPatient = false;
+          } else {
+            patientHashes.set(patientHash, i + 2); // Store 1-based row index for reporting
+            result.stats.uniquePatients++;
+
+            // Find or create patient record
+            try {
+              const patient = await patientService.findOrCreatePatient({
+                firstName: String(patientData.firstName),
+                lastName: String(patientData.lastName),
+                dob: String(patientData.dob),
+                phone: String(phoneToUse),
+                emrId:
+                  patientData.emrId || patientData.patientNumber
+                    ? String(patientData.emrId || patientData.patientNumber)
+                    : undefined,
+                orgId,
+              });
+
+              if (patient) {
+                patientId = patient.id;
+                patientIds.set(patientHash, patientId);
+                isNewPatient = patient.isNewPatient;
+
+                // Update stats
+                if (isNewPatient) {
+                  result.stats.newPatients++;
+                } else {
+                  result.stats.existingPatients++;
+                }
+
+                console.log(
+                  `Patient ID: ${patientId}, isNewPatient: ${isNewPatient}`,
+                );
+              }
+            } catch (error) {
+              console.error("Error finding/creating patient:", error);
+              throw new Error(
+                `Patient record error: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }
+        } else {
+          // Log which fields are missing
+          const missingFields = [];
+          if (!patientData.firstName) missingFields.push("firstName");
+          if (!patientData.lastName) missingFields.push("lastName");
+          if (!patientData.dob) missingFields.push("dob");
+          if (
+            !(
+              patientData.primaryPhone ||
+              patientData.phone ||
+              patientData.phoneNumber
+            )
+          ) {
+            missingFields.push("phone number");
+          }
+
+          console.warn(
+            `Missing patient data for row ${i + 1}: ${missingFields.join(", ")}`,
+          );
+        }
+
+        // Create a structured valid row
+        const processedRow = {
+          id: nanoid(),
+          isValid: true,
+          patientId,
+          patientHash,
+          patientData,
+          campaignData,
+          isNewPatient,
+          validationErrors: [],
+        };
+
+        // Add to valid rows with properly structured data
+        result.validRows.push({
+          patientId,
+          patientHash,
+          variables: {
+            ...patientData, // Patient data
+            ...campaignData, // Campaign data
+          },
+        });
+
+        // Add to sample rows for preview (up to 5)
+        if (sampleValidRows.length < 5) {
+          sampleValidRows.push(processedRow);
+        }
+
+        result.stats.validRows++;
+      } catch (error) {
+        // Handle row processing errors
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        console.error(`Error processing row ${i + 1}:`, errorMessage);
+
+        // Add to invalid rows with detailed context
+        const invalidRow = {
+          id: nanoid(),
+          index: i + 2, // +2 for 1-based index and header row
+          isValid: false,
+          rawData: row,
+          error: errorMessage,
+          validationErrors: [errorMessage],
+          patientData: {}, // Default empty objects
+          campaignData: {},
+        };
+
+        // Try to extract partial data even if validation failed
+        try {
+          // Get whatever patient data we can
+          const { extractedData: partialPatientData } = extractFields(
+            row,
+            headers,
+            config.variables.patient.fields,
+            false, // Don't require fields for invalid rows
+          );
+
+          // Get whatever campaign data we can
+          const { extractedData: partialCampaignData } = extractFields(
+            row,
+            headers,
+            config.variables.campaign.fields,
+            false, // Don't require fields for invalid rows
+          );
+
+          // Add partial data to the invalid row
+          invalidRow.patientData = partialPatientData;
+          invalidRow.campaignData = partialCampaignData;
+        } catch (e) {
+          // Ignore extraction errors for invalid rows
+          console.warn(
+            `Couldn't extract partial data for invalid row ${i + 1}:`,
+            e,
+          );
+        }
+
+        result.invalidRows.push(invalidRow);
+
+        // Add to sample invalid rows for preview (up to 5)
+        if (sampleInvalidRows.length < 5) {
+          sampleInvalidRows.push(invalidRow);
+        }
+
+        result.stats.invalidRows++;
+      }
+    }
+
+    // Add all sample rows
+    result.sampleRows = [...sampleValidRows, ...sampleInvalidRows];
+
+    // Store overall column mappings
+    result.columnMappings = allColumnMappings;
+
+    // Calculate unmatched columns
+    result.matchedColumns = Array.from(matchedColumns);
+    result.unmatchedColumns = Array.from(allColumns).filter(
+      (col) => !matchedColumns.has(col),
+    );
+
+    // Collect general errors and warnings
+    if (result.validRows.length === 0 && rows.length > 0) {
+      result.errors.push("No valid rows could be processed from the file");
+    }
+
+    if (result.unmatchedColumns.length > 0) {
+      console.warn(`Unmatched columns: ${result.unmatchedColumns.join(", ")}`);
+      result.errors.push(
+        `${result.unmatchedColumns.length} columns were not mapped: ${result.unmatchedColumns.join(", ")}`,
+      );
+    }
+
+    console.log("File processing complete with stats:", {
+      totalRows: result.stats.totalRows,
+      validRows: result.stats.validRows,
+      invalidRows: result.stats.invalidRows,
+      uniquePatients: result.stats.uniquePatients,
+      duplicatePatients: result.stats.duplicatePatients,
+    });
+
+    // Generate file IDs for storage references
+    const fileId = nanoid();
+    result.rawFileUrl = `/uploads/${fileId}_raw.${fileName.split(".").pop()}`;
+    result.processedFileUrl = `/uploads/${fileId}_processed.xlsx`;
+  } catch (error) {
+    console.error("File processing error:", error);
+    result.errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  return result;
+}
+
+/**
+ * Extract field values from a row with improved error handling
+ */
+function extractFields(
+  row: Record<string, unknown>,
+  headers: string[],
+  fields: Array<any>,
+  enforceRequired = true,
+): {
+  extractedData: Record<string, unknown>;
+  columnMappings: Record<string, string>;
+  missingRequired: string[];
+} {
+  const extractedData: Record<string, unknown> = {};
+  const columnMappings: Record<string, string> = {};
+  const missingRequired: string[] = [];
+
+  for (const field of fields) {
+    const columnName = findMatchingColumn(headers, field.possibleColumns);
+
+    if (columnName) {
+      columnMappings[field.key] = columnName;
+      const rawValue = row[columnName];
+      extractedData[field.key] = transformValue(rawValue, field.transform);
+    } else if (field.required && enforceRequired) {
+      missingRequired.push(field.label);
+    }
+  }
+
+  return { extractedData, columnMappings, missingRequired };
+}
+
+/**
+ * Validate a patient record against the configuration
+ * Enhanced with more detailed validation
+ */
+function validatePatientData(
+  patientData: Record<string, unknown>,
+  validation: {
+    requireValidPhone: boolean;
+    requireValidDOB: boolean;
+    requireName: boolean;
+  },
+): string | null {
+  const errors = [];
+
+  // Check for required phone
+  if (validation.requireValidPhone) {
+    const phone =
+      patientData.primaryPhone || patientData.phoneNumber || patientData.phone;
+
+    if (!phone) {
+      errors.push("Valid phone number is required");
+    } else {
+      // Basic phone validation - should have at least 10 digits
+      const digitsOnly = String(phone).replace(/\D/g, "");
+      if (digitsOnly.length < 10) {
+        errors.push(
+          `Phone number ${phone} does not appear to be valid (needs at least 10 digits)`,
+        );
+      }
+    }
+  }
+
+  // Check for valid DOB
+  if (validation.requireValidDOB) {
+    if (!patientData.dob) {
+      errors.push("Date of birth is required");
+    } else if (!isValidDate(String(patientData.dob))) {
+      errors.push(`Date of birth "${patientData.dob}" is not a valid date`);
+    } else {
+      // Additional check - date shouldn't be in the future
+      const dobDate = new Date(String(patientData.dob));
+      if (dobDate > new Date()) {
+        errors.push("Date of birth cannot be in the future");
+      }
+    }
+  }
+
+  // Check for name
+  if (validation.requireName) {
+    if (!patientData.firstName) {
+      errors.push("First name is required");
+    }
+    if (!patientData.lastName) {
+      errors.push("Last name is required");
+    }
+  }
+
+  return errors.length > 0 ? errors.join("; ") : null;
 }
 
 /**

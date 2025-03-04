@@ -1,22 +1,14 @@
-// src/components/forms/campaign-create-form.tsx
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
@@ -112,13 +104,11 @@ const campaignFormSchema = z.object({
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 
 interface CreateCampaignFormProps {
-  // agents: { agent_id: string; name: string; llm_id?: string | null }[];
   requestId?: string;
   onSuccess?: () => void;
 }
 
 export function CampaignCreateForm({
-  // agents,
   requestId,
   onSuccess,
 }: CreateCampaignFormProps) {
@@ -127,9 +117,9 @@ export function CampaignCreateForm({
   const steps = ["Campaign Details", "Variables", "Analysis", "Prompt"];
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const { data: agents } = api.admin.getAgents.useQuery();
-
   const { data: organizations } =
     api.admin.getOrganizationsIdsAndNames.useQuery();
 
@@ -418,11 +408,21 @@ export function CampaignCreateForm({
     }
 
     const isValid = await form.trigger(fieldsToValidate);
-    if (isValid) setStep((prev) => Math.min(prev + 1, steps.length - 1));
+    if (isValid) {
+      setStep((prev) => Math.min(prev + 1, steps.length - 1));
+      // Scroll to top when changing steps
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0;
+      }
+    }
   };
 
   const prevStep = () => {
     setStep((prev) => Math.max(prev - 1, 0));
+    // Scroll to top when changing steps
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
   };
 
   // Helper to add a new field
@@ -468,68 +468,61 @@ export function CampaignCreateForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <div className="mb-8">
-          {/* Progress indicator */}
-          <div className="mt-8">
-            <div className="flex items-center justify-between">
-              {steps.map((stepName, index) => (
-                <div key={stepName} className="flex flex-col items-center">
-                  <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
-                      index === step
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : index < step
-                          ? "border-primary bg-primary/20 text-primary"
-                          : "border-muted-foreground/30 text-muted-foreground"
-                    }`}
-                  >
-                    {index < step ? "✓" : index + 1}
-                  </div>
-                  <span
-                    className={`mt-2 text-sm ${
-                      index === step
-                        ? "font-medium text-primary"
-                        : index < step
-                          ? "text-primary"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    {stepName}
-                  </span>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="relative">
+        {/* Step indicator */}
+        <div className="bg-gray-50 border-b px-6 py-4">
+          <div className="flex items-center justify-between">
+            {steps.map((stepName, index) => (
+              <button
+                key={stepName}
+                type="button"
+                onClick={() => (index < step ? setStep(index) : null)}
+                disabled={index > step}
+                className={`flex flex-1 flex-col items-center ${
+                  index > step
+                    ? "cursor-not-allowed opacity-50"
+                    : "cursor-pointer"
+                }`}
+                tabIndex={index > step ? -1 : 0}
+              >
+                <div
+                  className={`mb-2 flex h-8 w-8 items-center justify-center rounded-full ${
+                    index === step
+                      ? "bg-primary text-white"
+                      : index < step
+                        ? "bg-primary/20 text-primary"
+                        : "bg-gray-200 text-gray-500"
+                  }`}
+                >
+                  {index + 1}
                 </div>
-              ))}
-            </div>
-            <div className="relative mt-2">
-              <div className="absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2 bg-muted"></div>
-              <div
-                className="absolute left-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary transition-all duration-300"
-                style={{ width: `${(step / (steps.length - 1)) * 100}%` }}
-              ></div>
-            </div>
+                <span
+                  className={`text-xs ${index === step ? "font-medium text-primary" : "text-gray-500"}`}
+                >
+                  {stepName}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
 
-        <ScrollArea className="h-[calc(100vh-360px)] pr-4">
-          {/* Step 1: Campaign Details */}
-          {step === 0 && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Campaign Information</CardTitle>
-                  <CardDescription>
-                    Enter the basic information for your campaign
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
+        <ScrollArea className="h-[calc(100vh-280px)]" ref={scrollRef}>
+          <div className="p-6">
+            {/* Step 1: Campaign Details */}
+            {step === 0 && (
+              <div className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Campaign Name</FormLabel>
+                        <FormLabel htmlFor="campaign-name">
+                          Campaign Name
+                        </FormLabel>
                         <FormControl>
                           <Input
+                            id="campaign-name"
                             placeholder="Appointment Confirmations"
                             {...field}
                           />
@@ -547,13 +540,15 @@ export function CampaignCreateForm({
                     name="orgId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Organization</FormLabel>
+                        <FormLabel htmlFor="organization">
+                          Organization
+                        </FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           defaultValue={field.value}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger id="organization">
                               <SelectValue placeholder="Select an organization" />
                             </SelectTrigger>
                           </FormControl>
@@ -572,20 +567,22 @@ export function CampaignCreateForm({
                       </FormItem>
                     )}
                   />
+                </div>
 
+                <div className="grid gap-6 md:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="agentId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Retell Agent</FormLabel>
+                        <FormLabel htmlFor="agent">Retell Agent</FormLabel>
                         {agents?.length > 0 ? (
                           <Select
                             onValueChange={field.onChange}
                             defaultValue={field.value}
                           >
                             <FormControl>
-                              <SelectTrigger>
+                              <SelectTrigger id="agent">
                                 <SelectValue placeholder="Select an agent" />
                               </SelectTrigger>
                             </FormControl>
@@ -602,7 +599,11 @@ export function CampaignCreateForm({
                           </Select>
                         ) : (
                           <FormControl>
-                            <Input placeholder="agent_abc123" {...field} />
+                            <Input
+                              id="agent"
+                              placeholder="agent_abc123"
+                              {...field}
+                            />
                           </FormControl>
                         )}
                         <FormDescription>
@@ -612,50 +613,21 @@ export function CampaignCreateForm({
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="llmId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Retell AI LLM ID</FormLabel>
-                        <FormControl>
-                          <Input
-                            readOnly
-                            disabled={true}
-                            placeholder={
-                              isLoadingAgent
-                                ? "Loading..."
-                                : "Select an agent to populate this field"
-                            }
-                            className={
-                              !field.value ? "italic text-muted-foreground" : ""
-                            }
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          This field is automatically populated based on the
-                          selected agent
-                          {isLoadingAgent && (
-                            <span className="ml-2">⏳ Loading...</span>
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+
                   <FormField
                     control={form.control}
                     name="direction"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Campaign Direction</FormLabel>
+                        <FormLabel htmlFor="direction">
+                          Campaign Direction
+                        </FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           defaultValue={field.value}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger id="direction">
                               <SelectValue placeholder="Select a direction" />
                             </SelectTrigger>
                           </FormControl>
@@ -672,62 +644,100 @@ export function CampaignCreateForm({
                       </FormItem>
                     )}
                   />
+                </div>
 
-                  <FormField
-                    control={form.control}
-                    name="configureWebhooks"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                        <div className="space-y-1 leading-none">
-                          <FormLabel>Configure Agent Webhooks</FormLabel>
-                          <FormDescription>
-                            Automatically update the Retell agent with
-                            appropriate webhook URLs for inbound calls and
-                            post-call analysis
-                          </FormDescription>
-                        </div>
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          )}
-          {/* The Variables step (Step 2) for CampaignCreateForm component */}
-          {step === 1 && (
-            <div className="space-y-8">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <div>
-                    <CardTitle>Patient Fields</CardTitle>
-                    <CardDescription>
-                      Define the patient data fields required for this campaign
-                    </CardDescription>
+                <FormField
+                  control={form.control}
+                  name="llmId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel htmlFor="llm-id">Retell AI LLM ID</FormLabel>
+                      <FormControl>
+                        <Input
+                          id="llm-id"
+                          readOnly
+                          disabled={true}
+                          placeholder={
+                            isLoadingAgent
+                              ? "Loading..."
+                              : "Select an agent to populate this field"
+                          }
+                          className={
+                            !field.value ? "italic text-muted-foreground" : ""
+                          }
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        This field is automatically populated based on the
+                        selected agent
+                        {isLoadingAgent && (
+                          <span className="ml-2">⏳ Loading...</span>
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="configureWebhooks"
+                  render={({ field }) => (
+                    <FormItem className="bg-gray-50 flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          id="configure-webhooks"
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel htmlFor="configure-webhooks">
+                          Configure Agent Webhooks
+                        </FormLabel>
+                        <FormDescription>
+                          Automatically update the Retell agent with appropriate
+                          webhook URLs for inbound calls and post-call analysis
+                        </FormDescription>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {/* Step 2: Variables */}
+            {step === 1 && (
+              <div className="space-y-8">
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium">Patient Fields</h3>
+                      <p className="text-gray-500 text-sm">
+                        Define the patient data fields required for this
+                        campaign
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addNewField("patient")}
+                      className="flex items-center"
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      Add Field
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addNewField("patient")}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Field
-                  </Button>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="space-y-6">
+
+                  <div className="space-y-4">
                     {patientFields.map((field, index) => (
                       <div
                         key={field.id}
-                        className="rounded-lg border border-border bg-card p-4 shadow-sm"
+                        className="overflow-hidden rounded-lg border bg-white"
                       >
-                        <div className="mb-4 flex items-center justify-between">
+                        <div className="bg-gray-50 flex items-center justify-between border-b p-4">
                           <div className="flex items-center gap-2">
                             <h4 className="font-medium">
                               {form.watch(`patientFields.${index}.label`) ||
@@ -745,236 +755,87 @@ export function CampaignCreateForm({
                             size="sm"
                             onClick={() => removePatientField(index)}
                             disabled={index < 4} // Prevent removing first 4 default fields
-                            className="h-8 w-8 p-0 text-muted-foreground"
+                            className="text-gray-500 hover:text-gray-700 h-8 w-8 p-0"
+                            aria-label={`Remove ${form.watch(`patientFields.${index}.label`) || "field"}`}
                           >
-                            <span className="sr-only">Remove</span>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
 
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <FormField
-                            control={form.control}
-                            name={`patientFields.${index}.key`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Field Key</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="firstName" {...field} />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Variable name in the system
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`patientFields.${index}.label`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Display Label</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="First Name" {...field} />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Human-readable field name
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`patientFields.${index}.transform`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Transform Type</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
+                        <div className="grid gap-4 p-4 md:grid-cols-2">
+                          <div>
+                            <FormField
+                              control={form.control}
+                              name={`patientFields.${index}.key`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel
+                                    htmlFor={`patient-field-key-${index}`}
+                                  >
+                                    Field Key
+                                  </FormLabel>
                                   <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select transform" />
-                                    </SelectTrigger>
+                                    <Input
+                                      id={`patient-field-key-${index}`}
+                                      placeholder="firstName"
+                                      {...field}
+                                    />
                                   </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="text">Text</SelectItem>
-                                    <SelectItem value="short_date">
-                                      Short Date
-                                    </SelectItem>
-                                    <SelectItem value="long_date">
-                                      Long Date
-                                    </SelectItem>
-                                    <SelectItem value="time">Time</SelectItem>
-                                    <SelectItem value="phone">Phone</SelectItem>
-                                    <SelectItem value="provider">
-                                      Provider
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription className="text-xs">
-                                  How to transform the input data
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`patientFields.${index}.possibleColumns`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Possible Column Names</FormLabel>
-                                <FormControl>
-                                  <TagInput
-                                    initialTags={field.value || []}
-                                    onTagsChange={(tags) =>
-                                      field.onChange(tags)
-                                    }
-                                    placeholder="Type and press Enter to add column names"
-                                  />
-                                </FormControl>
-                                <FormDescription className="text-xs">
-                                  Column names that might match this field in
-                                  uploaded data
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`patientFields.${index}.required`}
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-start space-x-3 space-y-0 pt-6">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <div className="space-y-1 leading-none">
-                                  <FormLabel>Required Field</FormLabel>
                                   <FormDescription className="text-xs">
-                                    Is this field required for valid data?
+                                    Variable name in the system
                                   </FormDescription>
-                                </div>
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <div>
-                    <CardTitle>Campaign-Specific Fields</CardTitle>
-                    <CardDescription>
-                      Define additional fields specific to this campaign
-                    </CardDescription>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addNewField("campaign")}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Field
-                  </Button>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  {campaignFields.length > 0 ? (
-                    <div className="space-y-6">
-                      {campaignFields.map((field, index) => (
-                        <div
-                          key={field.id}
-                          className="rounded-lg border border-border bg-card p-4 shadow-sm"
-                        >
-                          <div className="mb-4 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">
-                                {form.watch(`campaignFields.${index}.label`) ||
-                                  "New Field"}
-                              </h4>
-                              {form.watch(
-                                `campaignFields.${index}.required`,
-                              ) && (
-                                <Badge variant="outline" className="text-xs">
-                                  Required
-                                </Badge>
+                                  <FormMessage />
+                                </FormItem>
                               )}
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeCampaignField(index)}
-                              className="h-8 w-8 p-0 text-muted-foreground"
-                            >
-                              <span className="sr-only">Remove</span>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            />
                           </div>
 
-                          <div className="grid gap-4 sm:grid-cols-2">
+                          <div>
                             <FormField
                               control={form.control}
-                              name={`campaignFields.${index}.key`}
+                              name={`patientFields.${index}.label`}
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Field Key</FormLabel>
+                                  <FormLabel
+                                    htmlFor={`patient-field-label-${index}`}
+                                  >
+                                    Display Label
+                                  </FormLabel>
                                   <FormControl>
                                     <Input
-                                      placeholder="appointmentDate"
+                                      id={`patient-field-label-${index}`}
+                                      placeholder="First Name"
                                       {...field}
                                     />
                                   </FormControl>
+                                  <FormDescription className="text-xs">
+                                    Human-readable field name
+                                  </FormDescription>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
+                          </div>
 
+                          <div>
                             <FormField
                               control={form.control}
-                              name={`campaignFields.${index}.label`}
+                              name={`patientFields.${index}.transform`}
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Display Label</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Appointment Date"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name={`campaignFields.${index}.transform`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Transform Type</FormLabel>
+                                  <FormLabel
+                                    htmlFor={`patient-field-transform-${index}`}
+                                  >
+                                    Transform Type
+                                  </FormLabel>
                                   <Select
                                     onValueChange={field.onChange}
                                     defaultValue={field.value}
                                   >
                                     <FormControl>
-                                      <SelectTrigger>
+                                      <SelectTrigger
+                                        id={`patient-field-transform-${index}`}
+                                      >
                                         <SelectValue placeholder="Select transform" />
                                       </SelectTrigger>
                                     </FormControl>
@@ -995,19 +856,29 @@ export function CampaignCreateForm({
                                       </SelectItem>
                                     </SelectContent>
                                   </Select>
+                                  <FormDescription className="text-xs">
+                                    How to transform the input data
+                                  </FormDescription>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
+                          </div>
 
+                          <div>
                             <FormField
                               control={form.control}
-                              name={`campaignFields.${index}.possibleColumns`}
+                              name={`patientFields.${index}.possibleColumns`}
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Possible Column Names</FormLabel>
+                                  <FormLabel
+                                    htmlFor={`patient-field-columns-${index}`}
+                                  >
+                                    Possible Column Names
+                                  </FormLabel>
                                   <FormControl>
                                     <TagInput
+                                      // id={`patient-field-columns-${index}`}
                                       initialTags={field.value || []}
                                       onTagsChange={(tags) =>
                                         field.onChange(tags)
@@ -1023,31 +894,256 @@ export function CampaignCreateForm({
                                 </FormItem>
                               )}
                             />
+                          </div>
 
+                          <div className="md:col-span-2">
                             <FormField
                               control={form.control}
-                              name={`campaignFields.${index}.required`}
+                              name={`patientFields.${index}.required`}
                               render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-3 space-y-0 pt-6">
+                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                                   <FormControl>
                                     <Checkbox
+                                      id={`patient-field-required-${index}`}
                                       checked={field.value}
                                       onCheckedChange={field.onChange}
                                     />
                                   </FormControl>
                                   <div className="space-y-1 leading-none">
-                                    <FormLabel>Required Field</FormLabel>
+                                    <FormLabel
+                                      htmlFor={`patient-field-required-${index}`}
+                                    >
+                                      Required Field
+                                    </FormLabel>
+                                    <FormDescription className="text-xs">
+                                      Is this field required for valid data?
+                                    </FormDescription>
                                   </div>
                                 </FormItem>
                               )}
                             />
                           </div>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium">
+                        Campaign-Specific Fields
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        Define additional fields specific to this campaign
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addNewField("campaign")}
+                      className="flex items-center"
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      Add Field
+                    </Button>
+                  </div>
+
+                  {campaignFields.length > 0 ? (
+                    <div className="space-y-4">
+                      {campaignFields.map((field, index) => (
+                        <div
+                          key={field.id}
+                          className="overflow-hidden rounded-lg border bg-white"
+                        >
+                          <div className="bg-gray-50 flex items-center justify-between border-b p-4">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-medium">
+                                {form.watch(`campaignFields.${index}.label`) ||
+                                  "New Field"}
+                              </h4>
+                              {form.watch(
+                                `campaignFields.${index}.required`,
+                              ) && (
+                                <Badge variant="outline" className="text-xs">
+                                  Required
+                                </Badge>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeCampaignField(index)}
+                              className="text-gray-500 hover:text-gray-700 h-8 w-8 p-0"
+                              aria-label={`Remove ${form.watch(`campaignFields.${index}.label`) || "field"}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+
+                          <div className="grid gap-4 p-4 md:grid-cols-2">
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.key`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-field-key-${index}`}
+                                    >
+                                      Field Key
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        id={`campaign-field-key-${index}`}
+                                        placeholder="appointmentDate"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.label`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-field-label-${index}`}
+                                    >
+                                      Display Label
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        id={`campaign-field-label-${index}`}
+                                        placeholder="Appointment Date"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.transform`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-field-transform-${index}`}
+                                    >
+                                      Transform Type
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      defaultValue={field.value}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger
+                                          id={`campaign-field-transform-${index}`}
+                                        >
+                                          <SelectValue placeholder="Select transform" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        <SelectItem value="text">
+                                          Text
+                                        </SelectItem>
+                                        <SelectItem value="short_date">
+                                          Short Date
+                                        </SelectItem>
+                                        <SelectItem value="long_date">
+                                          Long Date
+                                        </SelectItem>
+                                        <SelectItem value="time">
+                                          Time
+                                        </SelectItem>
+                                        <SelectItem value="phone">
+                                          Phone
+                                        </SelectItem>
+                                        <SelectItem value="provider">
+                                          Provider
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.possibleColumns`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-field-columns-${index}`}
+                                    >
+                                      Possible Column Names
+                                    </FormLabel>
+                                    <FormControl>
+                                      <TagInput
+                                        // id={`campaign-field-columns-${index}`}
+                                        initialTags={field.value || []}
+                                        onTagsChange={(tags) =>
+                                          field.onChange(tags)
+                                        }
+                                        placeholder="Type and press Enter to add column names"
+                                      />
+                                    </FormControl>
+                                    <FormDescription className="text-xs">
+                                      Column names that might match this field
+                                      in uploaded data
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.required`}
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                    <FormControl>
+                                      <Checkbox
+                                        id={`campaign-field-required-${index}`}
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                    <div className="space-y-1 leading-none">
+                                      <FormLabel
+                                        htmlFor={`campaign-field-required-${index}`}
+                                      >
+                                        Required Field
+                                      </FormLabel>
+                                    </div>
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-muted-foreground/20 p-8 text-center">
-                      <p className="text-sm text-muted-foreground">
+                    <div className="border-gray-300 flex h-32 flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
+                      <p className="text-gray-500 text-sm">
                         No campaign-specific fields defined yet
                       </p>
                       <Button
@@ -1062,39 +1158,42 @@ export function CampaignCreateForm({
                       </Button>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-          {/* Step 3: Analysis */}
-          {step === 2 && (
-            <div className="space-y-8">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <div>
-                    <CardTitle>Standard Analysis Fields</CardTitle>
-                    <CardDescription>
-                      Define the standard metrics to track for this campaign
-                    </CardDescription>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Analysis */}
+            {step === 2 && (
+              <div className="space-y-8">
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium">
+                        Standard Analysis Fields
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        Define the standard metrics to track for this campaign
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addNewField("standardAnalysis")}
+                      className="flex items-center"
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      Add Field
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addNewField("standardAnalysis")}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Field
-                  </Button>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="space-y-6">
+
+                  <div className="space-y-4">
                     {standardAnalysisFields.map((field, index) => (
                       <div
                         key={field.id}
-                        className="rounded-lg border border-border bg-card p-4 shadow-sm"
+                        className="overflow-hidden rounded-lg border bg-white"
                       >
-                        <div className="mb-4 flex items-center justify-between">
+                        <div className="bg-gray-50 flex items-center justify-between border-b p-4">
                           <div className="flex items-center gap-2">
                             <h4 className="font-medium">
                               {form.watch(
@@ -1114,168 +1213,204 @@ export function CampaignCreateForm({
                             variant="ghost"
                             size="sm"
                             onClick={() => removeStandardAnalysisField(index)}
-                            className="h-8 w-8 p-0 text-muted-foreground"
+                            className="text-gray-500 hover:text-gray-700 h-8 w-8 p-0"
+                            aria-label={`Remove ${form.watch(`standardAnalysisFields.${index}.label`) || "field"}`}
                           >
-                            <span className="sr-only">Remove</span>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
 
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <FormField
-                            control={form.control}
-                            name={`standardAnalysisFields.${index}.key`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Field Key</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="patient_reached"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`standardAnalysisFields.${index}.label`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Display Label</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="Patient Reached"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name={`standardAnalysisFields.${index}.type`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Field Type</FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select type" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="boolean">
-                                      Boolean
-                                    </SelectItem>
-                                    <SelectItem value="string">
-                                      String
-                                    </SelectItem>
-                                    <SelectItem value="date">Date</SelectItem>
-                                    <SelectItem value="enum">Enum</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          {form.watch(
-                            `standardAnalysisFields.${index}.type`,
-                          ) === "enum" && (
+                        <div className="grid gap-4 p-4 md:grid-cols-2">
+                          <div>
                             <FormField
                               control={form.control}
-                              name={`standardAnalysisFields.${index}.options`}
+                              name={`standardAnalysisFields.${index}.key`}
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Options</FormLabel>
+                                  <FormLabel
+                                    htmlFor={`standard-analysis-key-${index}`}
+                                  >
+                                    Field Key
+                                  </FormLabel>
                                   <FormControl>
                                     <Input
-                                      placeholder="Option1, Option2, Option3"
-                                      value={field.value?.join(", ") || ""}
-                                      onChange={(e) => {
-                                        // Don't immediately process - just pass the raw string value
-                                        // Allow React Hook Form to handle the validation after blur
-                                        const inputValue = e.target.value;
-                                        field.onChange(
-                                          inputValue
-                                            ? inputValue
-                                                .split(",")
-                                                .map((v) => v.trim())
-                                                .filter(Boolean)
-                                            : [],
-                                        );
-                                      }}
+                                      id={`standard-analysis-key-${index}`}
+                                      placeholder="patient_reached"
+                                      {...field}
                                     />
                                   </FormControl>
-                                  <FormDescription className="text-xs">
-                                    Possible values for this enum field (comma
-                                    separated)
-                                  </FormDescription>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
+                          </div>
+
+                          <div>
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.label`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel
+                                    htmlFor={`standard-analysis-label-${index}`}
+                                  >
+                                    Display Label
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      id={`standard-analysis-label-${index}`}
+                                      placeholder="Patient Reached"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <div>
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.type`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel
+                                    htmlFor={`standard-analysis-type-${index}`}
+                                  >
+                                    Field Type
+                                  </FormLabel>
+                                  <Select
+                                    onValueChange={field.onChange}
+                                    defaultValue={field.value}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger
+                                        id={`standard-analysis-type-${index}`}
+                                      >
+                                        <SelectValue placeholder="Select type" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="boolean">
+                                        Boolean
+                                      </SelectItem>
+                                      <SelectItem value="string">
+                                        String
+                                      </SelectItem>
+                                      <SelectItem value="date">Date</SelectItem>
+                                      <SelectItem value="enum">Enum</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          {form.watch(
+                            `standardAnalysisFields.${index}.type`,
+                          ) === "enum" && (
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`standardAnalysisFields.${index}.options`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`standard-analysis-options-${index}`}
+                                    >
+                                      Options
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        id={`standard-analysis-options-${index}`}
+                                        placeholder="Option1, Option2, Option3"
+                                        value={field.value?.join(", ") || ""}
+                                        onChange={(e) => {
+                                          const inputValue = e.target.value;
+                                          field.onChange(
+                                            inputValue
+                                              ? inputValue
+                                                  .split(",")
+                                                  .map((v) => v.trim())
+                                                  .filter(Boolean)
+                                              : [],
+                                          );
+                                        }}
+                                      />
+                                    </FormControl>
+                                    <FormDescription className="text-xs">
+                                      Possible values for this enum field (comma
+                                      separated)
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
                           )}
 
-                          <FormField
-                            control={form.control}
-                            name={`standardAnalysisFields.${index}.required`}
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-start space-x-3 space-y-0 pt-6">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <div className="space-y-1 leading-none">
-                                  <FormLabel>Required Field</FormLabel>
-                                </div>
-                              </FormItem>
-                            )}
-                          />
+                          <div className="md:col-span-2">
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.required`}
+                              render={({ field }) => (
+                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                  <FormControl>
+                                    <Checkbox
+                                      id={`standard-analysis-required-${index}`}
+                                      checked={field.value}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel
+                                      htmlFor={`standard-analysis-required-${index}`}
+                                    >
+                                      Required Field
+                                    </FormLabel>
+                                  </div>
+                                </FormItem>
+                              )}
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <div>
-                    <CardTitle>Campaign-Specific Analysis Fields</CardTitle>
-                    <CardDescription>
-                      Define additional metrics specific to this campaign
-                    </CardDescription>
+                <div>
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium">
+                        Campaign-Specific Analysis Fields
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        Define additional metrics specific to this campaign
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addNewField("campaignAnalysis")}
+                      className="flex items-center"
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      Add Field
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addNewField("campaignAnalysis")}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Field
-                  </Button>
-                </CardHeader>
-                <CardContent className="pt-6">
+
                   {campaignAnalysisFields.length > 0 ? (
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                       {campaignAnalysisFields.map((field, index) => (
                         <div
                           key={field.id}
-                          className="rounded-lg border border-border bg-card p-4 shadow-sm"
+                          className="overflow-hidden rounded-lg border bg-white"
                         >
-                          <div className="mb-4 flex items-center justify-between">
+                          <div className="bg-gray-50 flex items-center justify-between border-b p-4">
                             <div className="flex items-center gap-2">
                               <h4 className="font-medium">
                                 {form.watch(
@@ -1302,131 +1437,167 @@ export function CampaignCreateForm({
                               variant="ghost"
                               size="sm"
                               onClick={() => removeCampaignAnalysisField(index)}
-                              className="h-8 w-8 p-0 text-muted-foreground"
+                              className="text-gray-500 hover:text-gray-700 h-8 w-8 p-0"
+                              aria-label={`Remove ${form.watch(`campaignAnalysisFields.${index}.label`) || "field"}`}
                             >
-                              <span className="sr-only">Remove</span>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
 
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <FormField
-                              control={form.control}
-                              name={`campaignAnalysisFields.${index}.key`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Field Key</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="appointment_confirmed"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name={`campaignAnalysisFields.${index}.label`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Display Label</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Appointment Confirmed"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name={`campaignAnalysisFields.${index}.type`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Field Type</FormLabel>
-                                  <Select
-                                    onValueChange={field.onChange}
-                                    defaultValue={field.value}
-                                  >
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select type" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      <SelectItem value="boolean">
-                                        Boolean
-                                      </SelectItem>
-                                      <SelectItem value="string">
-                                        String
-                                      </SelectItem>
-                                      <SelectItem value="date">Date</SelectItem>
-                                      <SelectItem value="enum">Enum</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            {form.watch(
-                              `campaignAnalysisFields.${index}.type`,
-                            ) === "enum" && (
+                          <div className="grid gap-4 p-4 md:grid-cols-2">
+                            <div>
                               <FormField
                                 control={form.control}
-                                name={`campaignAnalysisFields.${index}.options`}
+                                name={`campaignAnalysisFields.${index}.key`}
                                 render={({ field }) => (
                                   <FormItem>
-                                    <FormLabel>Options</FormLabel>
+                                    <FormLabel
+                                      htmlFor={`campaign-analysis-key-${index}`}
+                                    >
+                                      Field Key
+                                    </FormLabel>
                                     <FormControl>
                                       <Input
-                                        placeholder="Option1, Option2, Option3"
-                                        value={field.value?.join(", ") || ""}
-                                        onChange={(e) => {
-                                          // Don't immediately process - just pass the raw string value
-                                          // Allow React Hook Form to handle the validation after blur
-                                          const inputValue = e.target.value;
-                                          field.onChange(
-                                            inputValue
-                                              ? inputValue
-                                                  .split(",")
-                                                  .map((v) => v.trim())
-                                                  .filter(Boolean)
-                                              : [],
-                                          );
-                                        }}
+                                        id={`campaign-analysis-key-${index}`}
+                                        placeholder="appointment_confirmed"
+                                        {...field}
                                       />
                                     </FormControl>
-                                    <FormDescription className="text-xs">
-                                      Possible values for this enum field (comma
-                                      separated)
-                                    </FormDescription>
                                     <FormMessage />
                                   </FormItem>
                                 )}
                               />
+                            </div>
+
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignAnalysisFields.${index}.label`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-analysis-label-${index}`}
+                                    >
+                                      Display Label
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        id={`campaign-analysis-label-${index}`}
+                                        placeholder="Appointment Confirmed"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div>
+                              <FormField
+                                control={form.control}
+                                name={`campaignAnalysisFields.${index}.type`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel
+                                      htmlFor={`campaign-analysis-type-${index}`}
+                                    >
+                                      Field Type
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      defaultValue={field.value}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger
+                                          id={`campaign-analysis-type-${index}`}
+                                        >
+                                          <SelectValue placeholder="Select type" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        <SelectItem value="boolean">
+                                          Boolean
+                                        </SelectItem>
+                                        <SelectItem value="string">
+                                          String
+                                        </SelectItem>
+                                        <SelectItem value="date">
+                                          Date
+                                        </SelectItem>
+                                        <SelectItem value="enum">
+                                          Enum
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            {form.watch(
+                              `campaignAnalysisFields.${index}.type`,
+                            ) === "enum" && (
+                              <div>
+                                <FormField
+                                  control={form.control}
+                                  name={`campaignAnalysisFields.${index}.options`}
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel
+                                        htmlFor={`campaign-analysis-options-${index}`}
+                                      >
+                                        Options
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          id={`campaign-analysis-options-${index}`}
+                                          placeholder="Option1, Option2, Option3"
+                                          value={field.value?.join(", ") || ""}
+                                          onChange={(e) => {
+                                            const inputValue = e.target.value;
+                                            field.onChange(
+                                              inputValue
+                                                ? inputValue
+                                                    .split(",")
+                                                    .map((v) => v.trim())
+                                                    .filter(Boolean)
+                                                : [],
+                                            );
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormDescription className="text-xs">
+                                        Possible values for this enum field
+                                        (comma separated)
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
                             )}
 
-                            <div className="flex space-x-4">
+                            <div className="flex space-x-4 md:col-span-2">
                               <FormField
                                 control={form.control}
                                 name={`campaignAnalysisFields.${index}.required`}
                                 render={({ field }) => (
-                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 pt-6">
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                                     <FormControl>
                                       <Checkbox
+                                        id={`campaign-analysis-required-${index}`}
                                         checked={field.value}
                                         onCheckedChange={field.onChange}
                                       />
                                     </FormControl>
                                     <div className="space-y-1 leading-none">
-                                      <FormLabel>Required</FormLabel>
+                                      <FormLabel
+                                        htmlFor={`campaign-analysis-required-${index}`}
+                                      >
+                                        Required
+                                      </FormLabel>
                                     </div>
                                   </FormItem>
                                 )}
@@ -1436,15 +1607,20 @@ export function CampaignCreateForm({
                                 control={form.control}
                                 name={`campaignAnalysisFields.${index}.isMainKPI`}
                                 render={({ field }) => (
-                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 pt-6">
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                                     <FormControl>
                                       <Checkbox
+                                        id={`campaign-analysis-kpi-${index}`}
                                         checked={field.value}
                                         onCheckedChange={field.onChange}
                                       />
                                     </FormControl>
                                     <div className="space-y-1 leading-none">
-                                      <FormLabel>Main KPI</FormLabel>
+                                      <FormLabel
+                                        htmlFor={`campaign-analysis-kpi-${index}`}
+                                      >
+                                        Main KPI
+                                      </FormLabel>
                                     </div>
                                   </FormItem>
                                 )}
@@ -1455,8 +1631,8 @@ export function CampaignCreateForm({
                       ))}
                     </div>
                   ) : (
-                    <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-muted-foreground/20 p-8 text-center">
-                      <p className="text-sm text-muted-foreground">
+                    <div className="border-gray-300 flex h-32 flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
+                      <p className="text-gray-500 text-sm">
                         No campaign-specific analysis fields defined yet
                       </p>
                       <Button
@@ -1471,81 +1647,89 @@ export function CampaignCreateForm({
                       </Button>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-          {/* Step 4: Prompt */}
-          {step === 3 && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Campaign Prompt</CardTitle>
-                  <CardDescription>
-                    Define the base prompt that will be used for this campaign
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <FormField
-                    control={form.control}
-                    name="basePrompt"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Base Prompt</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Please confirm your appointment for {{appointmentDate}} at {{appointmentTime}}."
-                            className="min-h-[200px]"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription className="flex flex-row items-center justify-between gap-2">
-                          This is the base prompt that will be used for the
-                          agent's conversations.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
+                </div>
+              </div>
+            )}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Voicemail Message</CardTitle>
-                  <CardDescription>
-                    Define the voicemail message that will be used when calls go
-                    to voicemail
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <FormField
-                    control={form.control}
-                    name="voicemailMessage"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Voicemail Message</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Hello, this message is for {{firstName}}. We're calling about your upcoming appointment. Please call us back at 555-123-4567."
-                            className="min-h-[150px]"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          This message will be used when calls go to voicemail.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Step 4: Prompt */}
+            {step === 3 && (
+              <div className="space-y-6">
+                <div className="overflow-hidden rounded-lg border bg-white">
+                  <div className="bg-gray-50 border-b p-4">
+                    <h3 className="text-lg font-medium">Campaign Prompt</h3>
+                    <p className="text-gray-500 text-sm">
+                      Define the base prompt that will be used for this campaign
+                    </p>
+                  </div>
+                  <div className="p-4">
+                    <FormField
+                      control={form.control}
+                      name="basePrompt"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel htmlFor="base-prompt">
+                            Base Prompt
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              id="base-prompt"
+                              placeholder="Please confirm your appointment for {{appointmentDate}} at {{appointmentTime}}."
+                              className="min-h-[200px]"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            This is the base prompt that will be used for the
+                            agent's conversations.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-lg border bg-white">
+                  <div className="bg-gray-50 border-b p-4">
+                    <h3 className="text-lg font-medium">Voicemail Message</h3>
+                    <p className="text-gray-500 text-sm">
+                      Define the voicemail message that will be used when calls
+                      go to voicemail
+                    </p>
+                  </div>
+                  <div className="p-4">
+                    <FormField
+                      control={form.control}
+                      name="voicemailMessage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel htmlFor="voicemail-message">
+                            Voicemail Message
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              id="voicemail-message"
+                              placeholder="Hello, this message is for {{firstName}}. We're calling about your upcoming appointment. Please call us back at 555-123-4567."
+                              className="min-h-[150px]"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            This message will be used when calls go to
+                            voicemail.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </ScrollArea>
 
-        <div className="flex items-center justify-between pt-4">
+        <div className="bg-gray-50 flex items-center justify-between border-t p-6">
           <Button
             type="button"
             variant="outline"
@@ -1557,7 +1741,7 @@ export function CampaignCreateForm({
 
           <div className="flex items-center gap-2">
             {step < steps.length - 1 ? (
-              <Button type="button" onClick={nextStep}>
+              <Button type="button" onClick={nextStep} className="bg-primary">
                 Next
                 <ChevronRight className="ml-2 h-4 w-4" />
               </Button>

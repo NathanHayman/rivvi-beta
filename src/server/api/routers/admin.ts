@@ -783,4 +783,54 @@ export const adminRouter = createTRPCRouter({
         throw error;
       }
     }),
+
+  deleteCampaign: superAdminProcedure
+    .input(
+      z.object({
+        campaignId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { campaignId } = input;
+
+      try {
+        // First, get the campaign to verify it exists and get its template ID
+        const [campaign] = await ctx.db
+          .select()
+          .from(campaigns)
+          .where(eq(campaigns.id, campaignId));
+
+        if (!campaign) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Campaign not found",
+          });
+        }
+
+        // Delete the campaign
+        const [deletedCampaign] = await ctx.db
+          .delete(campaigns)
+          .where(eq(campaigns.id, campaignId))
+          .returning();
+
+        // If the campaign had a template, delete it too
+        if (campaign.templateId) {
+          await ctx.db
+            .delete(campaignTemplates)
+            .where(eq(campaignTemplates.id, campaign.templateId));
+        }
+
+        return {
+          success: true,
+          deletedCampaign,
+        };
+      } catch (error) {
+        console.error("Error deleting campaign:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to delete campaign",
+          cause: error,
+        });
+      }
+    }),
 });

@@ -6,6 +6,7 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { CampaignsTable } from "@/components/tables/campaigns-table";
+import { OrganizationCampaignRequestsTable } from "@/components/tables/user-campaign-requests-table";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -23,6 +24,9 @@ export default function Campaigns() {
         <AppContent className="h-full">
           <Suspense fallback={<div>Loading...</div>}>
             <CampaignsTable />
+          </Suspense>
+          <Suspense fallback={<div>Loading...</div>}>
+            <OrganizationCampaignRequestsTable />
           </Suspense>
         </AppContent>
       </AppBody>

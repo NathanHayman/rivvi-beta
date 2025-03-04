@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
-import { formatPhoneDisplay } from "@/lib/format-utils";
+import { formatPhoneDisplay } from "@/services/file/utils";
 import { api } from "@/trpc/react";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";

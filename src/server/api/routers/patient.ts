@@ -1,10 +1,13 @@
 // src/server/api/routers/patient.ts
-import { generatePatientHash } from "@/lib/patient/patient-utils";
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
+import { db } from "@/server/db";
 import { calls, organizationPatients, patients } from "@/server/db/schema";
+import { PatientService } from "@/services/patient";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
+
+const patientService = new PatientService(db);
 
 export const patientRouter = createTRPCRouter({
   // Get all patients for the current organization
@@ -181,7 +184,12 @@ export const patientRouter = createTRPCRouter({
       const dobDate = new Date(dob);
 
       // Generate patient hash for deduplication
-      const patientHash = generatePatientHash(primaryPhone, dob);
+      const patientHash = patientService.generatePatientHash(
+        firstName,
+        lastName,
+        dob,
+        primaryPhone,
+      );
 
       // Check if patient with this hash already exists
       const existingPatient = await ctx.db

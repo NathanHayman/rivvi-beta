@@ -49,7 +49,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRunEvents } from "@/hooks/use-pusher";
-import { formatPhoneDisplay } from "@/lib/format-utils";
+import { formatPhoneDisplay } from "@/services/file/utils";
 import { api } from "@/trpc/react";
 import Link from "next/link";
 

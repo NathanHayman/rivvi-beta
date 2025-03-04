@@ -1,6 +1,6 @@
 {
-  "id": "c76ce835-f434-4c52-bc73-973c073ab068",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "7f650821-15f2-479a-bc7d-44f780ab1b5f",
+  "prevId": "c76ce835-f434-4c52-bc73-973c073ab068",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -605,6 +605,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "main_goal": {
+          "name": "main_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "desired_analysis": {
+          "name": "desired_analysis",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "example_sheets": {
+          "name": "example_sheets",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",

@@ -11,8 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatPhoneDisplay } from "@/lib/format-utils";
 import { calculateAge } from "@/lib/patient/patient-utils";
+import { formatPhoneDisplay } from "@/services/file/utils";
 import { api } from "@/trpc/react";
 import { format } from "date-fns";
 import {

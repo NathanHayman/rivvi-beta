@@ -181,17 +181,21 @@ export function OrganizationsTable() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={() => router.push(`/admin/orgs/${orgId}`)}
+                  onClick={() => router.push(`/admin/organizations/${orgId}`)}
                 >
                   View Details
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => router.push(`/admin/orgs/${orgId}/campaigns`)}
+                  onClick={() =>
+                    router.push(`/admin/organizations/${orgId}/campaigns`)
+                  }
                 >
                   View Campaigns
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => router.push(`/admin/orgs/${orgId}/edit`)}
+                  onClick={() =>
+                    router.push(`/admin/organizations/${orgId}/edit`)
+                  }
                 >
                   Edit Organization
                 </DropdownMenuItem>

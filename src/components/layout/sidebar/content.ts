@@ -13,7 +13,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
   admin_links: [
     {
       title: "Organizations",
-      href: "/admin/orgs",
+      href: "/admin/organizations",
       icon: {
         icon: Building,
         iconTitle: "Organizations",

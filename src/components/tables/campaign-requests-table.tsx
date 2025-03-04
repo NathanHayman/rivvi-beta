@@ -45,6 +45,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -99,6 +106,9 @@ export function CampaignRequestsTable() {
     pageIndex: 0,
     pageSize: 10,
   });
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
+  const [selectedRequest, setSelectedRequest] =
+    useState<TCampaignRequest | null>(null);
 
   // Get campaign requests data
   const { data, isLoading, refetch } =
@@ -173,6 +183,11 @@ export function CampaignRequestsTable() {
     router.push(`/admin/campaigns/new?requestId=${requestId}&orgId=${orgId}`);
   };
 
+  const handleViewDetails = (request: TCampaignRequest) => {
+    setSelectedRequest(request);
+    setIsViewDetailsOpen(true);
+  };
+
   // Define columns
   const columns: ColumnDef<
     TCampaignRequest & {
@@ -212,6 +227,22 @@ export function CampaignRequestsTable() {
           </div>
         </div>
       ),
+    },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }) => {
+        const description = row.original.description;
+        return (
+          <div className="max-w-xs">
+            <div className="line-clamp-2 text-sm">
+              {description.length > 100
+                ? `${description.substring(0, 100)}...`
+                : description}
+            </div>
+          </div>
+        );
+      },
     },
     {
       accessorKey: "user",
@@ -311,13 +342,7 @@ export function CampaignRequestsTable() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Open a dialog to view details
-                    // This would be implemented in a real app
-                    alert("View request details: " + request.description);
-                  }}
-                >
+                <DropdownMenuItem onClick={() => handleViewDetails(request)}>
                   View Details
                 </DropdownMenuItem>
 
@@ -507,6 +532,211 @@ export function CampaignRequestsTable() {
         </div>
       </div>
 
+      {/* Campaign Request Details Sheet */}
+      <Sheet open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
+        <SheetContent className="sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Campaign Request Details</SheetTitle>
+            <SheetDescription>
+              Review the details of this campaign request
+            </SheetDescription>
+          </SheetHeader>
+
+          {selectedRequest && (
+            <div className="mt-6 space-y-6">
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Status
+                </h3>
+                <div>
+                  <Badge
+                    variant={
+                      selectedRequest.status === "pending"
+                        ? "neutral_solid"
+                        : selectedRequest.status === "approved"
+                          ? "success_solid"
+                          : selectedRequest.status === "rejected"
+                            ? "failure_solid"
+                            : "neutral_solid"
+                    }
+                    className="flex w-fit items-center"
+                  >
+                    {selectedRequest.status === "pending" && (
+                      <Clock className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {selectedRequest.status === "approved" && (
+                      <Check className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {selectedRequest.status === "rejected" && (
+                      <X className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {selectedRequest.status.charAt(0).toUpperCase() +
+                      selectedRequest.status.slice(1)}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Campaign Name
+                </h3>
+                <p className="text-base">{selectedRequest.name}</p>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Description
+                </h3>
+                <p className="whitespace-pre-wrap text-sm">
+                  {selectedRequest.description}
+                </p>
+              </div>
+
+              {selectedRequest.mainGoal && (
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Main Goal
+                  </h3>
+                  <p className="whitespace-pre-wrap text-sm">
+                    {selectedRequest.mainGoal}
+                  </p>
+                </div>
+              )}
+
+              {selectedRequest.desiredAnalysis &&
+                selectedRequest.desiredAnalysis.length > 0 && (
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Desired Analysis/KPIs
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedRequest.desiredAnalysis.map((kpi, index) => (
+                        <Badge key={index} variant="secondary">
+                          {kpi}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {selectedRequest.exampleSheets &&
+                selectedRequest.exampleSheets.length > 0 && (
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Example Sheets
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedRequest.exampleSheets.map((sheet, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between rounded-md border border-border bg-background p-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium">
+                              {sheet.name}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              ({sheet.fileType})
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => window.open(sheet.url, "_blank")}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {selectedRequest.adminNotes && (
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Admin Notes
+                  </h3>
+                  <p className="whitespace-pre-wrap text-sm">
+                    {selectedRequest.adminNotes}
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Requested By
+                </h3>
+                <p className="text-sm">
+                  {selectedRequest.requestedBy ?? "Unknown"}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Requested On
+                </h3>
+                <p className="text-sm">
+                  {new Date(selectedRequest.createdAt).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="mt-8 flex justify-end gap-2">
+                {selectedRequest.status === "pending" && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsViewDetailsOpen(false);
+                        handleRejectRequest(selectedRequest.id);
+                      }}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setIsViewDetailsOpen(false);
+                        handleApproveRequest(selectedRequest.id);
+                      }}
+                    >
+                      Approve
+                    </Button>
+                  </>
+                )}
+
+                {selectedRequest.status === "approved" &&
+                  !selectedRequest.resultingCampaignId && (
+                    <Button
+                      onClick={() => {
+                        setIsViewDetailsOpen(false);
+                        handleCreateCampaign(
+                          selectedRequest.id,
+                          selectedRequest.orgId,
+                        );
+                      }}
+                    >
+                      Create Campaign
+                    </Button>
+                  )}
+
+                {selectedRequest.resultingCampaignId && (
+                  <Button
+                    onClick={() => {
+                      router.push(
+                        `/admin/campaigns/${selectedRequest.resultingCampaignId}`,
+                      );
+                    }}
+                  >
+                    View Campaign
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
       {/* Approve Dialog */}
       <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
         <DialogContent>
@@ -518,7 +748,7 @@ export function CampaignRequestsTable() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 p-4 lg:p-6">
             <div className="space-y-2">
               <label
                 htmlFor="admin-notes"

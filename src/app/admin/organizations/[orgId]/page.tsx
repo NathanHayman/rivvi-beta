@@ -36,8 +36,8 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
       <AppPage>
         <AppBreadcrumbs
           breadcrumbs={[
-            { title: "Organizations", href: "/admin/orgs" },
-            { title: organization.name, href: `/admin/orgs/${orgId}` },
+            { title: "Organizations", href: "/admin/organizations" },
+            { title: organization.name, href: `/admin/organizations/${orgId}` },
           ]}
         />
         <AppBody>
@@ -51,13 +51,13 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
             buttons={
               <div className="flex items-center gap-2">
                 <Button asChild size="sm" variant="outline">
-                  <Link href={`/admin/orgs/${orgId}/campaigns`}>
+                  <Link href={`/admin/organizations/${orgId}/campaigns`}>
                     <Phone className="mr-2 h-4 w-4" />
                     Campaigns
                   </Link>
                 </Button>
                 <Button asChild size="sm">
-                  <Link href={`/admin/orgs/${orgId}/edit`}>
+                  <Link href={`/admin/organizations/${orgId}/edit`}>
                     <Edit className="mr-2 h-4 w-4" />
                     Edit
                   </Link>

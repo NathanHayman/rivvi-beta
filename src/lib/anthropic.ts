@@ -1,3 +1,5 @@
+"server-only";
+
 import { env } from "@/env";
 import { createAnthropic } from "@ai-sdk/anthropic";
 

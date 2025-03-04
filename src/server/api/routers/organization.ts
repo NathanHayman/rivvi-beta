@@ -10,6 +10,7 @@ import {
 } from "@/server/api/trpc";
 import { organizations, users } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 
 export const organizationRouter = createTRPCRouter({
   // Get the current user's organization
@@ -268,6 +269,8 @@ export const organizationRouter = createTRPCRouter({
           message: "Organization not found",
         });
       }
+
+      revalidatePath("/admin/organizations", "page");
 
       return updatedOrg;
     }),

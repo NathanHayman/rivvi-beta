@@ -27,16 +27,19 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
     <AppPage>
       <AppBreadcrumbs
         breadcrumbs={[
-          { title: "Organizations", href: "/admin/orgs" },
-          { title: orgId, href: `/admin/orgs/${orgId}` },
-          { title: "Campaigns", href: `/admin/orgs/${orgId}/campaigns` },
+          { title: "Organizations", href: "/admin/organizations" },
+          { title: orgId, href: `/admin/organizations/${orgId}` },
+          {
+            title: "Campaigns",
+            href: `/admin/organizations/${orgId}/campaigns`,
+          },
         ]}
       />
       <AppBody maxWidth="max-w-screen-xl">
         <AppHeader
           className=""
           title="Campaigns"
-          buttons={<CampaignCreateSheet agents={[]} />}
+          buttons={<CampaignCreateSheet />}
         />
         <AppContent className="">
           <Suspense fallback={<div>Loading...</div>}>

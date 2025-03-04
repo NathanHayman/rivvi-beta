@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { Button } from "../ui/button";
-import { SheetForm } from "./sheet-form";
+import { SheetForm, SheetSizes } from "./sheet-form";
 
 interface TriggerSheetProps {
   form: React.ReactNode;
   title: string;
   description?: string;
   className?: string;
+  size?: keyof typeof SheetSizes;
   buttonText: string;
   buttonIcon?: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
@@ -24,6 +25,7 @@ const TriggerSheet = ({
   buttonText,
   buttonIcon,
   onTriggerClick,
+  size,
 }: TriggerSheetProps) => {
   const [open, setOpen] = useState(false);
 
@@ -46,6 +48,7 @@ const TriggerSheet = ({
         onOpenChange={onOpenChange}
         title={title}
         description={description}
+        size={size}
       >
         {form}
       </SheetForm>

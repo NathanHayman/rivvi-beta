@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS "rivvi_call" (
 	"recording_url" varchar(512),
 	"to_number" varchar(20) NOT NULL,
 	"from_number" varchar(20) NOT NULL,
+	"batch_id" varchar(256),
+	"retry_count" integer DEFAULT 0,
+	"next_retry_time" timestamp with time zone,
+	"call_metrics" json,
 	"metadata" json,
 	"analysis" json,
 	"transcript" text,
@@ -139,6 +143,8 @@ CREATE TABLE IF NOT EXISTS "rivvi_organization" (
 CREATE TABLE IF NOT EXISTS "rivvi_patient" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"patient_hash" varchar(256) NOT NULL,
+	"secondary_hash" varchar(256),
+	"normalized_phone" varchar(20),
 	"first_name" varchar(256) NOT NULL,
 	"last_name" varchar(256) NOT NULL,
 	"dob" date NOT NULL,
@@ -158,11 +164,14 @@ CREATE TABLE IF NOT EXISTS "rivvi_row" (
 	"org_id" uuid NOT NULL,
 	"patient_id" uuid,
 	"variables" json NOT NULL,
+	"processed_variables" json,
 	"analysis" json,
 	"status" "row_status" DEFAULT 'pending' NOT NULL,
 	"error" text,
 	"retell_call_id" varchar(256),
 	"sort_index" integer NOT NULL,
+	"priority" integer DEFAULT 0,
+	"batch_eligible" boolean DEFAULT true,
 	"retry_count" integer DEFAULT 0,
 	"call_attempts" integer DEFAULT 0,
 	"metadata" json,
@@ -178,6 +187,9 @@ CREATE TABLE IF NOT EXISTS "rivvi_run" (
 	"custom_prompt" text,
 	"custom_voicemail_message" text,
 	"variation_notes" text,
+	"natural_language_input" text,
+	"prompt_version" integer DEFAULT 1,
+	"ai_generated" boolean DEFAULT false,
 	"status" "run_status" DEFAULT 'draft' NOT NULL,
 	"metadata" json,
 	"raw_file_url" varchar(512),
@@ -344,6 +356,7 @@ CREATE INDEX IF NOT EXISTS "call_retell_call_id_idx" ON "rivvi_call" USING btree
 CREATE INDEX IF NOT EXISTS "call_status_idx" ON "rivvi_call" USING btree ("status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_direction_idx" ON "rivvi_call" USING btree ("direction");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "call_retell_call_id_unique_idx" ON "rivvi_call" USING btree ("retell_call_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "call_batch_id_idx" ON "rivvi_call" USING btree ("batch_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "campaign_request_org_id_idx" ON "rivvi_campaign_request" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "campaign_request_status_idx" ON "rivvi_campaign_request" USING btree ("status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "template_agent_id_idx" ON "rivvi_campaign_template" USING btree ("agent_id");--> statement-breakpoint
@@ -356,10 +369,13 @@ CREATE INDEX IF NOT EXISTS "org_patient_patient_id_idx" ON "rivvi_organization_p
 CREATE INDEX IF NOT EXISTS "organization_clerk_id_idx" ON "rivvi_organization" USING btree ("clerk_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_hash_idx" ON "rivvi_patient" USING btree ("patient_hash");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_phone_idx" ON "rivvi_patient" USING btree ("primary_phone");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "patient_secondary_hash_idx" ON "rivvi_patient" USING btree ("secondary_hash");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "patient_normalized_phone_idx" ON "rivvi_patient" USING btree ("normalized_phone");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_run_id_idx" ON "rivvi_row" USING btree ("run_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_org_id_idx" ON "rivvi_row" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_patient_id_idx" ON "rivvi_row" USING btree ("patient_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "row_status_idx" ON "rivvi_row" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "row_priority_idx" ON "rivvi_row" USING btree ("priority");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "run_campaign_id_idx" ON "rivvi_run" USING btree ("campaign_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "run_org_id_idx" ON "rivvi_run" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "run_status_idx" ON "rivvi_run" USING btree ("status");--> statement-breakpoint

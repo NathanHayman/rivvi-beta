@@ -633,6 +633,17 @@ export const campaignRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1),
         description: z.string().min(1),
+        mainGoal: z.string().min(1).optional(),
+        desiredAnalysis: z.array(z.string()).optional(),
+        exampleSheets: z
+          .array(
+            z.object({
+              name: z.string(),
+              url: z.string(),
+              fileType: z.string(),
+            }),
+          )
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -653,6 +664,9 @@ export const campaignRouter = createTRPCRouter({
           name: input.name,
           orgId: orgId,
           description: input.description,
+          mainGoal: input.mainGoal,
+          desiredAnalysis: input.desiredAnalysis,
+          exampleSheets: input.exampleSheets,
           status: "pending",
           requestedBy: userId,
           direction: "outbound",

@@ -31,9 +31,15 @@ export default async function EditOrganizationPage({ params }: PageProps) {
       <AppPage>
         <AppBreadcrumbs
           breadcrumbs={[
-            { title: "Organizations", href: "/admin/orgs" },
-            { title: organization.name, href: `/admin/orgs/${params.orgId}` },
-            { title: "Edit", href: `/admin/orgs/${params.orgId}/edit` },
+            { title: "Organizations", href: "/admin/organizations" },
+            {
+              title: organization.name,
+              href: `/admin/organizations/${params.orgId}`,
+            },
+            {
+              title: "Edit",
+              href: `/admin/organizations/${params.orgId}/edit`,
+            },
           ]}
         />
         <AppBody>
