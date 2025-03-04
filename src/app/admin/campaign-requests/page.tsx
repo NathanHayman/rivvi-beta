@@ -8,7 +8,6 @@ import {
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { CampaignRequestsTable } from "@/components/tables/campaign-requests-table";
-import { getAgents } from "@/lib/retell-client-safe";
 import { Plus } from "lucide-react";
 import { Metadata } from "next";
 import { Suspense } from "react";
@@ -25,12 +24,6 @@ type PageProps = {
 
 export default async function AdminCampaignsPage({ params }: PageProps) {
   const { orgId } = await params;
-
-  const agents = await getAgents();
-  const agentsList = agents.map((agent: any) => ({
-    agent_id: agent.agent_id,
-    name: agent.agent_name,
-  }));
 
   return (
     <AppPage>
@@ -52,7 +45,7 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
             <TriggerSheet
               buttonIcon={<Plus />}
               buttonText="Create Campaign"
-              form={<CampaignCreateForm agents={agentsList} />}
+              form={<CampaignCreateForm />}
               title="Create Campaign"
             />
           }

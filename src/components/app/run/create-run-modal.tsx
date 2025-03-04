@@ -1,3 +1,4 @@
+// src/components/app/run/create-run-modal.tsx - Improved Version
 "use client";
 
 import type React from "react";
@@ -12,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useReducer } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,111 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/trpc/react";
 import { addDays, format } from "date-fns";
 
+// Define state shape and action types for reducer
+type RunCreationState = {
+  activeStep: "details" | "review" | "customize";
+  runName: string;
+  file: File | null;
+  customPrompt: string;
+  scheduleForLater: boolean;
+  scheduledDate: Date | null;
+  scheduledTime: string;
+  isProcessing: boolean;
+  processedData: any;
+  showCalendar: boolean;
+  errors: Record<string, string>;
+  validationComplete: boolean;
+};
+
+type RunCreationAction =
+  | { type: "SET_STEP"; payload: "details" | "review" | "customize" }
+  | { type: "SET_RUN_NAME"; payload: string }
+  | { type: "SET_FILE"; payload: File | null }
+  | { type: "SET_CUSTOM_PROMPT"; payload: string }
+  | { type: "TOGGLE_SCHEDULE"; payload: boolean }
+  | { type: "SET_DATE"; payload: Date | null }
+  | { type: "SET_TIME"; payload: string }
+  | { type: "SET_PROCESSING"; payload: boolean }
+  | { type: "SET_PROCESSED_DATA"; payload: any }
+  | { type: "TOGGLE_CALENDAR"; payload: boolean }
+  | { type: "SET_ERROR"; payload: { field: string; message: string } }
+  | { type: "CLEAR_ERROR"; payload: string }
+  | { type: "RESET_FORM" }
+  | { type: "SET_VALIDATION_COMPLETE"; payload: boolean };
+
+// Initial state
+const initialState: RunCreationState = {
+  activeStep: "details",
+  runName: "",
+  file: null,
+  customPrompt: "",
+  scheduleForLater: false,
+  scheduledDate: null,
+  scheduledTime: "",
+  isProcessing: false,
+  processedData: null,
+  showCalendar: false,
+  errors: {},
+  validationComplete: false,
+};
+
+// Reducer function
+function runCreationReducer(
+  state: RunCreationState,
+  action: RunCreationAction,
+): RunCreationState {
+  switch (action.type) {
+    case "SET_STEP":
+      return { ...state, activeStep: action.payload };
+    case "SET_RUN_NAME":
+      return { ...state, runName: action.payload };
+    case "SET_FILE":
+      // Clear processed data when file changes
+      return {
+        ...state,
+        file: action.payload,
+        processedData: null,
+        validationComplete: false,
+      };
+    case "SET_CUSTOM_PROMPT":
+      return { ...state, customPrompt: action.payload };
+    case "TOGGLE_SCHEDULE":
+      return { ...state, scheduleForLater: action.payload };
+    case "SET_DATE":
+      return { ...state, scheduledDate: action.payload };
+    case "SET_TIME":
+      return { ...state, scheduledTime: action.payload };
+    case "SET_PROCESSING":
+      return { ...state, isProcessing: action.payload };
+    case "SET_PROCESSED_DATA":
+      return {
+        ...state,
+        processedData: action.payload,
+        validationComplete: true,
+      };
+    case "TOGGLE_CALENDAR":
+      return { ...state, showCalendar: action.payload };
+    case "SET_ERROR":
+      return {
+        ...state,
+        errors: {
+          ...state.errors,
+          [action.payload.field]: action.payload.message,
+        },
+      };
+    case "CLEAR_ERROR":
+      const newErrors = { ...state.errors };
+      delete newErrors[action.payload];
+      return { ...state, errors: newErrors };
+    case "SET_VALIDATION_COMPLETE":
+      return { ...state, validationComplete: action.payload };
+    case "RESET_FORM":
+      return initialState;
+    default:
+      return state;
+  }
+}
+
 interface CreateRunModalProps {
   campaignId: string;
   open: boolean;
@@ -43,29 +149,25 @@ export function CreateRunModal({
   onOpenChange,
 }: CreateRunModalProps) {
   const router = useRouter();
-  const [activeStep, setActiveStep] = useState<
-    "details" | "review" | "customize"
-  >("details");
-  const [runName, setRunName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [scheduleForLater, setScheduleForLater] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
-  const [scheduledTime, setScheduledTime] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [processedData, setProcessedData] = useState<any>(null);
-  const [showCalendar, setShowCalendar] = useState(false);
+  const [state, dispatch] = useReducer(runCreationReducer, initialState);
 
-  // tRPC mutations
+  // tRPC mutations with improved error handling
   const createRunMutation = api.runs.create.useMutation({
     onSuccess: (data) => {
       router.push(`/campaigns/${campaignId}/runs/${data?.id}`);
       onOpenChange(false);
       toast.success("Run created successfully");
-      resetForm();
+      dispatch({ type: "RESET_FORM" });
     },
     onError: (error) => {
       toast.error(`Error creating run: ${error.message}`);
+      // Set specific error based on the error message
+      if (error.message.includes("name")) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "runName", message: "Invalid run name" },
+        });
+      }
     },
   });
 
@@ -74,145 +176,260 @@ export function CreateRunModal({
       toast.success(
         `File processed successfully: ${data.rowsAdded} rows added`,
       );
+      if (data.invalidRows > 0) {
+        toast.warning(`${data.invalidRows} rows had validation issues`);
+      }
     },
     onError: (error) => {
       toast.error(`Error processing file: ${error.message}`);
+      dispatch({
+        type: "SET_ERROR",
+        payload: { field: "file", message: "File processing failed" },
+      });
     },
   });
 
   const validateDataMutation = api.runs.validateData.useMutation({
     onSuccess: (data) => {
-      setProcessedData(data);
-      setIsProcessing(false);
-      setActiveStep("review");
+      dispatch({ type: "SET_PROCESSED_DATA", payload: data });
+      dispatch({ type: "SET_PROCESSING", payload: false });
+      dispatch({ type: "SET_STEP", payload: "review" });
     },
     onError: (error) => {
-      setIsProcessing(false);
+      dispatch({ type: "SET_PROCESSING", payload: false });
       toast.error(`Error validating data: ${error.message}`);
+      dispatch({
+        type: "SET_ERROR",
+        payload: { field: "file", message: error.message },
+      });
     },
   });
 
-  const resetForm = () => {
-    setRunName("");
-    setFile(null);
-    setCustomPrompt("");
-    setScheduleForLater(false);
-    setScheduledDate(null);
-    setScheduledTime("");
-    setProcessedData(null);
-    setActiveStep("details");
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+
+      // Validate file size (max 10MB)
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        toast.error("File size exceeds the 10MB limit");
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "file", message: "File size exceeds 10MB" },
+        });
+        return;
+      }
+
+      // Validate file type
+      const fileType = selectedFile.name.toLowerCase().split(".").pop();
+      if (!["csv", "xlsx", "xls"].includes(fileType || "")) {
+        toast.error("Please select a CSV or Excel file");
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "file", message: "Invalid file type" },
+        });
+        return;
+      }
+
+      // Clear any existing file errors
+      dispatch({ type: "CLEAR_ERROR", payload: "file" });
+      dispatch({ type: "SET_FILE", payload: selectedFile });
     }
   };
 
   const handleFileRemove = () => {
-    setFile(null);
+    dispatch({ type: "SET_FILE", payload: null });
+    dispatch({ type: "CLEAR_ERROR", payload: "file" });
+  };
+
+  // Validate form data before proceeding
+  const validateForm = (): boolean => {
+    let isValid = true;
+
+    // Validate run name
+    if (!state.runName.trim()) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: { field: "runName", message: "Run name is required" },
+      });
+      isValid = false;
+    } else {
+      dispatch({ type: "CLEAR_ERROR", payload: "runName" });
+    }
+
+    // Validate file selection
+    if (!state.file) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: { field: "file", message: "Please select a file" },
+      });
+      isValid = false;
+    } else {
+      dispatch({ type: "CLEAR_ERROR", payload: "file" });
+    }
+
+    // Validate schedule if enabled
+    if (state.scheduleForLater) {
+      if (!state.scheduledDate) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "scheduledDate", message: "Please select a date" },
+        });
+        isValid = false;
+      } else {
+        dispatch({ type: "CLEAR_ERROR", payload: "scheduledDate" });
+      }
+
+      if (!state.scheduledTime) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "scheduledTime", message: "Please select a time" },
+        });
+        isValid = false;
+      } else {
+        dispatch({ type: "CLEAR_ERROR", payload: "scheduledTime" });
+      }
+    }
+
+    return isValid;
   };
 
   const processFile = useCallback(async () => {
-    if (!file) {
-      toast.error("Please select a file to upload");
-      return;
-    }
-
-    if (!runName.trim()) {
-      toast.error("Please enter a run name");
+    // Validate form first
+    if (!validateForm()) {
       return;
     }
 
     try {
-      setIsProcessing(true);
+      dispatch({ type: "SET_PROCESSING", payload: true });
 
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const content = e.target?.result as string;
-        await validateDataMutation.mutateAsync({
-          campaignId,
-          fileContent: content,
-          fileName: file.name,
+        try {
+          const content = e.target?.result as string;
+          await validateDataMutation.mutateAsync({
+            campaignId,
+            fileContent: content,
+            fileName: state.file?.name || "",
+          });
+        } catch (error) {
+          console.error("Error in validate data mutation:", error);
+          dispatch({ type: "SET_PROCESSING", payload: false });
+          toast.error("Failed to process file data");
+        }
+      };
+
+      reader.onerror = () => {
+        dispatch({ type: "SET_PROCESSING", payload: false });
+        toast.error("Failed to read file");
+        dispatch({
+          type: "SET_ERROR",
+          payload: { field: "file", message: "Failed to read file" },
         });
       };
-      reader.onerror = () => {
-        setIsProcessing(false);
-        toast.error("Failed to read file");
-      };
-      reader.readAsDataURL(file);
+
+      if (state.file) {
+        reader.readAsDataURL(state.file);
+      }
     } catch (error) {
-      setIsProcessing(false);
+      dispatch({ type: "SET_PROCESSING", payload: false });
       console.error("Error processing file:", error);
       toast.error("Failed to process file");
     }
-  }, [file, runName, campaignId, validateDataMutation]);
+  }, [state.file, state.runName, campaignId, validateDataMutation]);
 
   const handleCreateRun = async () => {
     try {
+      // Final validation check
+      if (!validateForm()) {
+        return;
+      }
+
+      dispatch({ type: "SET_PROCESSING", payload: true });
+
+      // Prepare schedule data if needed
       let scheduledAt = null;
-      if (scheduleForLater && scheduledDate && scheduledTime) {
-        const [hours, minutes] = scheduledTime.split(":").map(Number);
-        const date = new Date(scheduledDate);
+      if (
+        state.scheduleForLater &&
+        state.scheduledDate &&
+        state.scheduledTime
+      ) {
+        const [hours, minutes] = state.scheduledTime.split(":").map(Number);
+        const date = new Date(state.scheduledDate);
         date.setHours(hours || 0, minutes || 0, 0, 0);
         scheduledAt = date.toISOString();
       }
 
+      // Create the run first
       const runData = {
         campaignId,
-        name: runName,
-        customPrompt,
+        name: state.runName,
+        customPrompt: state.customPrompt,
         ...(scheduledAt ? { scheduledAt } : {}),
       };
 
       const run = await createRunMutation.mutateAsync(runData);
 
-      if (run && processedData && file) {
+      // If run created successfully and we have data to upload
+      if (run && state.processedData && state.file) {
         const reader = new FileReader();
         reader.onload = async (e) => {
           const content = e.target?.result as string;
-          await uploadFileMutation.mutateAsync({
-            runId: run.id,
-            fileContent: content,
-            fileName: file.name,
-            processedData: processedData.allRows,
-          });
+          try {
+            await uploadFileMutation.mutateAsync({
+              runId: run.id,
+              fileContent: content,
+              fileName: state.file!.name,
+              processedData: state.processedData.allRows,
+            });
+          } catch (uploadError) {
+            console.error("Error uploading file:", uploadError);
+            // Even if upload fails, run was created
+            toast.error(
+              "Run created but file upload failed. You may need to re-upload the file.",
+            );
+          }
         };
-        reader.readAsDataURL(file);
+        reader.onerror = () => {
+          toast.error("Failed to read file for upload");
+        };
+        reader.readAsDataURL(state.file);
       }
     } catch (error) {
       console.error("Error in create run flow:", error);
       toast.error("Failed to create run");
+      dispatch({ type: "SET_PROCESSING", payload: false });
     }
   };
 
   const handleNext = () => {
-    if (activeStep === "details") {
+    if (state.activeStep === "details") {
       processFile();
-    } else if (activeStep === "review") {
-      setActiveStep("customize");
+    } else if (state.activeStep === "review") {
+      dispatch({ type: "SET_STEP", payload: "customize" });
     } else {
       handleCreateRun();
     }
   };
 
   const handleBack = () => {
-    if (activeStep === "review") {
-      setActiveStep("details");
-    } else if (activeStep === "customize") {
-      setActiveStep("review");
+    if (state.activeStep === "review") {
+      dispatch({ type: "SET_STEP", payload: "details" });
+    } else if (state.activeStep === "customize") {
+      dispatch({ type: "SET_STEP", payload: "review" });
     }
   };
 
   const isLoading =
-    createRunMutation.isPending || uploadFileMutation.isPending || isProcessing;
+    createRunMutation.isPending ||
+    uploadFileMutation.isPending ||
+    state.isProcessing;
 
   const renderStepIndicator = () => {
     return (
       <div className="mb-6 grid grid-cols-3 gap-2">
         <div
           className={`rounded-md border p-2 text-center text-sm ${
-            activeStep === "details"
+            state.activeStep === "details"
               ? "border-primary bg-primary/10 font-medium"
               : "border-gray-200"
           }`}
@@ -221,19 +438,19 @@ export function CreateRunModal({
         </div>
         <div
           className={`rounded-md border p-2 text-center text-sm ${
-            activeStep === "review"
+            state.activeStep === "review"
               ? "border-primary bg-primary/10 font-medium"
               : "border-gray-200"
-          } ${!processedData ? "opacity-50" : ""}`}
+          } ${!state.validationComplete ? "opacity-50" : ""}`}
         >
           Review Data
         </div>
         <div
           className={`rounded-md border p-2 text-center text-sm ${
-            activeStep === "customize"
+            state.activeStep === "customize"
               ? "border-primary bg-primary/10 font-medium"
               : "border-gray-200"
-          } ${!processedData ? "opacity-50" : ""}`}
+          } ${!state.validationComplete ? "opacity-50" : ""}`}
         >
           Customize & Schedule
         </div>
@@ -250,18 +467,29 @@ export function CreateRunModal({
           </label>
           <Input
             id="run-name"
-            value={runName}
-            onChange={(e) => setRunName(e.target.value)}
+            value={state.runName}
+            onChange={(e) => {
+              dispatch({ type: "SET_RUN_NAME", payload: e.target.value });
+              // Clear error if input is valid
+              if (e.target.value.trim()) {
+                dispatch({ type: "CLEAR_ERROR", payload: "runName" });
+              }
+            }}
             placeholder="Weekly Appointment Confirmations"
+            className={state.errors.runName ? "border-red-500" : ""}
           />
-          <p className="text-xs text-muted-foreground">
-            Give your run a descriptive name
-          </p>
+          {state.errors.runName ? (
+            <p className="text-xs text-red-500">{state.errors.runName}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Give your run a descriptive name
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
           <label className="text-sm font-medium">Data File</label>
-          {!file ? (
+          {!state.file ? (
             <div className="relative">
               <Input
                 type="file"
@@ -272,19 +500,30 @@ export function CreateRunModal({
               />
               <label
                 htmlFor="file-upload"
-                className="border-gray-300 hover:bg-gray-50 flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-dashed px-3 py-2 text-sm"
+                className={`border-gray-300 hover:bg-gray-50 flex h-10 w-full cursor-pointer items-center justify-center rounded-md border ${
+                  state.errors.file
+                    ? "border-dashed border-red-500"
+                    : "border-dashed"
+                } px-3 py-2 text-sm`}
               >
                 <Upload className="mr-2 h-4 w-4" />
                 Upload Excel or CSV file
               </label>
+              {state.errors.file && (
+                <p className="mt-1 text-xs text-red-500">{state.errors.file}</p>
+              )}
             </div>
           ) : (
-            <div className="bg-gray-50 flex items-center justify-between rounded-md border p-2">
+            <div
+              className={`bg-gray-50 flex items-center justify-between rounded-md border ${
+                state.errors.file ? "border-red-500" : ""
+              } p-2`}
+            >
               <div className="flex items-center">
                 <div className="ml-2">
-                  <p className="text-sm font-medium">{file.name}</p>
+                  <p className="text-sm font-medium">{state.file.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {(file.size / 1024).toFixed(2)} KB
+                    {(state.file.size / 1024).toFixed(2)} KB
                   </p>
                 </div>
               </div>
@@ -307,7 +546,7 @@ export function CreateRunModal({
   };
 
   const renderReviewStep = () => {
-    if (!processedData) return null;
+    if (!state.processedData) return null;
 
     return (
       <div className="space-y-6">
@@ -317,30 +556,30 @@ export function CreateRunModal({
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total Rows:</span>
-                <span>{processedData.totalRows}</span>
+                <span>{state.processedData.totalRows}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Valid Rows:</span>
                 <span className="text-green-600">
-                  {processedData.validRows}
+                  {state.processedData.validRows}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Invalid Rows:</span>
                 <span className="text-red-600">
-                  {processedData.invalidRows}
+                  {state.processedData.invalidRows}
                 </span>
               </div>
               <div className="bg-gray-100 my-1 h-px"></div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">New Patients:</span>
-                <span>{processedData.newPatients}</span>
+                <span>{state.processedData.newPatients}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
                   Existing Patients:
                 </span>
-                <span>{processedData.existingPatients}</span>
+                <span>{state.processedData.existingPatients}</span>
               </div>
             </div>
           </div>
@@ -354,8 +593,8 @@ export function CreateRunModal({
                 </span>
                 <span className="text-sm font-medium">
                   {Math.round(
-                    (processedData.validRows /
-                      Math.max(processedData.totalRows, 1)) *
+                    (state.processedData.validRows /
+                      Math.max(state.processedData.totalRows, 1)) *
                       100,
                   )}
                   %
@@ -365,13 +604,13 @@ export function CreateRunModal({
                 <div
                   className="h-full bg-green-500"
                   style={{
-                    width: `${(processedData.validRows / Math.max(processedData.totalRows, 1)) * 100}%`,
+                    width: `${(state.processedData.validRows / Math.max(state.processedData.totalRows, 1)) * 100}%`,
                   }}
                 ></div>
               </div>
             </div>
 
-            {processedData.invalidRows > 0 ? (
+            {state.processedData.invalidRows > 0 ? (
               <div className="mt-4 rounded-md bg-amber-50 p-3 text-amber-800">
                 <div className="flex">
                   <AlertCircle className="h-5 w-5 text-amber-500" />
@@ -380,8 +619,8 @@ export function CreateRunModal({
                       Validation Issues Found
                     </p>
                     <p className="mt-1 text-xs">
-                      {processedData.invalidRows} rows have validation issues
-                      that need to be addressed.
+                      {state.processedData.invalidRows} rows have validation
+                      issues that need to be addressed.
                     </p>
                   </div>
                 </div>
@@ -405,12 +644,12 @@ export function CreateRunModal({
         <div className="rounded-md border p-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium">Column Mapping</h3>
-            {processedData.unmatchedColumns?.length > 0 && (
+            {state.processedData.unmatchedColumns?.length > 0 && (
               <Badge
                 variant="outline"
                 className="border-amber-200 bg-amber-50 text-amber-500"
               >
-                {processedData.unmatchedColumns.length} Unmapped Columns
+                {state.processedData.unmatchedColumns.length} Unmapped Columns
               </Badge>
             )}
           </div>
@@ -422,7 +661,7 @@ export function CreateRunModal({
             <div>
               <h4 className="mb-2 text-xs font-medium">Mapped Columns</h4>
               <div className="space-y-1">
-                {processedData.matchedColumns?.map((column: string) => (
+                {state.processedData.matchedColumns?.map((column: string) => (
                   <div key={column} className="flex items-center">
                     <Check className="mr-2 h-3 w-3 text-green-500" />
                     <span className="text-sm">{column}</span>
@@ -431,16 +670,18 @@ export function CreateRunModal({
               </div>
             </div>
 
-            {processedData.unmatchedColumns?.length > 0 && (
+            {state.processedData.unmatchedColumns?.length > 0 && (
               <div>
                 <h4 className="mb-2 text-xs font-medium">Unmapped Columns</h4>
                 <div className="space-y-1">
-                  {processedData.unmatchedColumns.map((column: string) => (
-                    <div key={column} className="flex items-center">
-                      <Info className="mr-2 h-3 w-3 text-amber-500" />
-                      <span className="text-sm">{column}</span>
-                    </div>
-                  ))}
+                  {state.processedData.unmatchedColumns.map(
+                    (column: string) => (
+                      <div key={column} className="flex items-center">
+                        <Info className="mr-2 h-3 w-3 text-amber-500" />
+                        <span className="text-sm">{column}</span>
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
             )}
@@ -450,8 +691,8 @@ export function CreateRunModal({
         <div className="rounded-md border p-4">
           <h3 className="mb-2 text-sm font-medium">Sample Data Preview</h3>
           <p className="mb-4 text-xs text-muted-foreground">
-            Showing {Math.min(5, processedData.sampleRows?.length || 0)} of{" "}
-            {processedData.totalRows} rows
+            Showing {Math.min(5, state.processedData.sampleRows?.length || 0)}{" "}
+            of {state.processedData.totalRows} rows
           </p>
 
           <div className="overflow-x-auto">
@@ -473,7 +714,7 @@ export function CreateRunModal({
                 </tr>
               </thead>
               <tbody>
-                {processedData.sampleRows?.slice(0, 5).map((row: any) => (
+                {state.processedData.sampleRows?.slice(0, 5).map((row: any) => (
                   <tr key={row.id} className="border-b">
                     <td className="px-2 py-2">
                       {row.isValid ? (
@@ -496,7 +737,9 @@ export function CreateRunModal({
                       {row.patientData.firstName} {row.patientData.lastName}
                     </td>
                     <td className="px-2 py-2 text-sm">
-                      {row.patientData.phoneNumber}
+                      {row.patientData.phoneNumber ||
+                        row.patientData.primaryPhone ||
+                        row.patientData.phone}
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-1">
@@ -526,7 +769,7 @@ export function CreateRunModal({
           </div>
         </div>
 
-        {processedData.invalidRows > 0 && (
+        {state.processedData.invalidRows > 0 && (
           <div className="rounded-md border border-red-200 bg-red-50 p-4">
             <h3 className="mb-2 text-sm font-medium text-red-700">
               Validation Errors
@@ -536,7 +779,7 @@ export function CreateRunModal({
             </p>
 
             <div className="space-y-3">
-              {processedData.sampleRows
+              {state.processedData.sampleRows
                 ?.filter((row: any) => !row.isValid)
                 .slice(0, 3)
                 .map((row: any, idx: number) => (
@@ -556,9 +799,10 @@ export function CreateRunModal({
                   </div>
                 ))}
 
-              {processedData.invalidRows > 3 && (
+              {state.processedData.invalidRows > 3 && (
                 <div className="text-center text-sm text-muted-foreground">
-                  And {processedData.invalidRows - 3} more rows with errors
+                  And {state.processedData.invalidRows - 3} more rows with
+                  errors
                 </div>
               )}
             </div>
@@ -577,8 +821,10 @@ export function CreateRunModal({
           </label>
           <Textarea
             id="custom-prompt"
-            value={customPrompt}
-            onChange={(e) => setCustomPrompt(e.target.value)}
+            value={state.customPrompt}
+            onChange={(e) =>
+              dispatch({ type: "SET_CUSTOM_PROMPT", payload: e.target.value })
+            }
             placeholder="Describe the intent of this campaign in natural language (e.g., 'This is an urgent notice about upcoming appointments that need confirmation')"
             className="min-h-[120px] resize-none"
           />
@@ -597,12 +843,14 @@ export function CreateRunModal({
               </p>
             </div>
             <Switch
-              checked={scheduleForLater}
-              onCheckedChange={setScheduleForLater}
+              checked={state.scheduleForLater}
+              onCheckedChange={(checked) =>
+                dispatch({ type: "TOGGLE_SCHEDULE", payload: checked })
+              }
             />
           </div>
 
-          {scheduleForLater && (
+          {state.scheduleForLater && (
             <div className="mt-4 grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Date</label>
@@ -610,25 +858,47 @@ export function CreateRunModal({
                   <Input
                     type="text"
                     readOnly
-                    value={scheduledDate ? format(scheduledDate, "PPP") : ""}
+                    value={
+                      state.scheduledDate
+                        ? format(state.scheduledDate, "PPP")
+                        : ""
+                    }
                     placeholder="Pick a date"
-                    className="cursor-pointer"
-                    onClick={() => setShowCalendar(!showCalendar)}
+                    className={`cursor-pointer ${state.errors.scheduledDate ? "border-red-500" : ""}`}
+                    onClick={() =>
+                      dispatch({
+                        type: "TOGGLE_CALENDAR",
+                        payload: !state.showCalendar,
+                      })
+                    }
                   />
                   <Calendar className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
 
-                  {showCalendar && (
+                  {state.errors.scheduledDate && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {state.errors.scheduledDate}
+                    </p>
+                  )}
+
+                  {state.showCalendar && (
                     <div className="absolute left-0 top-full z-10 mt-1 rounded-md border bg-white p-3 shadow-md">
                       <div className="mb-2 flex items-center justify-between">
                         <h4 className="text-sm font-medium">
-                          {format(new Date(), "MMMM yyyy")}
+                          {state.scheduledDate
+                            ? format(state.scheduledDate, "MMMM yyyy")
+                            : format(new Date(), "MMMM yyyy")}
                         </h4>
                         <div className="flex space-x-1">
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0"
-                            onClick={() => setShowCalendar(false)}
+                            onClick={() =>
+                              dispatch({
+                                type: "TOGGLE_CALENDAR",
+                                payload: false,
+                              })
+                            }
                           >
                             <X className="h-4 w-4" />
                           </Button>
@@ -652,17 +922,26 @@ export function CreateRunModal({
                               variant="ghost"
                               size="sm"
                               className={`h-7 w-7 p-0 ${
-                                scheduledDate &&
-                                date.getDate() === scheduledDate.getDate() &&
-                                date.getMonth() === scheduledDate.getMonth() &&
+                                state.scheduledDate &&
+                                date.getDate() ===
+                                  state.scheduledDate.getDate() &&
+                                date.getMonth() ===
+                                  state.scheduledDate.getMonth() &&
                                 date.getFullYear() ===
-                                  scheduledDate.getFullYear()
+                                  state.scheduledDate.getFullYear()
                                   ? "bg-primary text-primary-foreground"
                                   : ""
                               }`}
                               onClick={() => {
-                                setScheduledDate(date);
-                                setShowCalendar(false);
+                                dispatch({ type: "SET_DATE", payload: date });
+                                dispatch({
+                                  type: "TOGGLE_CALENDAR",
+                                  payload: false,
+                                });
+                                dispatch({
+                                  type: "CLEAR_ERROR",
+                                  payload: "scheduledDate",
+                                });
                               }}
                             >
                               {date.getDate()}
@@ -679,10 +958,19 @@ export function CreateRunModal({
                 <label className="text-sm font-medium">Time</label>
                 <Input
                   type="time"
-                  value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
-                  disabled={!scheduledDate}
+                  value={state.scheduledTime}
+                  onChange={(e) => {
+                    dispatch({ type: "SET_TIME", payload: e.target.value });
+                    dispatch({ type: "CLEAR_ERROR", payload: "scheduledTime" });
+                  }}
+                  disabled={!state.scheduledDate}
+                  className={state.errors.scheduledTime ? "border-red-500" : ""}
                 />
+                {state.errors.scheduledTime && (
+                  <p className="mt-1 text-xs text-red-500">
+                    {state.errors.scheduledTime}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -692,7 +980,7 @@ export function CreateRunModal({
   };
 
   const renderActiveStep = () => {
-    switch (activeStep) {
+    switch (state.activeStep) {
       case "details":
         return renderDetailsStep();
       case "review":
@@ -724,7 +1012,7 @@ export function CreateRunModal({
       </ModalBody>
 
       <ModalFooter className="flex justify-between">
-        {activeStep !== "details" ? (
+        {state.activeStep !== "details" ? (
           <Button variant="outline" onClick={handleBack} disabled={isLoading}>
             Back
           </Button>
@@ -736,10 +1024,10 @@ export function CreateRunModal({
 
         <Button onClick={handleNext} disabled={isLoading}>
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {activeStep === "details" &&
+          {state.activeStep === "details" &&
             (isLoading ? "Processing..." : "Process Data")}
-          {activeStep === "review" && "Next"}
-          {activeStep === "customize" &&
+          {state.activeStep === "review" && "Next"}
+          {state.activeStep === "customize" &&
             (isLoading ? "Creating..." : "Create Run")}
         </Button>
       </ModalFooter>
