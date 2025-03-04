@@ -36,7 +36,7 @@ export default function RootLayout({
         <body className="scroll-smooth bg-background font-sans antialiased">
           <Providers>
             {children}
-            <Toaster />
+            <Toaster richColors position="top-center" />
           </Providers>
         </body>
       </html>

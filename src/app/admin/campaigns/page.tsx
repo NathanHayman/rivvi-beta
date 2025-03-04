@@ -6,7 +6,7 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { CampaignsTable } from "@/components/tables/campaigns-table";
+import { AdminCampaignsTable } from "@/components/tables/admin-campaigns-table";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -36,11 +36,11 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
         <AppHeader
           className=""
           title="Campaigns"
-          buttons={<CampaignCreateSheet />}
+          buttons={<CampaignCreateSheet agents={[]} />}
         />
         <AppContent className="">
           <Suspense fallback={<div>Loading...</div>}>
-            <CampaignsTable />
+            <AdminCampaignsTable />
           </Suspense>
         </AppContent>
       </AppBody>

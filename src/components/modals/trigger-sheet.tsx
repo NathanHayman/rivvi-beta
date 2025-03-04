@@ -12,6 +12,7 @@ interface TriggerSheetProps {
   buttonText: string;
   buttonIcon?: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
+  onTriggerClick?: (e: React.MouseEvent) => void;
 }
 
 const TriggerSheet = ({
@@ -22,12 +23,20 @@ const TriggerSheet = ({
   className,
   buttonText,
   buttonIcon,
+  onTriggerClick,
 }: TriggerSheetProps) => {
   const [open, setOpen] = useState(false);
 
+  const handleClick = (e: React.MouseEvent) => {
+    if (onTriggerClick) {
+      onTriggerClick(e);
+    }
+    setOpen(true);
+  };
+
   return (
     <>
-      <Button className={className} onClick={() => setOpen(true)}>
+      <Button className={className} onClick={handleClick}>
         {buttonIcon && buttonIcon}
         {buttonText}
       </Button>

@@ -14,16 +14,17 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 interface PageProps {
-  params: {
+  params: Promise<{
     orgId: string;
-  };
+  }>;
 }
 
 export default async function OrganizationDetailsPage({ params }: PageProps) {
+  const { orgId } = await params;
   // Fetch the organization by ID
   try {
     const organization = await api.organizations.getById({
-      id: params.orgId,
+      id: orgId,
     });
 
     // If the organization doesn't exist, return 404
@@ -36,7 +37,7 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
         <AppBreadcrumbs
           breadcrumbs={[
             { title: "Organizations", href: "/admin/orgs" },
-            { title: organization.name, href: `/admin/orgs/${params.orgId}` },
+            { title: organization.name, href: `/admin/orgs/${orgId}` },
           ]}
         />
         <AppBody>
@@ -50,13 +51,13 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
             buttons={
               <div className="flex items-center gap-2">
                 <Button asChild size="sm" variant="outline">
-                  <Link href={`/admin/orgs/${params.orgId}/campaigns`}>
+                  <Link href={`/admin/orgs/${orgId}/campaigns`}>
                     <Phone className="mr-2 h-4 w-4" />
                     Campaigns
                   </Link>
                 </Button>
                 <Button asChild size="sm">
-                  <Link href={`/admin/orgs/${params.orgId}/edit`}>
+                  <Link href={`/admin/orgs/${orgId}/edit`}>
                     <Edit className="mr-2 h-4 w-4" />
                     Edit
                   </Link>
@@ -66,7 +67,7 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
           />
           <AppContent>
             <Suspense fallback={<div>Loading...</div>}>
-              <OrganizationDetails organizationId={params.orgId} />
+              <OrganizationDetails organizationId={orgId} />
             </Suspense>
           </AppContent>
         </AppBody>

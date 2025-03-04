@@ -42,6 +42,8 @@ import {
 import { api } from "@/trpc/react";
 import { CreateRunModal } from "../app/run/create-run-modal";
 import { RequestCampaignButton } from "../buttons/request-campaign-button";
+import { CampaignEditForm } from "../forms/campaign-edit-form";
+import { TriggerSheet } from "../modals/trigger-sheet";
 
 interface Campaign {
   id: string;
@@ -53,7 +55,7 @@ interface Campaign {
   callCount?: number;
 }
 
-export function CampaignsTable() {
+export function AdminCampaignsTable() {
   const router = useRouter();
   const pathname = usePathname();
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -70,7 +72,7 @@ export function CampaignsTable() {
   const isAdmin = pathname.includes("/admin");
 
   // Get campaigns data
-  const { data, isLoading, refetch } = api.campaigns.getAll.useQuery({
+  const { data, isLoading, refetch } = api.admin.getAllCampaigns.useQuery({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
   });
@@ -80,7 +82,7 @@ export function CampaignsTable() {
     id: campaign.id || "",
     name: campaign.name || "",
     direction: campaign.direction || "",
-    agentId: campaign.config.agentId || "",
+    agentId: "",
     createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
     // Use optional chaining for properties that might not exist in the API response
     runCount: (campaign as any).runCount,
@@ -215,17 +217,38 @@ export function CampaignsTable() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <TriggerSheet
+                    form={<CampaignEditForm campaign={campaign as any} />}
+                    title="Edit Campaign"
+                    buttonText="Edit Campaign"
+                    onTriggerClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                  />
+                </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => router.push(`/campaigns/${campaign.id}`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    router.push(`/campaigns/${campaign.id}`);
+                  }}
                 >
                   View Campaign
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => router.push(`/campaigns/${campaign.id}/runs`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    router.push(`/campaigns/${campaign.id}/runs`);
+                  }}
                 >
                   View Runs
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleCreateRun(campaign.id)}>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreateRun(campaign.id);
+                  }}
+                >
                   Create Run
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -313,11 +336,18 @@ export function CampaignsTable() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/campaigns/${row.original.id}`)}
+                  className="hover:bg-muted/50"
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                  {row.getVisibleCells().map((cell, index) => (
+                    <TableCell
+                      key={cell.id}
+                      className={index === 0 ? "cursor-pointer" : ""}
+                      onClick={
+                        index === 0
+                          ? () => router.push(`/campaigns/${row.original.id}`)
+                          : undefined
+                      }
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),

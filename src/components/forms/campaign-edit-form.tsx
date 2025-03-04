@@ -24,7 +24,7 @@ import { api } from "@/trpc/react";
 import type { TCampaign } from "@/types/db";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -37,9 +37,6 @@ const campaignFormSchema = z.object({
   direction: z.string({
     required_error: "Please select a campaign direction.",
   }),
-  agentId: z.string().min(1, {
-    message: "Agent ID is required",
-  }),
   isActive: z.boolean().default(true),
   basePrompt: z.string().min(10, {
     message: "Base prompt must be at least 10 characters.",
@@ -48,26 +45,63 @@ const campaignFormSchema = z.object({
 
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 
+// Define the expected campaign type
+type CampaignWithTemplate = TCampaign & {
+  template?: { basePrompt?: string; agentId?: string };
+};
+
 export function CampaignEditForm({
   campaign,
   onSuccess,
 }: {
-  campaign: TCampaign;
+  campaign: CampaignWithTemplate;
   onSuccess?: () => void;
 }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [templateData, setTemplateData] = useState<{
+    basePrompt: string;
+  } | null>(null);
+
+  // Fetch template data if not provided
+  const getTemplate = api.campaigns.getById.useQuery(
+    { id: campaign.id },
+    {
+      enabled: !campaign.template?.basePrompt,
+      refetchOnWindowFocus: false,
+    },
+  );
+
+  // Determine basePrompt based on available data
+  const basePrompt =
+    campaign.template?.basePrompt ||
+    templateData?.basePrompt ||
+    "Loading prompt...";
+
+  useEffect(() => {
+    if (getTemplate.data && !templateData) {
+      setTemplateData({
+        basePrompt: getTemplate.data.template?.basePrompt || "",
+      });
+    }
+  }, [getTemplate.data, templateData]);
 
   const form = useForm<CampaignFormValues>({
     resolver: zodResolver(campaignFormSchema),
     defaultValues: {
       name: campaign.name,
       direction: campaign.direction,
-      agentId: campaign.agentId,
       isActive: campaign.isActive ?? true,
-      basePrompt: campaign.config.basePrompt,
+      basePrompt: basePrompt,
     },
   });
+
+  // Update form when template data changes
+  useEffect(() => {
+    if (basePrompt && basePrompt !== "Loading prompt...") {
+      form.setValue("basePrompt", basePrompt);
+    }
+  }, [basePrompt, form]);
 
   const updateCampaign = api.campaigns.update.useMutation({
     onSuccess: () => {
@@ -88,20 +122,19 @@ export function CampaignEditForm({
   function onSubmit(data: CampaignFormValues) {
     setIsSubmitting(true);
 
-    // Create a config object with the basePrompt
-    const configUpdate = {
-      ...campaign.config,
-      basePrompt: data.basePrompt,
-    };
-
     updateCampaign.mutate({
       id: campaign.id,
       name: data.name,
-      direction: data.direction,
-      agentId: data.agentId,
       isActive: data.isActive,
-      config: configUpdate,
+      basePrompt: data.basePrompt,
     });
+  }
+
+  // Show loading state if still fetching template data
+  if (getTemplate.isLoading && !campaign.template?.basePrompt) {
+    return (
+      <div className="p-8 text-center">Loading campaign template data...</div>
+    );
   }
 
   return (
@@ -152,23 +185,6 @@ export function CampaignEditForm({
 
         <FormField
           control={form.control}
-          name="agentId"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Agent ID</FormLabel>
-              <FormControl>
-                <Input placeholder="Enter Retell agent ID" {...field} />
-              </FormControl>
-              <FormDescription>
-                The Retell agent ID associated with this campaign.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
           name="isActive"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
@@ -199,6 +215,9 @@ export function CampaignEditForm({
                   placeholder="Enter base prompt for the agent"
                   className="min-h-[200px]"
                   {...field}
+                  disabled={
+                    getTemplate.isLoading && !campaign.template?.basePrompt
+                  }
                 />
               </FormControl>
               <FormDescription>

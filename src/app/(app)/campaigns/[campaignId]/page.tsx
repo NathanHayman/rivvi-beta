@@ -1,5 +1,6 @@
 import { CampaignDetails } from "@/components/app/campaign/campaign-details";
 import { CreateRunModalButton } from "@/components/app/run/create-run-modal-button";
+import { RunCreateForm } from "@/components/forms/run-create-form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -7,6 +8,7 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/server";
@@ -54,6 +56,11 @@ export default async function CampaignPage({ params }: PageProps) {
                 View Runs
               </Link>
               <CreateRunModalButton campaignId={campaignId} />
+              <TriggerSheet
+                buttonText="Create Campaign"
+                form={<RunCreateForm campaignId={campaignId} />}
+                title="Create Campaign"
+              />
             </>
           }
         />

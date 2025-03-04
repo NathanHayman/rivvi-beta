@@ -1,7 +1,9 @@
 // src/server/api/routers/admin.ts
+import { updateRetellAgentWebhooks } from "@/lib/retell/retell-actions";
 import {
   getAgentComplete,
   getAgents,
+  getLlmFromAgent,
   updateAgentWebhooks,
 } from "@/lib/retell/retell-client-safe";
 import { createTRPCRouter, superAdminProcedure } from "@/server/api/trpc";
@@ -19,59 +21,67 @@ import { and, count, desc, eq, like, or, SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
 // Add the missing functions to get LLM from agent and update Retell agent
-async function getLlmFromAgent(agentId: string): Promise<string> {
-  try {
-    const agentInfo = await getAgentComplete(agentId);
-    return agentInfo.combined.llm_id || "";
-  } catch (error) {
-    console.error("Error getting LLM from agent:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to get LLM from agent",
-      cause: error,
-    });
-  }
-}
-
-async function updateRetellAgent(
-  agentId: string,
-  updateData: Record<string, unknown>,
-): Promise<any> {
-  try {
-    // Fetch the agent first to ensure it exists
-    const agent = await getAgentComplete(agentId);
-
-    // Call Retell API to update the agent
-    // This is a placeholder - the actual implementation would use the Retell client API
-    const response = await fetch(
-      `https://api.retellhq.com/v1/agents/${agentId}`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
-        },
-        body: JSON.stringify(updateData),
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to update agent: ${response.statusText}`);
-    }
-
-    const updatedAgent = await response.json();
-    return updatedAgent;
-  } catch (error) {
-    console.error("Error updating Retell agent:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to update Retell agent",
-      cause: error,
-    });
-  }
-}
 
 export const adminRouter = createTRPCRouter({
+  getAllCampaigns: superAdminProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).optional().default(50),
+        offset: z.number().min(0).optional().default(0),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { limit, offset } = input;
+      const isSuperAdmin = ctx.auth.isSuperAdmin;
+
+      if (!isSuperAdmin) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "You are not authorized to access this resource",
+        });
+      }
+
+      // Get all campaigns for this organization
+      const allCampaigns = await ctx.db
+        .select()
+        .from(campaigns)
+        .limit(limit)
+        .offset(offset)
+        .orderBy(desc(campaigns.createdAt));
+
+      // Also get their templates
+      const campaignsWithTemplates = await Promise.all(
+        allCampaigns.map(async (campaign) => {
+          const [template] = await ctx.db
+            .select()
+            .from(campaignTemplates)
+            .where(eq(campaignTemplates.id, campaign.templateId));
+
+          return {
+            ...campaign,
+            config: template
+              ? {
+                  basePrompt: template.basePrompt,
+                  voicemailMessage: template.voicemailMessage,
+                  variables: template.variablesConfig,
+                  analysis: template.analysisConfig,
+                }
+              : null,
+          };
+        }),
+      );
+
+      const totalCount = await ctx.db
+        .select({ count: campaigns.id })
+        .from(campaigns)
+        .then((rows) => rows.length);
+
+      return {
+        campaigns: campaignsWithTemplates,
+        totalCount,
+        hasMore: offset + limit < totalCount,
+      };
+    }),
   getAgents: superAdminProcedure.query(async ({ ctx }) => {
     try {
       const agents = await getAgents();
@@ -229,7 +239,11 @@ export const adminRouter = createTRPCRouter({
 
         // Update the agent if we have data to update
         if (Object.keys(updateData).length > 0) {
-          const agent = await updateRetellAgent(agent_id, updateData);
+          const agent = await updateRetellAgentWebhooks(
+            agent_id,
+            inbound_org_id,
+            JSON.stringify(updateData),
+          );
           return agent;
         }
 
@@ -506,196 +520,113 @@ export const adminRouter = createTRPCRouter({
         orgId: z.string().uuid(),
         agentId: z.string().min(1),
         llmId: z.string().min(1),
-        direction: z.string().min(1).default("outbound"),
-        basePrompt: z.string().default("You are a helpful assistant."),
+        direction: z.enum(["inbound", "outbound"]),
+        basePrompt: z.string().min(1),
         voicemailMessage: z.string().optional(),
-        config: z
-          .object({
-            variables: z
-              .object({
-                patient: z
-                  .object({
-                    fields: z
-                      .array(
-                        z.object({
-                          key: z.string(),
-                          label: z.string(),
-                          possibleColumns: z.array(z.string()),
-                          transform: z
-                            .enum([
-                              "text",
-                              "short_date",
-                              "long_date",
-                              "time",
-                              "phone",
-                              "provider",
-                            ])
-                            .optional(),
-                          required: z.boolean(),
-                          description: z.string().optional(),
-                        }),
-                      )
-                      .default([]),
-                    validation: z
-                      .object({
-                        requireValidPhone: z.boolean().default(true),
-                        requireValidDOB: z.boolean().default(true),
-                        requireName: z.boolean().default(true),
-                      })
-                      .default({
-                        requireValidPhone: true,
-                        requireValidDOB: true,
-                        requireName: true,
-                      }),
-                  })
-                  .default({
-                    fields: [],
-                    validation: {
-                      requireValidPhone: true,
-                      requireValidDOB: true,
-                      requireName: true,
-                    },
-                  }),
-                campaign: z
-                  .object({
-                    fields: z
-                      .array(
-                        z.object({
-                          key: z.string(),
-                          label: z.string(),
-                          possibleColumns: z.array(z.string()),
-                          transform: z
-                            .enum([
-                              "text",
-                              "short_date",
-                              "long_date",
-                              "time",
-                              "phone",
-                              "provider",
-                            ])
-                            .optional(),
-                          required: z.boolean(),
-                          description: z.string().optional(),
-                        }),
-                      )
-                      .default([]),
-                  })
-                  .default({
-                    fields: [],
-                  }),
-              })
-              .default({
-                patient: {
-                  fields: [],
-                  validation: {
-                    requireValidPhone: true,
-                    requireValidDOB: true,
-                    requireName: true,
-                  },
-                },
-                campaign: {
-                  fields: [],
-                },
+        variablesConfig: z.object({
+          patient: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                possibleColumns: z.array(z.string()),
+                transform: z
+                  .enum([
+                    "text",
+                    "short_date",
+                    "long_date",
+                    "time",
+                    "phone",
+                    "provider",
+                  ])
+                  .optional(),
+                required: z.boolean().default(true),
+                description: z.string().optional(),
               }),
-            analysis: z
-              .object({
-                standard: z
-                  .object({
-                    fields: z
-                      .array(
-                        z.object({
-                          key: z.string(),
-                          label: z.string(),
-                          type: z.enum(["boolean", "string", "date", "enum"]),
-                          options: z.array(z.string()).optional(),
-                          required: z.boolean(),
-                          description: z.string().optional(),
-                        }),
-                      )
-                      .default([]),
-                  })
-                  .default({
-                    fields: [],
-                  }),
-                campaign: z
-                  .object({
-                    fields: z
-                      .array(
-                        z.object({
-                          key: z.string(),
-                          label: z.string(),
-                          type: z.enum(["boolean", "string", "date", "enum"]),
-                          options: z.array(z.string()).optional(),
-                          required: z.boolean(),
-                          description: z.string().optional(),
-                          isMainKPI: z.boolean().optional(),
-                        }),
-                      )
-                      .default([]),
-                  })
-                  .default({
-                    fields: [],
-                  }),
-              })
-              .default({
-                standard: {
-                  fields: [],
-                },
-                campaign: {
-                  fields: [],
-                },
-              }),
-          })
-          .default({
-            variables: {
-              patient: {
-                fields: [],
-                validation: {
-                  requireValidPhone: true,
-                  requireValidDOB: true,
-                  requireName: true,
-                },
-              },
-              campaign: {
-                fields: [],
-              },
-            },
-            analysis: {
-              standard: {
-                fields: [],
-              },
-              campaign: {
-                fields: [],
-              },
-            },
+            ),
+            validation: z.object({
+              requireValidPhone: z.boolean().default(true),
+              requireValidDOB: z.boolean().default(true),
+              requireName: z.boolean().default(true),
+            }),
           }),
+          campaign: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                possibleColumns: z.array(z.string()),
+                transform: z
+                  .enum([
+                    "text",
+                    "short_date",
+                    "long_date",
+                    "time",
+                    "phone",
+                    "provider",
+                  ])
+                  .optional(),
+                required: z.boolean().default(false),
+                description: z.string().optional(),
+              }),
+            ),
+          }),
+        }),
+        analysisConfig: z.object({
+          standard: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                type: z.enum(["boolean", "string", "date", "enum"]),
+                options: z.array(z.string()).optional(),
+                required: z.boolean().default(true),
+                description: z.string().optional(),
+              }),
+            ),
+          }),
+          campaign: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                type: z.enum(["boolean", "string", "date", "enum"]),
+                options: z.array(z.string()).optional(),
+                required: z.boolean().default(false),
+                description: z.string().optional(),
+                isMainKPI: z.boolean().default(false),
+              }),
+            ),
+          }),
+        }),
         requestId: z.string().uuid().optional(),
         configureWebhooks: z.boolean().default(true),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const {
+        name,
+        description,
+        orgId,
+        agentId,
+        llmId,
+        direction,
+        basePrompt,
+        voicemailMessage,
+        variablesConfig,
+        analysisConfig,
         requestId,
         configureWebhooks,
-        voicemailMessage,
-        basePrompt,
-        config,
-        ...campaignData
       } = input;
 
       try {
-        // Verify the organization exists
-        const [organization] = await ctx.db
-          .select()
-          .from(organizations)
-          .where(eq(organizations.id, campaignData.orgId));
-
-        if (!organization) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Organization not found",
-          });
-        }
+        const campaignData = {
+          name,
+          orgId,
+          agentId,
+          llmId,
+          direction,
+        };
 
         // Verify the Retell agent ID is valid
         let agentInfo;
@@ -723,15 +654,72 @@ export const adminRouter = createTRPCRouter({
 
         // Create a template with correct field structure based on the schema
         const templateData = {
-          name: `Template for ${campaignData.name}`,
-          description: "Auto-generated template",
-          agentId: campaignData.agentId,
-          llmId: campaignData.llmId,
-          basePrompt: basePrompt || "You are a helpful assistant.",
-          voicemailMessage:
-            voicemailMessage || agentInfo?.combined.voicemail_message,
-          variablesConfig: config.variables,
-          analysisConfig: config.analysis,
+          name: input.name,
+          description: input.description,
+          agentId: input.agentId,
+          llmId: input.llmId,
+          basePrompt: input.basePrompt,
+          voicemailMessage: input.voicemailMessage,
+          variablesConfig: {
+            patient: {
+              fields:
+                input.variablesConfig.patient?.fields?.map((field) => ({
+                  key: field.key || "",
+                  label: field.label || "",
+                  possibleColumns: field.possibleColumns || [],
+                  transform: field.transform,
+                  required: field.required || false,
+                  description: field.description,
+                })) || [],
+              validation: {
+                requireValidPhone:
+                  input.variablesConfig.patient?.validation
+                    ?.requireValidPhone || false,
+                requireValidDOB:
+                  input.variablesConfig.patient?.validation?.requireValidDOB ||
+                  false,
+                requireName:
+                  input.variablesConfig.patient?.validation?.requireName ||
+                  false,
+              },
+            },
+            campaign: {
+              fields:
+                input.variablesConfig.campaign?.fields?.map((field) => ({
+                  key: field.key || "",
+                  label: field.label || "",
+                  possibleColumns: field.possibleColumns || [],
+                  transform: field.transform,
+                  required: field.required || false,
+                  description: field.description,
+                })) || [],
+            },
+          },
+          analysisConfig: {
+            standard: {
+              fields:
+                input.analysisConfig.standard?.fields?.map((field) => ({
+                  key: field.key || "",
+                  label: field.label || "",
+                  type: field.type || "string",
+                  options: field.options,
+                  required: field.required || false,
+                  description: field.description,
+                })) || [],
+            },
+            campaign: {
+              fields:
+                input.analysisConfig.campaign?.fields?.map((field) => ({
+                  key: field.key || "",
+                  label: field.label || "",
+                  type: field.type || "string",
+                  options: field.options,
+                  required: field.required || false,
+                  description: field.description,
+                  isMainKPI: field.isMainKPI,
+                })) || [],
+            },
+          },
         };
 
         // Insert the template
@@ -742,12 +730,11 @@ export const adminRouter = createTRPCRouter({
 
         // Create the campaign with correct field structure
         const campaignValues = {
-          orgId: campaignData.orgId,
-          name: campaignData.name,
+          name: input.name,
+          orgId: input.orgId,
           templateId: template.id,
-          direction: campaignData.direction as "inbound" | "outbound",
+          direction: input.direction,
           isActive: true,
-          isDefaultInbound: campaignData.direction === "inbound",
           metadata: {},
         };
 
@@ -757,17 +744,15 @@ export const adminRouter = createTRPCRouter({
           .values(campaignValues)
           .returning();
 
-        // If requestId is provided, update the request with correct status field
-        if (requestId) {
+        // Update request status if requestId is provided
+        if (input.requestId) {
           await ctx.db
             .update(campaignRequests)
             .set({
-              // @ts-ignore
-              status: "completed", // Using type assertion for enum field
-              resultingCampaignId: campaign?.id || "",
-              updatedAt: new Date(),
-            })
-            .where(eq(campaignRequests.id, requestId));
+              status: "completed",
+              resultingCampaignId: campaign.id,
+            } as Partial<typeof campaignRequests.$inferInsert>)
+            .where(eq(campaignRequests.id, input.requestId));
         }
 
         // Configure webhooks if requested

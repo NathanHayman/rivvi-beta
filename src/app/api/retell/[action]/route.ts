@@ -19,7 +19,13 @@ export async function POST(
   try {
     // Validate the action
     if (
-      !["get-agent", "get-llm", "update-agent", "update-llm"].includes(action)
+      ![
+        "get-agent",
+        "get-llm",
+        "update-agent",
+        "update-llm",
+        "get-agents",
+      ].includes(action)
     ) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
@@ -29,6 +35,11 @@ export async function POST(
 
     // Determine the Retell API endpoint based on the action
     switch (action) {
+      case "get-agents":
+        url = `${RETELL_BASE_URL}/get-agents`;
+        method = "GET";
+        break;
+
       case "get-agent":
         const agentId = body.agentId || searchParams.get("agentId");
         if (!agentId) {

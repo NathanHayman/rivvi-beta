@@ -338,83 +338,16 @@ export const campaigns = createTable(
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
     name: varchar("name", { length: 256 }).notNull(),
-    agentId: varchar("agent_id", { length: 256 }).notNull(),
-    llmId: varchar("llm_id", { length: 256 }).notNull(),
+    // Reference to the campaign template
+    templateId: uuid("template_id")
+      .references(() => campaignTemplates.id, { onDelete: "set null" })
+      .notNull(),
     // Direction for this campaign
     direction: callDirectionEnum("direction").notNull(),
     isActive: boolean("is_active").default(true),
     isDefaultInbound: boolean("is_default_inbound").default(false),
-    // Configuration for prompts and variables
-    config: json("config")
-      .$type<{
-        basePrompt: string;
-        voicemailMessage: string;
-        variables: {
-          patient: {
-            fields: Array<{
-              key: string;
-              label: string;
-              possibleColumns: string[];
-              transform?:
-                | "text"
-                | "short_date"
-                | "long_date"
-                | "time"
-                | "phone"
-                | "provider";
-              required: boolean;
-              description?: string;
-            }>;
-            validation: {
-              requireValidPhone: boolean;
-              requireValidDOB: boolean;
-              requireName: boolean;
-            };
-          };
-          campaign: {
-            fields: Array<{
-              key: string;
-              label: string;
-              possibleColumns: string[];
-              transform?:
-                | "short_date"
-                | "long_date"
-                | "time"
-                | "phone"
-                | "text"
-                | "provider";
-              required: boolean;
-              description?: string;
-            }>;
-          };
-        };
-        analysis: {
-          standard: {
-            fields: Array<{
-              key: string;
-              label: string;
-              type: "boolean" | "string" | "date" | "enum";
-              options?: string[];
-              required: boolean;
-              description?: string;
-            }>;
-          };
-          campaign: {
-            fields: Array<{
-              key: string;
-              label: string;
-              type: "boolean" | "string" | "date" | "enum";
-              options?: string[];
-              required: boolean;
-              description?: string;
-              isMainKPI?: boolean;
-            }>;
-          };
-        };
-      }>()
-      .notNull(),
-    // Will be linked to a template in the future when implemented
-    // templateId: uuid("template_id").references(() => campaignTemplates.id, { onDelete: "set null" }),
+    // Any campaign-specific overrides or settings
+    metadata: json("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
@@ -424,7 +357,7 @@ export const campaigns = createTable(
   },
   (table) => ({
     orgIdIdx: index("campaign_org_id_idx").on(table.orgId),
-    agentIdIdx: index("campaign_agent_id_idx").on(table.agentId),
+    templateIdIdx: index("campaign_template_id_idx").on(table.templateId),
   }),
 );
 

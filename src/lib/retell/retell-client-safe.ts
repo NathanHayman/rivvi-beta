@@ -4,6 +4,8 @@
  * This avoids exposing API keys in client-side code
  */
 
+import { TRPCError } from "@trpc/server";
+
 /**
  * Type definitions for Retell API responses
  */
@@ -53,76 +55,55 @@ export type RetellAgentCombined = {
 };
 
 /**
- * Get complete agent information including LLM in one call
- */
-export const getAgentComplete = async (
-  agentId: string,
-): Promise<RetellAgentCombined> => {
-  try {
-    console.log("Getting complete agent info for:", agentId);
-
-    // Step 1: Get the agent details
-    const agent = await getAgent(agentId);
-
-    if (!agent) {
-      throw new Error(`Agent not found: ${agentId}`);
-    }
-
-    // Step 2: Extract the LLM ID and fetch LLM details
-    let llmId = null;
-    if (agent.response_engine?.type === "retell-llm") {
-      llmId = agent.response_engine.llm_id;
-    } else {
-      throw new Error("Agent does not use a Retell LLM");
-    }
-
-    const llm = await getLlm(llmId);
-
-    // Step 3: Combine the data into a single structure
-    const combined = {
-      agent_id: agent.agent_id,
-      agent_name: agent.agent_name,
-      llm_id: llm.llm_id,
-      general_prompt: llm.general_prompt,
-      voicemail_message: agent.voicemail_message,
-      post_call_analysis_data: agent.post_call_analysis_data,
-      webhook_url: agent.webhook_url,
-      inbound_dynamic_variables_webhook_url:
-        llm.inbound_dynamic_variables_webhook_url,
-    };
-
-    return {
-      agent,
-      llm,
-      combined,
-    };
-  } catch (error) {
-    console.error("Error getting complete agent info:", error);
-    throw error;
-  }
-};
-
-/**
  * Get a single agent from Retell (client-safe)
  */
 export const getAgent = async (
   agentId: string,
 ): Promise<RetellAgentComplete> => {
   try {
-    console.log("Getting agent:", agentId);
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
 
-    const response = await fetch(`/api/retell/get-agent?agentId=${agentId}`);
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/agent/${agentId}`);
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
-      );
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      const response = await fetch(`${RETELL_BASE_URL}/get-agent/${agentId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      return await response.json();
     }
-
-    return await response.json();
   } catch (error) {
-    console.error("Error getting agent:", error);
-    throw error;
+    console.error("Error fetching agent:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to fetch agent",
+      cause: error,
+    });
   }
 };
 
@@ -133,18 +114,51 @@ export const getAgents = async (): Promise<
   Pick<RetellAgentComplete, "agent_id" | "agent_name">[]
 > => {
   try {
-    const response = await fetch("/api/retell/get-agents");
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
-      );
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/agents`);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      // No need to import retell-actions since we're making the call directly
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      const response = await fetch(`${RETELL_BASE_URL}/list-agents`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data;
     }
-
-    return await response.json();
   } catch (error) {
-    console.error("Error getting agents:", error);
-    throw error;
+    console.error("Error fetching agents:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to fetch agents",
+      cause: error,
+    });
   }
 };
 
@@ -153,20 +167,52 @@ export const getAgents = async (): Promise<
  */
 export const getLlm = async (llmId: string): Promise<RetellLlmComplete> => {
   try {
-    console.log("Getting LLM:", llmId);
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
 
-    const response = await fetch(`/api/retell/get-llm?llmId=${llmId}`);
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/llm/${llmId}`);
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      const response = await fetch(
+        `${RETELL_BASE_URL}/get-retell-llm/${llmId}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${RETELL_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        },
       );
-    }
 
-    return await response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      return await response.json();
+    }
   } catch (error) {
-    console.error("Error getting LLM:", error);
-    throw error;
+    console.error("Error fetching LLM:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to fetch LLM",
+      cause: error,
+    });
   }
 };
 
@@ -207,65 +253,103 @@ export const updateAgentWebhooks = async (
   },
 ) => {
   try {
-    const {
-      baseUrl = window.location.origin,
-      setInbound = true,
-      setPostCall = true,
-    } = options || {};
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
 
-    // Generate webhook URLs
-    const { inboundUrl, postCallUrl } = generateWebhookUrls(
-      baseUrl,
-      orgId,
-      campaignId,
-    );
+    if (isBrowser) {
+      // Client-side implementation
+      const {
+        baseUrl = window.location.origin,
+        setInbound = true,
+        setPostCall = true,
+      } = options || {};
 
-    // Prepare update payload
-    const updateData: Record<string, unknown> = {};
+      // Generate webhook URLs
+      const { inboundUrl, postCallUrl } = generateWebhookUrls(
+        baseUrl,
+        orgId,
+        campaignId,
+      );
 
-    if (setInbound) {
-      updateData.inbound_dynamic_variables_webhook_url = inboundUrl;
-    }
+      // Prepare update payload
+      const updateData: Record<string, unknown> = {};
 
-    if (setPostCall) {
-      updateData.webhook_url = postCallUrl;
-    }
+      if (setInbound) {
+        updateData.inbound_dynamic_variables_webhook_url = inboundUrl;
+      }
 
-    // Skip API call if no updates needed
-    if (Object.keys(updateData).length === 0) {
-      return { success: true, message: "No webhook updates needed" };
-    }
+      if (setPostCall) {
+        updateData.webhook_url = postCallUrl;
+      }
 
-    // Call the server-side API route
-    const response = await fetch(
-      `/api/retell/update-agent?agentId=${agentId}`,
-      {
+      // Skip API call if no updates needed
+      if (Object.keys(updateData).length === 0) {
+        return { success: true, message: "No webhook updates needed" };
+      }
+
+      // Call the server-side API route
+      const response = await fetch(`/api/retell/agent/${agentId}/webhooks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ data: updateData }),
-      },
-    );
+        body: JSON.stringify({
+          updateData,
+          orgId,
+          campaignId,
+          baseUrl,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      return {
+        success: true,
+        ...result,
+        webhooks: {
+          inbound: setInbound ? inboundUrl : null,
+          postCall: setPostCall ? postCallUrl : null,
+        },
+      };
+    } else {
+      // Server-side: Use the server action directly
+      const { updateRetellAgentWebhooks } = await import("./retell-actions");
+
+      // Call the server action
+      const result = await updateRetellAgentWebhooks(
+        agentId,
+        orgId,
+        campaignId || "",
+        options,
       );
-    }
 
-    const result = await response.json();
-    return {
-      success: true,
-      ...result,
-      webhooks: {
-        inbound: setInbound ? inboundUrl : null,
-        postCall: setPostCall ? postCallUrl : null,
-      },
-    };
+      // Generate webhook URLs for the response
+      const baseUrl = options?.baseUrl || "";
+      const { inboundUrl, postCallUrl } = generateWebhookUrls(
+        baseUrl,
+        orgId,
+        campaignId,
+      );
+
+      return {
+        success: true,
+        ...result,
+        webhooks: {
+          inbound: options?.setInbound ? inboundUrl : null,
+          postCall: options?.setPostCall ? postCallUrl : null,
+        },
+      };
+    }
   } catch (error) {
     console.error("Error updating agent webhooks:", error);
-    throw error;
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to update agent webhooks",
+      cause: error,
+    });
   }
 };
 
@@ -274,26 +358,59 @@ export const updateAgentWebhooks = async (
  */
 export const updateLlmPrompt = async (llmId: string, prompt: string) => {
   try {
-    const response = await fetch(`/api/retell/update-llm?llmId=${llmId}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        data: { general_prompt: prompt },
-      }),
-    });
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/llm/${llmId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      const response = await fetch(
+        `${RETELL_BASE_URL}/update-retell-llm/${llmId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${RETELL_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ general_prompt: prompt }),
+        },
       );
-    }
 
-    return await response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      return await response.json();
+    }
   } catch (error) {
     console.error("Error updating LLM prompt:", error);
-    throw error;
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to update LLM prompt",
+      cause: error,
+    });
   }
 };
 
@@ -305,29 +422,62 @@ export const updateAgentVoicemail = async (
   voicemailMessage: string,
 ) => {
   try {
-    const response = await fetch(
-      `/api/retell/update-agent?agentId=${agentId}`,
-      {
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/agent/${agentId}/voicemail`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          data: { voicemail_message: voicemailMessage },
+          voicemailMessage,
         }),
-      },
-    );
+      });
 
-    if (!response.ok) {
-      throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      // Update the agent voicemail message
+      const response = await fetch(
+        `${RETELL_BASE_URL}/update-agent/${agentId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${RETELL_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ voicemail_message: voicemailMessage }),
+        },
       );
-    }
 
-    return await response.json();
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      return await response.json();
+    }
   } catch (error) {
     console.error("Error updating agent voicemail:", error);
-    throw error;
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to update agent voicemail",
+      cause: error,
+    });
   }
 };
 
@@ -395,4 +545,120 @@ export const convertPostCallToAnalysisFields = (postCallData?: Array<any>) => {
     standardFields,
     campaignFields,
   };
+};
+
+/**
+ * Get complete agent information including LLM in one call
+ */
+export const getAgentComplete = async (
+  agentId: string,
+): Promise<RetellAgentCombined> => {
+  try {
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/agent/${agentId}/complete`);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Make multiple direct calls to Retell API
+      const agent = await getAgent(agentId);
+
+      let llmId = null;
+      if (agent.response_engine?.type === "retell-llm") {
+        llmId = agent.response_engine.llm_id;
+      } else {
+        throw new Error("Agent does not use a Retell LLM");
+      }
+
+      const llm = await getLlm(llmId);
+
+      // Combine the data
+      const combined = {
+        agent_id: agent.agent_id,
+        agent_name: agent.agent_name,
+        llm_id: llm.llm_id,
+        general_prompt: llm.general_prompt,
+        voicemail_message: agent.voicemail_message,
+        post_call_analysis_data: agent.post_call_analysis_data,
+        webhook_url: agent.webhook_url,
+        inbound_dynamic_variables_webhook_url:
+          llm.inbound_dynamic_variables_webhook_url,
+      };
+
+      return { agent, llm, combined };
+    }
+  } catch (error) {
+    console.error("Error fetching complete agent info:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to fetch complete agent info",
+      cause: error,
+    });
+  }
+};
+
+export const getLlmFromAgent = async (agentId: string): Promise<string> => {
+  try {
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/agent/${agentId}/llm`);
+
+      if (!response.ok) {
+        throw new Error(`Failed to get LLM from agent: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.llmId;
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      // Step 1: Get the agent details
+      const response = await fetch(`${RETELL_BASE_URL}/get-agent/${agentId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Agent not found: ${agentId}`);
+      }
+
+      const agent = await response.json();
+
+      // Step 2: Extract the LLM ID
+      let llmId = null;
+      if (agent.response_engine?.type === "retell-llm") {
+        llmId = agent.response_engine.llm_id;
+      } else {
+        throw new Error("Agent does not use a Retell LLM");
+      }
+
+      return llmId;
+    }
+  } catch (error) {
+    console.error("Error getting LLM from agent:", error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to get LLM from agent",
+      cause: error,
+    });
+  }
 };

@@ -3,8 +3,8 @@
 
 import { env } from "@/env";
 import { db } from "@/server/db";
-import { campaigns, promptIterations, runs } from "@/server/db/schema";
-import { eq } from "drizzle-orm";
+import { campaigns, campaignTemplates, runs } from "@/server/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 // Server environment API base URL for Retell
@@ -197,7 +197,7 @@ export async function updateCampaignWithWebhooks(
   },
 ) {
   try {
-    // Get current campaign config
+    // Get current campaign and its template
     const [campaign] = await db
       .select()
       .from(campaigns)
@@ -207,31 +207,48 @@ export async function updateCampaignWithWebhooks(
       throw new Error("Campaign not found");
     }
 
-    // Create an updated config object
-    // This maintains the existing structure while adding webhook URLs
-    const updatedConfig = {
-      ...campaign.config,
-      webhooks: {
-        ...((campaign.config as any)?.webhooks || {}), // Keep existing webhook config if any
-        inbound:
-          webhooks.inboundUrl || (campaign.config as any)?.webhooks?.inbound,
-        postCall:
-          webhooks.postCallUrl || (campaign.config as any)?.webhooks?.postCall,
-        updatedAt: new Date().toISOString(),
-      },
-    };
+    // Get template details
+    const [template] = await db
+      .select()
+      .from(campaignTemplates)
+      .where(eq(campaignTemplates.id, campaign.templateId));
 
-    // Update the campaign config
-    await db
-      .update(campaigns)
-      .set({ config: updatedConfig as any }) // Type cast needed due to complex JSON structure
-      .where(eq(campaigns.id, campaignId));
+    if (!template) {
+      throw new Error("Campaign template not found");
+    }
+
+    // Update the template with webhook URLs using SQL directly
+    if (webhooks.inboundUrl || webhooks.postCallUrl) {
+      // Build the SQL dynamically based on what fields need updating
+      const parts = [];
+      if (webhooks.inboundUrl) {
+        parts.push(sql`inbound_webhook_url = ${webhooks.inboundUrl}`);
+      }
+      if (webhooks.postCallUrl) {
+        parts.push(sql`post_call_webhook_url = ${webhooks.postCallUrl}`);
+      }
+
+      if (parts.length > 0) {
+        // Combine all parts with commas and execute
+        await db.execute(sql`
+          UPDATE rivvi_campaign_template 
+          SET ${sql.join(parts, sql`, `)}
+          WHERE id = ${campaign.templateId}
+        `);
+      }
+    }
 
     // Revalidate the campaign page to reflect changes
     revalidatePath(`/campaigns/${campaignId}`);
     revalidatePath(`/admin/campaigns/${campaignId}`);
 
-    return { success: true, webhooks: updatedConfig.webhooks };
+    return {
+      success: true,
+      webhooks: {
+        inbound: webhooks.inboundUrl || template.inboundWebhookUrl,
+        postCall: webhooks.postCallUrl || template.postCallWebhookUrl,
+      },
+    };
   } catch (error) {
     console.error("Error updating campaign webhooks:", error);
     throw error;
@@ -247,7 +264,7 @@ export async function updateCampaignVoicemail(
   updateRetell = true,
 ) {
   try {
-    // Get current campaign
+    // Get current campaign and its template
     const [campaign] = await db
       .select()
       .from(campaigns)
@@ -257,23 +274,28 @@ export async function updateCampaignVoicemail(
       throw new Error("Campaign not found");
     }
 
-    // Extend the config object with voicemail message
-    const updatedConfig = {
-      ...campaign.config,
-      voicemailMessage, // Add this field to the config object
-    };
+    // Get template details
+    const [template] = await db
+      .select()
+      .from(campaignTemplates)
+      .where(eq(campaignTemplates.id, campaign.templateId));
 
-    // Update the campaign config
-    await db
-      .update(campaigns)
-      .set({ config: updatedConfig as any }) // Type cast needed due to complex JSON structure
-      .where(eq(campaigns.id, campaignId));
+    if (!template) {
+      throw new Error("Campaign template not found");
+    }
+
+    // Update the template with voicemail message using SQL directly
+    await db.execute(sql`
+      UPDATE rivvi_campaign_template 
+      SET voicemail_message = ${voicemailMessage}
+      WHERE id = ${campaign.templateId}
+    `);
 
     // Update Retell if requested
     if (updateRetell) {
       // Update the agent voicemail message
       const response = await fetch(
-        `${RETELL_BASE_URL}/update-agent/${campaign.agentId}`,
+        `${RETELL_BASE_URL}/update-agent/${template.agentId}`,
         {
           method: "POST",
           headers: {
@@ -323,7 +345,7 @@ export async function updatePromptWithHistory(params: {
   } = params;
 
   try {
-    // Get the campaign to find the base prompt and LLM ID
+    // Get the campaign and its template to find the base prompt and LLM ID
     const [campaign] = await db
       .select()
       .from(campaigns)
@@ -331,6 +353,16 @@ export async function updatePromptWithHistory(params: {
 
     if (!campaign) {
       throw new Error("Campaign not found");
+    }
+
+    // Get template details
+    const [template] = await db
+      .select()
+      .from(campaignTemplates)
+      .where(eq(campaignTemplates.id, campaign.templateId));
+
+    if (!template) {
+      throw new Error("Campaign template not found");
     }
 
     // If we have a run ID, update the run's custom prompt
@@ -352,7 +384,7 @@ export async function updatePromptWithHistory(params: {
           .update(runs)
           .set({
             customPrompt: generatedPrompt,
-            metadata: updatedMetadata as any, // Type cast needed due to complex JSON structure
+            metadata: updatedMetadata,
           })
           .where(eq(runs.id, runId));
 
@@ -361,27 +393,32 @@ export async function updatePromptWithHistory(params: {
       }
     }
 
-    // Record the prompt change in the promptIterations table
+    // Record the prompt change in the agentVariations table using SQL directly
     if (naturalLanguageInput) {
-      await db.insert(promptIterations).values({
-        campaignId,
-        runId: runId || null,
-        userId: userId || null,
-        userInput: naturalLanguageInput,
-        prompt: generatedPrompt,
-        // Calculate changes between original and new prompt
-        changes: JSON.stringify({
-          from: campaign.config.basePrompt,
-          to: generatedPrompt,
-          timestamp: new Date().toISOString(),
-        }),
-      });
+      let sqlQuery;
+      if (userId) {
+        sqlQuery = sql`
+          INSERT INTO rivvi_agent_variation 
+          (id, campaign_id, user_input, original_base_prompt, customized_prompt, user_id, created_at) 
+          VALUES 
+          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, ${userId}, CURRENT_TIMESTAMP)
+        `;
+      } else {
+        sqlQuery = sql`
+          INSERT INTO rivvi_agent_variation 
+          (id, campaign_id, user_input, original_base_prompt, customized_prompt, created_at) 
+          VALUES 
+          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, CURRENT_TIMESTAMP)
+        `;
+      }
+
+      await db.execute(sqlQuery);
     }
 
     // Update the Retell LLM prompt if requested
-    if (updateRetell && campaign.llmId) {
+    if (updateRetell && template.llmId) {
       const response = await fetch(
-        `${RETELL_BASE_URL}/update-retell-llm/${campaign.llmId}`,
+        `${RETELL_BASE_URL}/update-retell-llm/${template.llmId}`,
         {
           method: "POST",
           headers: {

@@ -2,6 +2,7 @@ import {
   calls,
   campaignRequests,
   campaigns,
+  campaignTemplates,
   organizationPatients,
   organizations,
   patients,
@@ -18,4 +19,5 @@ export type TPatient = typeof patients.$inferSelect;
 export type TCall = typeof calls.$inferSelect;
 export type TOrg = typeof organizations.$inferSelect;
 export type TUser = typeof users.$inferSelect;
+export type TCampaignTemplate = typeof campaignTemplates.$inferSelect;
 export type TOrganizationPatient = typeof organizationPatients.$inferSelect;

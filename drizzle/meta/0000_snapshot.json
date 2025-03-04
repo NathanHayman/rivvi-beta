@@ -1,5 +1,5 @@
 {
-  "id": "a624c382-7ce4-427e-b259-e59bac4e9eeb",
+  "id": "53a15001-2de8-4ffb-a5e0-75659d1e8765",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -855,15 +855,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "varchar(256)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "llm_id": {
-          "name": "llm_id",
-          "type": "varchar(256)",
+        "template_id": {
+          "name": "template_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -888,11 +882,11 @@
           "notNull": false,
           "default": false
         },
-        "config": {
-          "name": "config",
+        "metadata": {
+          "name": "metadata",
           "type": "json",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -924,11 +918,11 @@
           "method": "btree",
           "with": {}
         },
-        "campaign_agent_id_idx": {
-          "name": "campaign_agent_id_idx",
+        "campaign_template_id_idx": {
+          "name": "campaign_template_id_idx",
           "columns": [
             {
-              "expression": "agent_id",
+              "expression": "template_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -952,6 +946,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rivvi_campaign_template_id_rivvi_campaign_template_id_fk": {
+          "name": "rivvi_campaign_template_id_rivvi_campaign_template_id_fk",
+          "tableFrom": "rivvi_campaign",
+          "tableTo": "rivvi_campaign_template",
+          "columnsFrom": [
+            "template_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

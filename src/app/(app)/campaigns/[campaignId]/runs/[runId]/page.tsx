@@ -3,7 +3,6 @@ import {
   AppBody,
   AppBreadcrumbs,
   AppContent,
-  AppHeader,
   AppPage,
 } from "@/components/layout/shell";
 import { api } from "@/trpc/server";
@@ -43,10 +42,6 @@ export default async function RunPage({ params }: PageProps) {
         ]}
       />
       <AppBody>
-        <AppHeader
-          title={run?.name || "Run"}
-          subtitle={`Status: ${run?.status || "Unknown"}`}
-        />
         <AppContent>
           {run && campaign && (
             <RunDetails

@@ -9,6 +9,7 @@ import {
 import { RunsTable } from "@/components/tables/runs-table";
 import { api } from "@/trpc/server";
 import { Metadata } from "next";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Campaign Runs - Rivvi",
@@ -45,7 +46,9 @@ export default async function CampaignRunsPage({ params }: PageProps) {
           buttons={<CreateRunModalButton campaignId={campaignId} />}
         />
         <AppContent>
-          <RunsTable campaignId={campaignId} limit={20} />
+          <Suspense fallback={<div>Loading...</div>}>
+            <RunsTable campaignId={campaignId} limit={20} />
+          </Suspense>
         </AppContent>
       </AppBody>
     </AppPage>

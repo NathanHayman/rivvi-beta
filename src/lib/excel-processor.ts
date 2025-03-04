@@ -100,6 +100,11 @@ export function parseFileContent(
         csvText = new TextDecoder().decode(fileContent);
       }
 
+      // Modify the CSV parsing logic to handle BOM if present
+      if (csvText.charCodeAt(0) === 0xfeff) {
+        csvText = csvText.slice(1);
+      }
+
       const { data, errors } = Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
@@ -155,6 +160,14 @@ function findMatchingColumn(
   headers: string[],
   possibleColumns: string[],
 ): string | null {
+  console.log(`Finding matching column - headers:`, headers);
+  console.log(`Finding matching column - possibleColumns:`, possibleColumns);
+
+  if (!possibleColumns || possibleColumns.length === 0) {
+    console.log("No possible columns provided for matching");
+    return null;
+  }
+
   const normalizedHeaders = headers.map((key) => key.toLowerCase().trim());
 
   // Try exact match first
@@ -164,6 +177,9 @@ function findMatchingColumn(
       (key) => key === normalizedColumn,
     );
     if (exactMatchIndex !== -1) {
+      console.log(
+        `Found exact match: ${headers[exactMatchIndex]} matches ${column}`,
+      );
       return headers[exactMatchIndex] ?? null;
     }
   }
@@ -175,35 +191,15 @@ function findMatchingColumn(
       key.includes(normalizedColumn),
     );
     if (containsMatchIndex !== -1) {
+      console.log(
+        `Found contains match: ${headers[containsMatchIndex]} contains ${column}`,
+      );
       return headers[containsMatchIndex] ?? null;
     }
   }
 
-  // Try reverse contains match (column name contains the header)
-  for (const column of possibleColumns) {
-    const normalizedColumn = column.toLowerCase().trim();
-    const reverseContainsIndex = normalizedHeaders.findIndex(
-      (key) => normalizedColumn.includes(key) && key.length > 3, // Only consider substantial matches
-    );
-    if (reverseContainsIndex !== -1) {
-      return headers[reverseContainsIndex] ?? null;
-    }
-  }
-
-  // Try word matching (e.g., "Patient First Name" matches "firstName")
-  for (const column of possibleColumns) {
-    const normalizedColumn = column.toLowerCase().trim();
-    const words = normalizedColumn.split(/\s+/);
-
-    for (let i = 0; i < normalizedHeaders.length; i++) {
-      const header = normalizedHeaders[i];
-      // Check if all words in the possible column appear in the header
-      if (words.every((word) => header.includes(word))) {
-        return headers[i] ?? null;
-      }
-    }
-  }
-
+  // Additional logs for troubleshooting matches
+  console.log("No match found for possible columns");
   return null;
 }
 
@@ -336,12 +332,25 @@ function validatePatientData(
   patientData: Record<string, unknown>,
   validation: ValidationConfig,
 ): string | null {
+  console.log("Validating patient data:", JSON.stringify(patientData));
+  console.log("Validation config:", JSON.stringify(validation));
+
   // Check for required phone
   if (validation.requireValidPhone) {
     const phone =
+      patientData.phone ||
       patientData.primaryPhone ||
       patientData.phoneNumber ||
       patientData.cellPhone;
+
+    console.log("Phone number check:", {
+      primaryPhone: patientData.primaryPhone,
+      phoneNumber: patientData.phoneNumber,
+      cellPhone: patientData.cellPhone,
+      phone: patientData.phone,
+      foundPhone: phone,
+    });
+
     if (!phone) {
       return "Valid phone number is required";
     }
@@ -349,23 +358,35 @@ function validatePatientData(
 
   // Check for valid DOB
   if (validation.requireValidDOB && patientData.dob) {
+    console.log(
+      "DOB value:",
+      patientData.dob,
+      "isValid:",
+      isValidDate(String(patientData.dob)),
+    );
     if (!isValidDate(String(patientData.dob))) {
       return "Valid date of birth is required";
     }
   } else if (validation.requireValidDOB) {
+    console.log("Missing DOB");
     return "Date of birth is required";
   }
 
   // Check for name
   if (validation.requireName) {
-    if (!patientData.firstName) {
+    console.log("Name check:", {
+      firstName: patientData.first_name || patientData.firstName,
+      lastName: patientData.last_name || patientData.lastName,
+    });
+    if (!patientData.first_name && !patientData.firstName) {
       return "First name is required";
     }
-    if (!patientData.lastName) {
+    if (!patientData.last_name && !patientData.lastName) {
       return "Last name is required";
     }
   }
 
+  console.log("Patient data passed all validation");
   return null;
 }
 
@@ -381,21 +402,43 @@ function extractFields(
   columnMappings: Record<string, string>;
   missingRequired: string[];
 } {
+  console.log("Extracting fields from row:", JSON.stringify(row));
+  console.log("Available headers:", headers);
+  console.log("Field configuration:", JSON.stringify(fields, null, 2));
+
   const extractedData: Record<string, unknown> = {};
   const columnMappings: Record<string, string> = {};
   const missingRequired: string[] = [];
 
   for (const field of fields) {
+    console.log(`Processing field: ${field.key} (${field.label})`);
+    console.log(`Possible columns for ${field.key}:`, field.possibleColumns);
+
     const columnName = findMatchingColumn(headers, field.possibleColumns);
 
     if (columnName) {
       columnMappings[field.key] = columnName;
       const rawValue = row[columnName];
-      extractedData[field.key] = transformValue(rawValue, field.transform);
+      console.log(
+        `Found column "${columnName}" for field "${field.key}" with raw value:`,
+        rawValue,
+      );
+
+      const transformedValue = transformValue(rawValue, field.transform);
+      console.log(`Transformed value for "${field.key}":`, transformedValue);
+
+      extractedData[field.key] = transformedValue;
     } else if (field.required) {
+      console.log(`Required field "${field.key}" (${field.label}) not found`);
       missingRequired.push(field.label);
+    } else {
+      console.log(`Optional field "${field.key}" not found, skipping`);
     }
   }
+
+  console.log("Extracted data:", JSON.stringify(extractedData));
+  console.log("Column mappings:", JSON.stringify(columnMappings));
+  console.log("Missing required fields:", missingRequired);
 
   return { extractedData, columnMappings, missingRequired };
 }
@@ -431,8 +474,46 @@ export async function processExcelFile(
   config: CampaignConfig,
   orgId: string,
 ): Promise<ProcessedData> {
+  // Add detailed logging and validation
+  console.log("Received config:", JSON.stringify(config, null, 2));
+
+  // Validate config structure
+  if (!config) {
+    throw new Error("Configuration is missing");
+  }
+
+  if (!config.variables) {
+    throw new Error("Configuration is missing 'variables' property");
+  }
+
+  if (!config.variables.patient) {
+    throw new Error("Configuration is missing 'variables.patient' property");
+  }
+
+  if (!config.variables.patient.fields) {
+    throw new Error(
+      "Configuration is missing 'variables.patient.fields' property",
+    );
+  }
+
+  if (!config.analysis) {
+    throw new Error("Configuration is missing 'analysis' property");
+  }
+
+  if (!config.analysis.campaign) {
+    throw new Error("Configuration is missing 'analysis.campaign' property");
+  }
+
+  if (!config.analysis.campaign.fields) {
+    throw new Error(
+      "Configuration is missing 'analysis.campaign.fields' property",
+    );
+  }
+
+  // Existing console.log statements
   console.log("Config Campaign Fields", config.analysis.campaign.fields);
   console.log("Config Patient Fields", config.variables.patient.fields);
+
   const patientService = new PatientService(db);
   const result: ProcessedData = {
     validRows: [],
@@ -474,12 +555,26 @@ export async function processExcelFile(
       }
 
       try {
+        console.log(`Processing row ${i + 1}:`, JSON.stringify(row));
         // Extract patient data
         const {
           extractedData: patientData,
           columnMappings: patientColumnMappings,
           missingRequired: missingPatientFields,
         } = extractFields(row, headers, config.variables.patient.fields);
+
+        console.log(
+          `Row ${i + 1} - Extracted patient data:`,
+          JSON.stringify(patientData),
+        );
+        console.log(
+          `Row ${i + 1} - Column mappings:`,
+          JSON.stringify(patientColumnMappings),
+        );
+        console.log(
+          `Row ${i + 1} - Missing required fields:`,
+          missingPatientFields,
+        );
 
         // Merge column mappings
         Object.assign(allColumnMappings, patientColumnMappings);
@@ -497,6 +592,10 @@ export async function processExcelFile(
           config.variables.patient.validation,
         );
         if (validationError) {
+          console.log(
+            `Row ${i + 1} - Patient validation error:`,
+            validationError,
+          );
           throw new Error(validationError);
         }
 
@@ -507,6 +606,15 @@ export async function processExcelFile(
           missingRequired: missingCampaignFields,
         } = extractFields(row, headers, config.variables.campaign.fields);
 
+        console.log(
+          `Row ${i + 1} - Extracted campaign data:`,
+          JSON.stringify(campaignData),
+        );
+        console.log(
+          `Row ${i + 1} - Missing required campaign fields:`,
+          missingCampaignFields,
+        );
+
         // Merge column mappings
         Object.assign(allColumnMappings, campaignColumnMappings);
 
@@ -516,6 +624,11 @@ export async function processExcelFile(
             `Missing required campaign fields: ${missingCampaignFields.join(", ")}`,
           );
         }
+
+        // More logging for the next steps
+        console.log(
+          `Row ${i + 1} - Passed all validation, attempting to generate patient hash...`,
+        );
 
         // Generate patient hash for deduplication
         let patientHash: string | null = null;

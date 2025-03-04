@@ -10,6 +10,7 @@ import {
   rows,
   runs,
 } from "@/server/db/schema";
+import { TCampaignTemplate } from "@/types/db";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -30,10 +31,12 @@ async function getCampaignTemplate(db: any, campaignId: string) {
   }
 
   // Get the associated template
-  const [template] = await db
+  const [template] = (await db
     .select()
     .from(campaignTemplates)
-    .where(eq(campaignTemplates.id, campaign.templateId));
+    .where(eq(campaignTemplates.id, campaign.templateId))) as [
+    TCampaignTemplate,
+  ];
 
   if (!template) {
     throw new TRPCError({
@@ -42,18 +45,54 @@ async function getCampaignTemplate(db: any, campaignId: string) {
     });
   }
 
+  // Create a compatibility layer with better error handling
+  const configObject = {
+    basePrompt: template.basePrompt || "",
+    voicemailMessage: template.voicemailMessage || "",
+    variables: template.variablesConfig || {
+      patient: {
+        fields: [],
+        validation: {
+          requireValidPhone: true,
+          requireValidDOB: true,
+          requireName: true,
+        },
+      },
+      campaign: { fields: [] },
+    },
+    analysis: template.analysisConfig || {
+      standard: { fields: [] },
+      campaign: { fields: [] },
+    },
+  };
+
+  console.log(
+    "Template config structure:",
+    JSON.stringify(
+      {
+        hasBasePrompt: !!template.basePrompt,
+        hasVoicemailMessage: !!template.voicemailMessage,
+        hasVariablesConfig: !!template.variablesConfig,
+        hasAnalysisConfig: !!template.analysisConfig,
+      },
+      null,
+      2,
+    ),
+  );
+
+  // Log the detailed config structure
+  console.log(
+    "Generated config object:",
+    JSON.stringify(configObject, null, 2),
+  );
+
   return {
     campaign,
     template,
-    // Create a compatibility layer for the old config format
+    // Create a compatibility layer for the old config format with fallbacks
     campaignWithConfig: {
       ...campaign,
-      config: {
-        basePrompt: template.basePrompt,
-        voicemailMessage: template.voicemailMessage,
-        variables: template.variablesConfig,
-        analysis: template.analysisConfig,
-      },
+      config: configObject,
     },
   };
 }
@@ -321,17 +360,24 @@ export const runRouter = createTRPCRouter({
       }
 
       // Get the campaign and template
-      const { template } = await getCampaignTemplate(ctx.db, campaignId);
+      const { template, campaignWithConfig } = await getCampaignTemplate(
+        ctx.db,
+        campaignId,
+      );
 
       try {
         // Parse the file content based on the campaign configuration
         const parsedData = await parseFileContent(fileContent, fileName);
 
+        // Use the config from campaignWithConfig for consistent structure
+        const variablesConfig = campaignWithConfig.config.variables || {
+          patient: { fields: [] },
+          campaign: { fields: [] },
+        };
+
         // Extract patient and campaign fields based on the configuration
-        const patientFields = template.variablesConfig.patient.fields.map(
-          (f) => f.key,
-        );
-        const campaignFields = template.variablesConfig.campaign.fields.map(
+        const patientFields = variablesConfig.patient.fields.map((f) => f.key);
+        const campaignFields = variablesConfig.campaign.fields.map(
           (f) => f.key,
         );
 
@@ -453,10 +499,11 @@ export const runRouter = createTRPCRouter({
           };
 
           // Still process the file to generate the URLs and update patient IDs
+          const campaignData = await getCampaignTemplate(ctx.db, campaign.id);
           const fullProcessedData = await processExcelFile(
             fileContent,
             fileName,
-            campaign.config,
+            campaignData.campaignWithConfig.config,
             orgId,
           );
 
@@ -481,15 +528,30 @@ export const runRouter = createTRPCRouter({
           }
         } else {
           // Process the file normally
+          const campaignData = await getCampaignTemplate(ctx.db, campaign.id);
           processedDataResult = await processExcelFile(
             fileContent,
             fileName,
-            campaign.config,
+            campaignData.campaignWithConfig.config,
             orgId,
           );
         }
 
         // Store the processed data as rows
+        console.log("Processing complete. Results:", {
+          validRowsCount: processedDataResult.validRows.length,
+          invalidRowsCount: processedDataResult.invalidRows.length,
+          totalRows: processedDataResult.stats.totalRows,
+          errors: processedDataResult.errors,
+        });
+
+        if (processedDataResult.invalidRows.length > 0) {
+          console.log(
+            "Invalid rows:",
+            JSON.stringify(processedDataResult.invalidRows, null, 2),
+          );
+        }
+
         const rowsToInsert = processedDataResult.validRows.map(
           (rowData, index) => ({
             runId,
@@ -501,8 +563,17 @@ export const runRouter = createTRPCRouter({
           }),
         );
 
+        console.log(`Rows to insert: ${rowsToInsert.length}`);
+
         if (rowsToInsert.length > 0) {
+          console.log(
+            "First row to insert:",
+            JSON.stringify(rowsToInsert[0], null, 2),
+          );
           await ctx.db.insert(rows).values(rowsToInsert);
+          console.log("Rows inserted successfully");
+        } else {
+          console.log("No valid rows to insert");
         }
 
         // Update run metadata with results

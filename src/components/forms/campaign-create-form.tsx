@@ -1,4 +1,4 @@
-// src/components/forms/campaign-create-form-fixed.tsx
+// src/components/forms/campaign-create-form.tsx
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   convertPostCallToAnalysisFields,
@@ -47,6 +48,7 @@ import { Badge } from "../ui/badge";
 // Define the campaign creation schema
 const campaignFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
   orgId: z.string().uuid("Organization is required"),
   agentId: z.string().min(1, "Agent ID is required"),
   llmId: z.string().min(1, "Retell AI llm ID is required"),
@@ -110,13 +112,13 @@ const campaignFormSchema = z.object({
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 
 interface CreateCampaignFormProps {
-  agents: { agent_id: string; name: string; llm_id?: string | null }[];
+  // agents: { agent_id: string; name: string; llm_id?: string | null }[];
   requestId?: string;
   onSuccess?: () => void;
 }
 
 export function CampaignCreateForm({
-  agents,
+  // agents,
   requestId,
   onSuccess,
 }: CreateCampaignFormProps) {
@@ -126,6 +128,8 @@ export function CampaignCreateForm({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
 
+  const { data: agents } = api.admin.getAgents.useQuery();
+
   const { data: organizations } =
     api.admin.getOrganizationsIdsAndNames.useQuery();
 
@@ -134,6 +138,7 @@ export function CampaignCreateForm({
     resolver: zodResolver(campaignFormSchema),
     defaultValues: {
       name: "",
+      description: "Auto-generated template",
       orgId: "",
       agentId: "",
       llmId: "",
@@ -353,43 +358,38 @@ export function CampaignCreateForm({
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
     try {
-      // Create the config structure that matches the schema
-      const config = {
-        basePrompt: values.basePrompt,
-        voicemailMessage: values.voicemailMessage, // Add to config but don't break schema
-        variables: {
-          patient: {
-            fields: values.patientFields,
-            validation: values.patientValidation,
-          },
-          campaign: {
-            fields: values.campaignFields,
-          },
+      // Create template configuration structure that matches the schema
+      const variablesConfig = {
+        patient: {
+          fields: values.patientFields,
+          validation: values.patientValidation,
         },
-        analysis: {
-          standard: {
-            fields: values.standardAnalysisFields,
-          },
-          campaign: {
-            fields: values.campaignAnalysisFields,
-          },
-        },
-        // Add webhooks placeholder that will be populated after creation
-        webhooks: {
-          updateTimestamp: new Date().toISOString(),
+        campaign: {
+          fields: values.campaignFields,
         },
       };
 
-      // Create payload for API call
+      const analysisConfig = {
+        standard: {
+          fields: values.standardAnalysisFields,
+        },
+        campaign: {
+          fields: values.campaignAnalysisFields,
+        },
+      };
+
+      // Create payload for API call that follows new schema structure
       const payload = {
         name: values.name,
-        orgId: values.orgId,
-        agentId: values.agentId,
-        llmId: values.llmId,
-        direction: values.direction,
-        basePrompt: values.basePrompt,
-        voicemailMessage: values.voicemailMessage,
-        config,
+        description: values.description || "",
+        orgId: values.orgId || "",
+        agentId: values.agentId || "",
+        llmId: values.llmId || "",
+        direction: values.direction as "inbound" | "outbound",
+        basePrompt: values.basePrompt || "",
+        voicemailMessage: values.voicemailMessage || "",
+        variablesConfig,
+        analysisConfig,
         requestId: values.requestId,
         configureWebhooks: values.configureWebhooks,
       };
@@ -832,21 +832,17 @@ export function CampaignCreateForm({
                               <FormItem>
                                 <FormLabel>Possible Column Names</FormLabel>
                                 <FormControl>
-                                  <Input
-                                    placeholder="Column1, Column2, Column3"
-                                    value={field.value?.join(", ") || ""}
-                                    onChange={(e) => {
-                                      const values = e.target.value
-                                        .split(",")
-                                        .map((v) => v.trim())
-                                        .filter(Boolean);
-                                      field.onChange(values);
-                                    }}
+                                  <TagInput
+                                    initialTags={field.value || []}
+                                    onTagsChange={(tags) =>
+                                      field.onChange(tags)
+                                    }
+                                    placeholder="Type and press Enter to add column names"
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
                                   Column names that might match this field in
-                                  uploaded data (comma separated)
+                                  uploaded data
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -1011,21 +1007,17 @@ export function CampaignCreateForm({
                                 <FormItem>
                                   <FormLabel>Possible Column Names</FormLabel>
                                   <FormControl>
-                                    <Input
-                                      placeholder="Column1, Column2, Column3"
-                                      value={field.value?.join(", ") || ""}
-                                      onChange={(e) => {
-                                        const values = e.target.value
-                                          .split(",")
-                                          .map((v) => v.trim())
-                                          .filter(Boolean);
-                                        field.onChange(values);
-                                      }}
+                                    <TagInput
+                                      initialTags={field.value || []}
+                                      onTagsChange={(tags) =>
+                                        field.onChange(tags)
+                                      }
+                                      placeholder="Type and press Enter to add column names"
                                     />
                                   </FormControl>
                                   <FormDescription className="text-xs">
                                     Column names that might match this field in
-                                    uploaded data (comma separated)
+                                    uploaded data
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
@@ -1209,11 +1201,17 @@ export function CampaignCreateForm({
                                       placeholder="Option1, Option2, Option3"
                                       value={field.value?.join(", ") || ""}
                                       onChange={(e) => {
-                                        const values = e.target.value
-                                          .split(",")
-                                          .map((v) => v.trim())
-                                          .filter(Boolean);
-                                        field.onChange(values);
+                                        // Don't immediately process - just pass the raw string value
+                                        // Allow React Hook Form to handle the validation after blur
+                                        const inputValue = e.target.value;
+                                        field.onChange(
+                                          inputValue
+                                            ? inputValue
+                                                .split(",")
+                                                .map((v) => v.trim())
+                                                .filter(Boolean)
+                                            : [],
+                                        );
                                       }}
                                     />
                                   </FormControl>
@@ -1391,11 +1389,17 @@ export function CampaignCreateForm({
                                         placeholder="Option1, Option2, Option3"
                                         value={field.value?.join(", ") || ""}
                                         onChange={(e) => {
-                                          const values = e.target.value
-                                            .split(",")
-                                            .map((v) => v.trim())
-                                            .filter(Boolean);
-                                          field.onChange(values);
+                                          // Don't immediately process - just pass the raw string value
+                                          // Allow React Hook Form to handle the validation after blur
+                                          const inputValue = e.target.value;
+                                          field.onChange(
+                                            inputValue
+                                              ? inputValue
+                                                  .split(",")
+                                                  .map((v) => v.trim())
+                                                  .filter(Boolean)
+                                              : [],
+                                          );
                                         }}
                                       />
                                     </FormControl>

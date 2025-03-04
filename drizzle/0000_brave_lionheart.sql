@@ -103,12 +103,11 @@ CREATE TABLE IF NOT EXISTS "rivvi_campaign" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
 	"name" varchar(256) NOT NULL,
-	"agent_id" varchar(256) NOT NULL,
-	"llm_id" varchar(256) NOT NULL,
+	"template_id" uuid NOT NULL,
 	"direction" "call_direction" NOT NULL,
 	"is_active" boolean DEFAULT true,
 	"is_default_inbound" boolean DEFAULT false,
-	"config" json NOT NULL,
+	"metadata" json,
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone
 );
@@ -280,6 +279,12 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
+ ALTER TABLE "rivvi_campaign" ADD CONSTRAINT "rivvi_campaign_template_id_rivvi_campaign_template_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."rivvi_campaign_template"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
  ALTER TABLE "rivvi_organization_patient" ADD CONSTRAINT "rivvi_organization_patient_org_id_rivvi_organization_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."rivvi_organization"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
@@ -345,7 +350,7 @@ CREATE INDEX IF NOT EXISTS "template_agent_id_idx" ON "rivvi_campaign_template" 
 CREATE INDEX IF NOT EXISTS "template_llm_id_idx" ON "rivvi_campaign_template" USING btree ("llm_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "template_created_by_idx" ON "rivvi_campaign_template" USING btree ("created_by");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "campaign_org_id_idx" ON "rivvi_campaign" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "campaign_agent_id_idx" ON "rivvi_campaign" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "campaign_template_id_idx" ON "rivvi_campaign" USING btree ("template_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "org_patient_org_id_idx" ON "rivvi_organization_patient" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "org_patient_patient_id_idx" ON "rivvi_organization_patient" USING btree ("patient_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "organization_clerk_id_idx" ON "rivvi_organization" USING btree ("clerk_id");--> statement-breakpoint

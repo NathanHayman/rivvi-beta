@@ -2,6 +2,58 @@ import { env } from "@/env";
 
 const retellBaseUrl = "https://api.retellai.com";
 
+// export const getLlmFromAgent = async (agentId: string): Promise<string> => {
+//   try {
+//     const agentInfo = await getAgentComplete(agentId);
+//     return agentInfo.combined.llm_id || "";
+//   } catch (error) {
+//     console.error("Error getting LLM from agent:", error);
+//     throw new TRPCError({
+//       code: "INTERNAL_SERVER_ERROR",
+//       message: "Failed to get LLM from agent",
+//       cause: error,
+//     });
+//   }
+// };
+
+// export const updateRetellAgent = async (
+//   agentId: string,
+//   updateData: Record<string, unknown>,
+// ): Promise<any> => {
+//   try {
+//     // Fetch the agent first to ensure it exists
+//     const agent = await getAgentComplete(agentId);
+
+//     // Call Retell API to update the agent
+//     // This is a placeholder - the actual implementation would use the Retell client API
+//     const response = await fetch(
+//       `https://api.retellhq.com/v1/agents/${agentId}`,
+//       {
+//         method: "PATCH",
+//         headers: {
+//           "Content-Type": "application/json",
+//           Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
+//         },
+//         body: JSON.stringify(updateData),
+//       },
+//     );
+
+//     if (!response.ok) {
+//       throw new Error(`Failed to update agent: ${response.statusText}`);
+//     }
+
+//     const updatedAgent = await response.json();
+//     return updatedAgent;
+//   } catch (error) {
+//     console.error("Error updating Retell agent:", error);
+//     throw new TRPCError({
+//       code: "INTERNAL_SERVER_ERROR",
+//       message: "Failed to update Retell agent",
+//       cause: error,
+//     });
+//   }
+// };
+
 /**
  * Get all agents from Retell
  */

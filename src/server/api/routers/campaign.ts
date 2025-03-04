@@ -9,10 +9,10 @@ import {
   superAdminProcedure,
 } from "@/server/api/trpc";
 import {
-  CallDirection,
   campaignRequests,
   campaignTemplates,
   campaigns,
+  organizations,
   runs,
 } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -99,19 +99,12 @@ const templateConfigSchema = z.object({
 
 // Helper function to get a campaign with its template
 async function getCampaignWithTemplate(
-  db: any,
+  db: typeof import("@/server/db").db,
   campaignId: string,
-  orgId?: string,
 ) {
-  // Base query to get campaign
-  const query = db.select().from(campaigns).where(eq(campaigns.id, campaignId));
-
-  // Add organization filter if provided
-  if (orgId) {
-    query.where(and(eq(campaigns.id, campaignId), eq(campaigns.orgId, orgId)));
-  }
-
-  const [campaign] = await query;
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(campaigns.id, campaignId),
+  });
 
   if (!campaign) {
     throw new TRPCError({
@@ -120,11 +113,9 @@ async function getCampaignWithTemplate(
     });
   }
 
-  // Get the template
-  const [template] = await db
-    .select()
-    .from(campaignTemplates)
-    .where(eq(campaignTemplates.id, campaign.templateId));
+  const template = await db.query.campaignTemplates.findFirst({
+    where: eq(campaignTemplates.id, campaign.templateId),
+  });
 
   if (!template) {
     throw new TRPCError({
@@ -133,16 +124,7 @@ async function getCampaignWithTemplate(
     });
   }
 
-  // Return combined data
-  return {
-    ...campaign,
-    config: {
-      basePrompt: template.basePrompt,
-      voicemailMessage: template.voicemailMessage,
-      variables: template.variablesConfig,
-      analysis: template.analysisConfig,
-    },
-  };
+  return { ...campaign, template };
 }
 
 export const campaignRouter = createTRPCRouter({
@@ -222,11 +204,7 @@ export const campaignRouter = createTRPCRouter({
         });
       }
 
-      return getCampaignWithTemplate(
-        ctx.db,
-        input.id,
-        ctx.auth.isSuperAdmin ? undefined : orgId,
-      );
+      return getCampaignWithTemplate(ctx.db, input.id);
     }),
 
   // Get recent runs for a campaign
@@ -259,74 +237,211 @@ export const campaignRouter = createTRPCRouter({
       return recentRuns;
     }),
 
-  // Create a campaign (super admin only)
+  // Create a new campaign
   create: superAdminProcedure
     .input(
       z.object({
-        orgId: z.string().uuid(),
         name: z.string().min(1),
+        description: z.string().optional(),
+        orgId: z.string().uuid(),
         agentId: z.string().min(1),
         llmId: z.string().min(1),
-        direction: z.string().min(1),
+        direction: z.enum(["inbound", "outbound"]),
         basePrompt: z.string().min(1),
         voicemailMessage: z.string().optional(),
-        variablesConfig: templateConfigSchema.shape.variablesConfig,
-        analysisConfig: templateConfigSchema.shape.analysisConfig,
+        variablesConfig: z.object({
+          patient: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                possibleColumns: z.array(z.string()),
+                transform: z
+                  .enum([
+                    "text",
+                    "short_date",
+                    "long_date",
+                    "time",
+                    "phone",
+                    "provider",
+                  ])
+                  .optional(),
+                required: z.boolean().default(true),
+                description: z.string().optional(),
+              }),
+            ),
+            validation: z.object({
+              requireValidPhone: z.boolean().default(true),
+              requireValidDOB: z.boolean().default(true),
+              requireName: z.boolean().default(true),
+            }),
+          }),
+          campaign: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                possibleColumns: z.array(z.string()),
+                transform: z
+                  .enum([
+                    "text",
+                    "short_date",
+                    "long_date",
+                    "time",
+                    "phone",
+                    "provider",
+                  ])
+                  .optional(),
+                required: z.boolean().default(false),
+                description: z.string().optional(),
+              }),
+            ),
+          }),
+        }),
+        analysisConfig: z.object({
+          standard: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                type: z.enum(["boolean", "string", "date", "enum"]),
+                options: z.array(z.string()).optional(),
+                required: z.boolean().default(true),
+                description: z.string().optional(),
+              }),
+            ),
+          }),
+          campaign: z.object({
+            fields: z.array(
+              z.object({
+                key: z.string().min(1),
+                label: z.string().min(1),
+                type: z.enum(["boolean", "string", "date", "enum"]),
+                options: z.array(z.string()).optional(),
+                required: z.boolean().default(false),
+                description: z.string().optional(),
+                isMainKPI: z.boolean().default(false),
+              }),
+            ),
+          }),
+        }),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const {
+        name,
+        description,
+        orgId,
+        agentId,
+        llmId,
+        direction,
         basePrompt,
         voicemailMessage,
         variablesConfig,
         analysisConfig,
-        ...campaignData
       } = input;
 
-      // First, verify the Retell agent ID is valid
-      try {
-        const agentInfo = await retell.agent.retrieve(campaignData.agentId);
-        if (!agentInfo) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Invalid Retell agent ID",
-          });
-        }
-      } catch (error) {
+      // Verify the organization exists
+      const [organization] = await ctx.db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, orgId));
+
+      if (!organization) {
         throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Failed to verify Retell agent ID",
-          cause: error,
+          code: "NOT_FOUND",
+          message: "Organization not found",
         });
       }
 
-      // First create a template
+      // First create a template - ensure we pass properly shaped data according to schema
+      const templateData = {
+        name: input.name,
+        description: input.description || "",
+        agentId: input.agentId,
+        llmId: input.llmId,
+        basePrompt: input.basePrompt,
+        voicemailMessage: input.voicemailMessage,
+        variablesConfig: {
+          patient: {
+            fields:
+              input.variablesConfig.patient?.fields?.map((field) => ({
+                key: field.key || "",
+                label: field.label || "",
+                possibleColumns: field.possibleColumns || [],
+                transform: field.transform,
+                required: field.required || false,
+                description: field.description,
+              })) || [],
+            validation: {
+              requireValidPhone:
+                input.variablesConfig.patient?.validation?.requireValidPhone ||
+                false,
+              requireValidDOB:
+                input.variablesConfig.patient?.validation?.requireValidDOB ||
+                false,
+              requireName:
+                input.variablesConfig.patient?.validation?.requireName || false,
+            },
+          },
+          campaign: {
+            fields:
+              input.variablesConfig.campaign?.fields?.map((field) => ({
+                key: field.key || "",
+                label: field.label || "",
+                possibleColumns: field.possibleColumns || [],
+                transform: field.transform,
+                required: field.required || false,
+                description: field.description,
+              })) || [],
+          },
+        },
+        analysisConfig: {
+          standard: {
+            fields:
+              input.analysisConfig.standard?.fields?.map((field) => ({
+                key: field.key || "",
+                label: field.label || "",
+                type: field.type || "string",
+                options: field.options,
+                required: field.required || false,
+                description: field.description,
+              })) || [],
+          },
+          campaign: {
+            fields:
+              input.analysisConfig.campaign?.fields?.map((field) => ({
+                key: field.key || "",
+                label: field.label || "",
+                type: field.type || "string",
+                options: field.options,
+                required: field.required || false,
+                description: field.description,
+                isMainKPI: field.isMainKPI,
+              })) || [],
+          },
+        },
+      };
+
       const [template] = await ctx.db
         .insert(campaignTemplates)
-        .values({
-          name: `Template for ${campaignData.name}`,
-          description: "Auto-generated from campaign creation",
-          agentId: campaignData.agentId,
-          llmId: campaignData.llmId,
-          basePrompt,
-          voicemailMessage,
-          variablesConfig,
-          analysisConfig,
-        })
+        .values(templateData)
         .returning();
 
-      // Then create the campaign with a reference to the template
+      // Create the campaign with a reference to the template
+      const campaignValues = {
+        name: input.name,
+        orgId: input.orgId,
+        templateId: template.id,
+        direction: input.direction,
+        isActive: true,
+        isDefaultInbound: input.direction === "inbound",
+        metadata: {},
+      };
+
       const [campaign] = await ctx.db
         .insert(campaigns)
-        .values({
-          orgId: campaignData.orgId,
-          name: campaignData.name,
-          agentId: campaignData.agentId,
-          llmId: campaignData.llmId,
-          direction: campaignData.direction as CallDirection,
-          templateId: template.id,
-          isActive: true,
-        })
+        .values(campaignValues)
         .returning();
 
       return getCampaignWithTemplate(ctx.db, campaign.id);
@@ -340,8 +455,86 @@ export const campaignRouter = createTRPCRouter({
         name: z.string().min(1).optional(),
         basePrompt: z.string().min(1).optional(),
         voicemailMessage: z.string().optional(),
-        variablesConfig: templateConfigSchema.shape.variablesConfig.optional(),
-        analysisConfig: templateConfigSchema.shape.analysisConfig.optional(),
+        variablesConfig: z
+          .object({
+            patient: z.object({
+              fields: z.array(
+                z.object({
+                  key: z.string().min(1),
+                  label: z.string().min(1),
+                  possibleColumns: z.array(z.string()),
+                  transform: z
+                    .enum([
+                      "text",
+                      "short_date",
+                      "long_date",
+                      "time",
+                      "phone",
+                      "provider",
+                    ])
+                    .optional(),
+                  required: z.boolean().default(true),
+                  description: z.string().optional(),
+                }),
+              ),
+              validation: z.object({
+                requireValidPhone: z.boolean().default(true),
+                requireValidDOB: z.boolean().default(true),
+                requireName: z.boolean().default(true),
+              }),
+            }),
+            campaign: z.object({
+              fields: z.array(
+                z.object({
+                  key: z.string().min(1),
+                  label: z.string().min(1),
+                  possibleColumns: z.array(z.string()),
+                  transform: z
+                    .enum([
+                      "text",
+                      "short_date",
+                      "long_date",
+                      "time",
+                      "phone",
+                      "provider",
+                    ])
+                    .optional(),
+                  required: z.boolean().default(false),
+                  description: z.string().optional(),
+                }),
+              ),
+            }),
+          })
+          .optional(),
+        analysisConfig: z
+          .object({
+            standard: z.object({
+              fields: z.array(
+                z.object({
+                  key: z.string().min(1),
+                  label: z.string().min(1),
+                  type: z.enum(["boolean", "string", "date", "enum"]),
+                  options: z.array(z.string()).optional(),
+                  required: z.boolean().default(true),
+                  description: z.string().optional(),
+                }),
+              ),
+            }),
+            campaign: z.object({
+              fields: z.array(
+                z.object({
+                  key: z.string().min(1),
+                  label: z.string().min(1),
+                  type: z.enum(["boolean", "string", "date", "enum"]),
+                  options: z.array(z.string()).optional(),
+                  required: z.boolean().default(false),
+                  description: z.string().optional(),
+                  isMainKPI: z.boolean().default(false),
+                }),
+              ),
+            }),
+          })
+          .optional(),
         isActive: z.boolean().optional(),
       }),
     )
@@ -372,15 +565,20 @@ export const campaignRouter = createTRPCRouter({
 
       // Update the template if any template-related fields changed
       if (basePrompt || voicemailMessage || variablesConfig || analysisConfig) {
+        // We need to ensure the updated fields match the schema exactly
+        const updateData: Record<string, unknown> = {};
+
+        if (basePrompt) updateData.basePrompt = basePrompt;
+        if (voicemailMessage) updateData.voicemailMessage = voicemailMessage;
+        if (variablesConfig) updateData.variablesConfig = variablesConfig;
+        if (analysisConfig) updateData.analysisConfig = analysisConfig;
+
         await ctx.db
           .update(campaignTemplates)
-          .set({
-            ...(basePrompt ? { basePrompt } : {}),
-            ...(voicemailMessage ? { voicemailMessage } : {}),
-            ...(variablesConfig ? { variablesConfig } : {}),
-            ...(analysisConfig ? { analysisConfig } : {}),
-          })
-          .where(eq(campaignTemplates.id, campaignWithTemplate.templateId));
+          .set(updateData)
+          .where(
+            eq(campaignTemplates.id, (campaignWithTemplate.template as any).id),
+          );
       }
 
       // Get and return the updated campaign
