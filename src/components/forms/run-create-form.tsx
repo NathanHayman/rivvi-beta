@@ -64,8 +64,9 @@ export function RunCreateForm({
 }: RunCreateFormProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [processedData, setProcessedData] = useState<any>(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [fileContentBase64, setFileContentBase64] = useState<string>("");
 
   // Step management
@@ -255,6 +256,8 @@ export function RunCreateForm({
 
   // Handle form submission
   const onSubmit = async (values: RunFormValues) => {
+    if (isSubmitting) return; // Prevent duplicate submissions
+    setIsSubmitting(true);
     try {
       setIsProcessingFile(true);
 
@@ -546,7 +549,7 @@ export function RunCreateForm({
                 />
               )}
 
-              {/* Custom Prompt */}
+              {/* REMOVE: Custom Prompt */}
               <FormField
                 control={form.control}
                 name="customPrompt"
@@ -766,15 +769,16 @@ export function RunCreateForm({
               <Button
                 type="submit"
                 disabled={
+                  isSubmitting ||
                   !canProceedFromCurrentStep() ||
                   isProcessingFile ||
                   isGeneratingPrompt
                 }
               >
-                {isProcessingFile ? (
+                {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    Creating...
                   </>
                 ) : (
                   <>

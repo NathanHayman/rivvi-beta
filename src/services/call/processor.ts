@@ -17,6 +17,7 @@ type DatabaseClient = typeof import("@/server/db").db;
 
 export class CallProcessor {
   private db: DatabaseClient;
+  private processorId: string;
   private processingRuns: Set<string> = new Set();
   private scheduledRuns: Map<string, NodeJS.Timeout> = new Map();
   private callBatchSizes: Map<string, number> = new Map(); // Track optimal batch sizes
@@ -34,6 +35,8 @@ export class CallProcessor {
 
   constructor(db: DatabaseClient) {
     this.db = db;
+    this.processorId = `proc-${createId()}`; // Generate unique ID for this processor
+    console.log(`Created CallProcessor with ID: ${this.processorId}`);
   }
 
   /**
@@ -514,18 +517,59 @@ export class CallProcessor {
     }
   }
 
+  // Mark row as calling with stronger concurrency control
+  async markRowAsCalling(row: any) {
+    try {
+      // Use a transaction with SELECT FOR UPDATE
+      return await this.db.transaction(async (tx) => {
+        // Lock the row for update
+        const [currentRow] = await tx
+          .update(rows)
+          .set({
+            status: "calling",
+            updatedAt: new Date(),
+            metadata: {
+              ...row.metadata,
+              lastProcessAttempt: new Date().toISOString(),
+              processorId: this.processorId, // Track which processor claimed this row
+            },
+          } as Partial<typeof rows.$inferInsert>)
+          .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
+          .returning();
+
+        if (!currentRow) {
+          console.log(
+            `Row ${row.id} is no longer pending or is locked, skipping`,
+          );
+          return null;
+        }
+
+        // Update the row within the same transaction
+        const [updatedRow] = await tx
+          .update(rows)
+          .set({
+            status: "calling",
+            updatedAt: new Date(),
+            metadata: {
+              ...row.metadata,
+              lastProcessAttempt: new Date().toISOString(),
+              processorId: this.processorId, // Track which processor claimed this row
+              claimedAt: new Date().toISOString(),
+            },
+          } as Partial<typeof rows.$inferInsert>)
+          .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
+          .returning();
+
+        return updatedRow;
+      });
+    } catch (error) {
+      console.error(`Failed to mark row ${row.id} as calling:`, error);
+      return null;
+    }
+  }
   /**
    * Process a run's calls in batches with improved error handling and dynamic batch sizing
    */
-  // Improvements to src/services/call/processor.ts
-
-  // These fixes address the "triple calling" issue by implementing:
-  // 1. Better batch tracking
-  // 2. Enhanced rate limiting
-  // 3. Improved concurrency control
-
-  // Update the processRun method in the CallProcessor class:
-
   async processRun(runId: string, orgId: string) {
     // Check if this run is already being processed
     if (this.processingRuns.has(runId)) {
@@ -806,26 +850,11 @@ export class CallProcessor {
               await this.delay(waitTime);
             }
 
-            // Mark row as calling - with a lock mechanism to prevent race conditions
-            // Use an optimistic update that checks the current status
-            const [updatedRow] = await this.db
-              .update(rows)
-              .set({
-                status: "calling",
-                updatedAt: new Date(),
-                metadata: {
-                  ...row.metadata,
-                  lastProcessAttempt: new Date().toISOString(),
-                },
-              } as Partial<typeof rows.$inferInsert>)
-              .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
-              .returning();
+            // Try to mark this row as calling with improved concurrency control
+            const updatedRow = await this.markRowAsCalling(row);
 
-            // If the update didn't return a row, another process may have claimed it
+            // If we couldn't claim the row, skip to the next one
             if (!updatedRow) {
-              console.log(
-                `Row ${row.id} was already being processed, skipping`,
-              );
               continue;
             }
 
@@ -1161,7 +1190,9 @@ export class CallProcessor {
         await this.delay(delayBetweenCalls);
 
         // Check for stuck rows every 5 minutes
-        if (Date.now() - lastStuckRowCheck > 5 * 60 * 1000) {
+        // In the processRun method
+        if (Date.now() - lastStuckRowCheck > 60000) {
+          // Check every minute instead of 5 minutes
           await this.checkForStuckRows(runId);
           lastStuckRowCheck = Date.now();
         }

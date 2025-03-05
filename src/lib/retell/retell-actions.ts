@@ -2,10 +2,16 @@
 
 import { env } from "@/env";
 import { db } from "@/server/db";
-import { campaigns, campaignTemplates, runs } from "@/server/db/schema";
+import {
+  agentVariations,
+  campaigns,
+  campaignTemplates,
+  runs,
+} from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 // Import the generateWebhookUrls function
+import { TRun } from "@/types/db";
 import { revalidatePath } from "next/cache";
 import { generateWebhookUrls } from "./retell-client-safe";
 
@@ -486,6 +492,128 @@ export async function updatePromptWithHistory(params: {
     return { success: true, prompt: generatedPrompt };
   } catch (error) {
     console.error("Error updating prompt:", error);
+    throw error;
+  }
+}
+
+export async function updatePromptAndVoicemail(params: {
+  campaignId: string;
+  runId?: string;
+  userId?: string;
+  naturalLanguageInput?: string;
+  generatedPrompt: string;
+  generatedVoicemail: string;
+  summary: string;
+}) {
+  const {
+    campaignId,
+    runId,
+    userId,
+    naturalLanguageInput,
+    generatedPrompt,
+    generatedVoicemail,
+    summary,
+  } = params;
+
+  try {
+    // Get campaign and template
+    const [campaign] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, campaignId));
+
+    if (!campaign) {
+      throw new Error("Campaign not found");
+    }
+
+    const [template] = await db
+      .select()
+      .from(campaignTemplates)
+      .where(eq(campaignTemplates.id, campaign.templateId));
+
+    if (!template) {
+      throw new Error("Campaign template not found");
+    }
+
+    // Update run if specified
+    if (runId) {
+      await db
+        .update(runs)
+        .set({
+          aiGenerated: true,
+          customPrompt: generatedPrompt,
+          naturalLanguageInput: naturalLanguageInput || "",
+          customVoicemailMessage: generatedVoicemail,
+          variationNotes: summary,
+          updatedAt: new Date(),
+        } as TRun)
+        .where(eq(runs.id, runId));
+    }
+
+    // 1. Update prompt in Retail
+    const promptResponse = await fetch(
+      `${RETELL_BASE_URL}/update-retell-llm/${template.llmId}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ general_prompt: generatedPrompt }),
+      },
+    );
+
+    if (!promptResponse.ok) {
+      throw new Error(
+        `Failed to update Retail prompt: ${promptResponse.statusText}`,
+      );
+    }
+
+    // 2. Update voicemail in Retail
+    const voicemailResponse = await fetch(
+      `${RETELL_BASE_URL}/update-agent/${template.agentId}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ voicemail_message: generatedVoicemail }),
+      },
+    );
+
+    if (!voicemailResponse.ok) {
+      throw new Error(
+        `Failed to update Retail voicemail: ${voicemailResponse.statusText}`,
+      );
+    }
+
+    // Record history
+    await db.insert(agentVariations).values({
+      campaignId,
+      userInput: naturalLanguageInput || "",
+      originalBasePrompt: template.basePrompt,
+      customizedPrompt: generatedPrompt,
+      // Only include optional fields if they have values
+      ...(template.voicemailMessage
+        ? { originalVoicemailMessage: template.voicemailMessage }
+        : {}),
+      ...(generatedVoicemail
+        ? { customizedVoicemailMessage: generatedVoicemail }
+        : {}),
+      ...(runId === undefined ? { suggestedRunName: "" } : {}),
+      ...(summary ? { changeDescription: summary } : {}),
+      ...(userId ? { userId } : {}),
+    });
+
+    return {
+      success: true,
+      prompt: generatedPrompt,
+      voicemail: generatedVoicemail,
+      summary: summary,
+    };
+  } catch (error) {
+    console.error("Error updating prompt and voicemail:", error);
     throw error;
   }
 }
