@@ -11,8 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { calculateAge } from "@/lib/patient/patient-utils";
-import { formatPhoneDisplay } from "@/services/file/utils";
+import { calculateAge, formatPhoneDisplay } from "@/services/file/utils";
 import { api } from "@/trpc/react";
 import { format } from "date-fns";
 import {
@@ -62,7 +61,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   }
 
   // Format patient data
-  const age = calculateAge(patient.dob);
+  const age = calculateAge(new Date(patient.dob));
   const formattedPhone = formatPhoneDisplay(patient.primaryPhone);
   const patientFullName = `${patient.firstName} ${patient.lastName}`;
 

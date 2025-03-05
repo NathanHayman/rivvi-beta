@@ -517,6 +517,15 @@ export class CallProcessor {
   /**
    * Process a run's calls in batches with improved error handling and dynamic batch sizing
    */
+  // Improvements to src/services/call/processor.ts
+
+  // These fixes address the "triple calling" issue by implementing:
+  // 1. Better batch tracking
+  // 2. Enhanced rate limiting
+  // 3. Improved concurrency control
+
+  // Update the processRun method in the CallProcessor class:
+
   async processRun(runId: string, orgId: string) {
     // Check if this run is already being processed
     if (this.processingRuns.has(runId)) {
@@ -533,10 +542,15 @@ export class CallProcessor {
       this.callBatchSizes.set(runId, this.INITIAL_BATCH_SIZE);
     }
 
+    // Initialize a Set to track rows already being processed in this batch
+    // This prevents the same row from being processed multiple times
+    const processedRowIds = new Set<string>();
+
     let processing = true;
     let consecutiveErrors = 0;
     let currentRun: any = null;
     let lastStuckRowCheck = Date.now();
+    let lastRowsProcessedTime = Date.now();
 
     try {
       while (processing) {
@@ -640,9 +654,9 @@ export class CallProcessor {
         const [activeCallCounts] = await this.db
           .select({
             runCallCount: sql`COUNT(*) FILTER (WHERE ${calls.runId} = ${runId} AND 
-                              (${calls.status} = 'pending' OR ${calls.status} = 'in-progress'))`,
+                          (${calls.status} = 'pending' OR ${calls.status} = 'in-progress'))`,
             orgCallCount: sql`COUNT(*) FILTER (WHERE ${calls.orgId} = ${orgId} AND 
-                             (${calls.status} = 'pending' OR ${calls.status} = 'in-progress'))`,
+                         (${calls.status} = 'pending' OR ${calls.status} = 'in-progress'))`,
           })
           .from(calls);
 
@@ -665,6 +679,14 @@ export class CallProcessor {
           continue;
         }
 
+        // Clear processed row set if it's been more than 10 seconds since last processing
+        // This prevents the set from growing indefinitely and allows retrying rows that failed
+        const now = Date.now();
+        if (now - lastRowsProcessedTime > 10000) {
+          processedRowIds.clear();
+          lastRowsProcessedTime = now;
+        }
+
         // Get current batch size, dynamically adjusted based on success/failure rates
         const currentBatchSize =
           this.callBatchSizes.get(runId) || this.INITIAL_BATCH_SIZE;
@@ -684,10 +706,18 @@ export class CallProcessor {
         );
 
         // Get next batch of pending rows with priority ordering
+        // Also make sure to exclude rows that are already being processed in this batch
         const pendingRows = await this.db
           .select()
           .from(rows)
-          .where(and(eq(rows.runId, runId), eq(rows.status, "pending")))
+          .where(
+            and(
+              eq(rows.runId, runId),
+              eq(rows.status, "pending"),
+              // Important: This excludes rows we're already processing in this batch
+              this.notInArray(rows.id, Array.from(processedRowIds)),
+            ),
+          )
           .orderBy(
             // First by priority if available
             desc(sql`COALESCE((${rows.variables}->>'priority')::int, 0)`),
@@ -699,8 +729,9 @@ export class CallProcessor {
         console.log(`Found ${pendingRows.length} pending rows to process`);
 
         if (pendingRows.length === 0) {
-          // Check if run is complete (no more pending or calling rows)
-          const [{ value: remainingRows }] = (await this.db
+          // If no new rows to process, wait a bit before checking again
+          // But first check if there are any active calls still in progress
+          const [{ value: activeRowCount }] = (await this.db
             .select({
               value: sql`COUNT(*)`,
             })
@@ -712,19 +743,26 @@ export class CallProcessor {
               ),
             )) as [{ value: number }];
 
+          const pendingRowCount = Number(activeRowCount);
           console.log(
-            `No pending rows found, remaining active rows: ${remainingRows}`,
+            `No new rows to process, active rows: ${pendingRowCount}`,
           );
 
-          if (Number(remainingRows) === 0) {
+          if (pendingRowCount === 0) {
             console.log(`No remaining rows, completing run ${runId}`);
             // Update run to completed
             await this.completeRun(runId, orgId);
+            processing = false;
+          } else {
+            // Wait before checking again if there are still active rows
+            await this.delay(5000);
           }
-
-          processing = false;
           continue;
         }
+
+        // Add all rows in this batch to the processed set to prevent double-processing
+        pendingRows.forEach((row) => processedRowIds.add(row.id));
+        lastRowsProcessedTime = Date.now();
 
         // Process each row in batch with improved error handling
         console.log(`Starting to process batch of ${pendingRows.length} rows`);
@@ -743,6 +781,18 @@ export class CallProcessor {
           }
 
           try {
+            // Check row status again to make sure it's still pending
+            // This prevents issues where a row might have been processed by another instance
+            const [currentRow] = await this.db
+              .select()
+              .from(rows)
+              .where(and(eq(rows.id, row.id), eq(rows.status, "pending")));
+
+            if (!currentRow) {
+              console.log(`Row ${row.id} is no longer pending, skipping`);
+              continue;
+            }
+
             // Apply rate limiting based on last call time
             const now = Date.now();
             const lastCallTime = this.lastCallTimes.get(runId) || 0;
@@ -756,14 +806,28 @@ export class CallProcessor {
               await this.delay(waitTime);
             }
 
-            // Mark row as calling
-            await this.db
+            // Mark row as calling - with a lock mechanism to prevent race conditions
+            // Use an optimistic update that checks the current status
+            const [updatedRow] = await this.db
               .update(rows)
               .set({
                 status: "calling",
                 updatedAt: new Date(),
+                metadata: {
+                  ...row.metadata,
+                  lastProcessAttempt: new Date().toISOString(),
+                },
               } as Partial<typeof rows.$inferInsert>)
-              .where(eq(rows.id, row.id));
+              .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
+              .returning();
+
+            // If the update didn't return a row, another process may have claimed it
+            if (!updatedRow) {
+              console.log(
+                `Row ${row.id} was already being processed, skipping`,
+              );
+              continue;
+            }
 
             // Get phone number from row variables with fallbacks
             const phone =
@@ -913,8 +977,9 @@ export class CallProcessor {
               .where(eq(rows.id, row.id));
 
             // Create call record with enhanced tracking
+            const callId = createId();
             await this.db.insert(calls).values({
-              id: createId(),
+              id: callId,
               orgId,
               runId,
               rowId: row.id,
@@ -930,6 +995,7 @@ export class CallProcessor {
                 variables: callVariables,
                 attempt: (row.callAttempts || 0) + 1,
                 rowMetadata: row.metadata,
+                callId, // Include our call ID in the metadata for easier tracking
               },
               createdAt: new Date(),
               updatedAt: new Date(),
@@ -956,7 +1022,8 @@ export class CallProcessor {
             // Send real-time update via Pusher
             await pusherServer.trigger(`run-${runId}`, "call-started", {
               rowId: row.id,
-              callId: retellCall.call_id,
+              callId: callId,
+              retellCallId: retellCall.call_id,
               variables: callVariables,
             });
 
@@ -964,11 +1031,12 @@ export class CallProcessor {
             await pusherServer.trigger(`org-${orgId}`, "call-started", {
               runId,
               rowId: row.id,
-              callId: retellCall.call_id,
+              callId: callId,
+              retellCallId: retellCall.call_id,
             });
 
             console.log(
-              `Call created successfully for row ${row.id} with ID ${retellCall.call_id}`,
+              `Call created successfully for row ${row.id} with ID ${callId} (Retell ID: ${retellCall.call_id})`,
             );
 
             // Track batch success for dynamic sizing
@@ -1090,13 +1158,12 @@ export class CallProcessor {
         }
 
         // Add a short pause between batches to avoid overwhelming the system
-        await this.delay(1000);
+        await this.delay(delayBetweenCalls);
 
         // Check for stuck rows every 5 minutes
-        const now = Date.now();
-        if (now - lastStuckRowCheck > 5 * 60 * 1000) {
+        if (Date.now() - lastStuckRowCheck > 5 * 60 * 1000) {
           await this.checkForStuckRows(runId);
-          lastStuckRowCheck = now;
+          lastStuckRowCheck = Date.now();
         }
       }
     } catch (error) {
@@ -1129,7 +1196,17 @@ export class CallProcessor {
     } finally {
       // Remove run from processing set
       this.processingRuns.delete(runId);
+      // Clear the processed rows set for this run
+      processedRowIds.clear();
     }
+  }
+
+  // Helper function to create a SQL expression for "not in array"
+  notInArray(column: any, values: any[]) {
+    if (values.length === 0) {
+      return sql`TRUE`;
+    }
+    return sql`${column} NOT IN (${sql.join(values, sql`, `)})`;
   }
 
   /**

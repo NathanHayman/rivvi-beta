@@ -1,4 +1,4 @@
-// src/app/api/webhooks/retell/[orgId]/post-call/[campaignId]/route.ts
+// src/app/api/webhooks/retell/[orgId]/post-call/route-without-campaign.ts
 import { handlePostCallWebhook } from "@/services/call";
 import { RetellPostCallWebhookRaw } from "@/types/retell";
 import { NextResponse } from "next/server";
@@ -7,10 +7,10 @@ export const maxDuration = 30; // 30 seconds for post-call processing
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ orgId: string; campaignId: string }> },
+  { params }: { params: Promise<{ orgId: string }> },
 ) {
   try {
-    const { orgId, campaignId } = await params;
+    const { orgId } = await params;
 
     // Parse the webhook payload
     const payload = (await request.json()) as RetellPostCallWebhookRaw["body"];
@@ -31,7 +31,7 @@ export async function POST(
 
     // Log the incoming webhook for debugging
     console.log(
-      `[API] Received post-call webhook for org ${orgId}, campaign ${campaignId}:`,
+      `[API] Received post-call webhook for org ${orgId} (no campaign in URL):`,
       JSON.stringify({
         call_id: payload.call.call_id,
         direction: payload.call.direction,
@@ -54,24 +54,18 @@ export async function POST(
       );
     }
 
-    // Check metadata for campaign ID override
-    // This allows the metadata from the inbound webhook to override the URL parameter
-    const metadataCampaignId =
-      callData.metadata?.campaignId || callData.metadata?.campaign_id;
-    const effectiveCampaignId = metadataCampaignId || campaignId;
+    // Try to get campaign ID from metadata
+    const campaignId =
+      callData.metadata?.campaignId || callData.metadata?.campaign_id || null;
 
-    if (metadataCampaignId && metadataCampaignId !== campaignId) {
-      console.log(
-        `[API] Using campaign ID from metadata (${metadataCampaignId}) instead of URL parameter (${campaignId})`,
-      );
+    if (campaignId) {
+      console.log(`[API] Using campaign ID from metadata: ${campaignId}`);
+    } else {
+      console.log(`[API] No campaign ID provided in URL or metadata`);
     }
 
     // Process the webhook using the handler
-    const result = await handlePostCallWebhook(
-      orgId,
-      effectiveCampaignId,
-      callData,
-    );
+    const result = await handlePostCallWebhook(orgId, campaignId, callData);
 
     return NextResponse.json(result);
   } catch (error) {
@@ -85,7 +79,3 @@ export async function POST(
     );
   }
 }
-
-// Also add a route without the campaignId parameter for backwards compatibility
-// and to handle cases where we don't have a campaignId in the URL
-export { POST as POST_withoutCampaignId } from "./route-without-campaign";

@@ -11,7 +11,6 @@ import {
   primaryKey,
   text,
   timestamp,
-  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -563,9 +562,6 @@ export const calls = createTable(
     retellCallIdIdx: index("call_retell_call_id_idx").on(table.retellCallId),
     statusIdx: index("call_status_idx").on(table.status),
     directionIdx: index("call_direction_idx").on(table.direction),
-    retellCallIdUniqueIdx: uniqueIndex("call_retell_call_id_unique_idx").on(
-      table.retellCallId,
-    ),
     // New index for batch_id
     batchIdIdx: index("call_batch_id_idx").on(table.batchId),
   }),

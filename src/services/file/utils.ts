@@ -243,3 +243,23 @@ export function formatPercentage(value: number, decimals = 1): string {
     maximumFractionDigits: decimals,
   }).format(value / 100);
 }
+
+/**
+ * Calculate the age of a patient
+ * @param birthDate Date of birth
+ * @returns Age in years
+ */
+export function calculateAge(birthDate: Date): number {
+  const today = new Date();
+  const age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    return age - 1;
+  }
+
+  return age;
+}

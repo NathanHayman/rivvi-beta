@@ -1,5 +1,5 @@
 {
-  "id": "cdc4620c-ebc3-4d33-8569-c7905f0a56ed",
+  "id": "17ac45df-2c89-40ab-8f6e-0fff2d4c086f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -445,21 +445,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "call_retell_call_id_unique_idx": {
-          "name": "call_retell_call_id_unique_idx",
-          "columns": [
-            {
-              "expression": "retell_call_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

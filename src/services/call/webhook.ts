@@ -1,5 +1,4 @@
 // src/lib/call/call-webhook-handler.ts - Improved version
-import { PatientService } from "@/lib/patient/patient-service";
 import { pusherServer } from "@/lib/pusher-server";
 import { db } from "@/server/db";
 import {
@@ -10,12 +9,13 @@ import {
   rows,
   runs,
 } from "@/server/db/schema";
+import { PatientService } from "@/services/patient";
+import { TCall } from "@/types/db";
 import {
   RetellInboundWebhookPayload,
   RetellInboundWebhookResponse,
   RetellPostCallObjectRaw,
 } from "@/types/retell";
-import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { generateContextInstructions } from "../ai/context";
 
@@ -134,7 +134,7 @@ export async function handleInboundWebhook(
 
     // Find patient by phone number
     const patientService = new PatientService(db);
-    const cleanPhone = payload.from_number.replace(/\D/g, "");
+    const cleanPhone = payload.from_number;
 
     console.log(`[WEBHOOK] Looking up patient by phone: ${cleanPhone}`);
     const patient = await patientService.findPatientByPhone(cleanPhone, orgId);
@@ -170,77 +170,177 @@ export async function handleInboundWebhook(
       );
     }
 
-    // Get recent outbound calls to this patient with error handling
-    let recentCalls: any[] = [];
+    // Get the most recent outbound calls to this patient - modified to focus on the most recent one
+    let mostRecentOutboundCall = null;
+    let rowData = null;
+    let campaignData = null;
+    let templateData = null;
+
     if (patientId) {
       try {
-        recentCalls = await db
+        // Get the most recent outbound call for this patient
+        const recentCalls = await db
           .select({
-            id: calls.id,
-            createdAt: calls.createdAt,
-            campaignName: campaigns.name,
-            status: calls.status,
-            variables: calls.metadata,
-            analysis: calls.analysis,
+            call: calls,
+            run: runs,
+            campaign: campaigns,
+            row: rows,
           })
           .from(calls)
           .leftJoin(runs, eq(calls.runId, runs.id))
           .leftJoin(campaigns, eq(runs.campaignId, campaigns.id))
+          .leftJoin(rows, eq(calls.rowId, rows.id))
           .where(
             and(
               eq(calls.patientId, patientId),
               eq(calls.orgId, orgId),
               eq(calls.direction, "outbound"),
+              // Preferably get completed/successful calls
+              or(
+                eq(calls.status, "completed"),
+                eq(calls.status, "in-progress"),
+                eq(calls.status, "pending"),
+              ),
             ),
           )
           .orderBy(desc(calls.createdAt))
-          .limit(3);
+          .limit(1);
 
-        console.log(
-          `[WEBHOOK] Found ${recentCalls.length} recent calls for patient`,
-        );
+        if (recentCalls.length > 0) {
+          mostRecentOutboundCall = recentCalls[0].call;
+          rowData = recentCalls[0].row;
+          campaignData = recentCalls[0].campaign;
+
+          // Get the campaign template to access the agent ID
+          if (campaignData && campaignData.templateId) {
+            const [template] = await db
+              .select()
+              .from(campaignTemplates)
+              .where(eq(campaignTemplates.id, campaignData.templateId));
+
+            templateData = template;
+          }
+
+          console.log(
+            `[WEBHOOK] Found most recent outbound call (${mostRecentOutboundCall.id}) with campaign "${campaignData?.name || "unknown"}"`,
+          );
+        } else {
+          console.log(`[WEBHOOK] No recent outbound calls found for patient`);
+        }
       } catch (error) {
         console.error("[WEBHOOK] Error fetching recent calls:", error);
-        recentCalls = [];
       }
     }
 
-    // Get any active campaign information for inbound calls
-    const [inboundCampaign] = await db
-      .select()
-      .from(campaigns)
-      .where(
-        and(
-          eq(campaigns.orgId, orgId),
-          eq(campaigns.direction, "inbound"),
-          eq(campaigns.isActive, true),
-          eq(campaigns.isDefaultInbound, true),
-        ),
+    // Determine which agent ID to use and variables to pass
+    let overrideAgentId = null;
+    let dynamicVariables: Record<string, any> = {};
+    let metadata: Record<string, any> = {
+      orgId,
+      patientId,
+    };
+
+    // If we found a recent outbound call with a template, use its agent ID and variables
+    if (templateData && rowData) {
+      overrideAgentId = templateData.agentId;
+
+      console.log(
+        `[WEBHOOK] Overriding agent ID to ${overrideAgentId} from most recent campaign`,
       );
 
-    console.log(
-      `[WEBHOOK] Default inbound campaign found: ${inboundCampaign?.name || "None"}`,
-    );
+      // Use variables from the row data
+      dynamicVariables = {
+        ...rowData.variables,
+        // Add organization info
+        organization_name: organization.name || "Our organization",
+        // Add patient info
+        patient_first_name: patient?.firstName || "Unknown",
+        patient_last_name: patient?.lastName || "Unknown",
+        patient_phone: patient?.primaryPhone || cleanPhone,
+        // For compatibility with different templates
+        first_name: patient?.firstName || "Unknown",
+        last_name: patient?.lastName || "Unknown",
+        phone: patient?.primaryPhone || cleanPhone,
+        // Indicate this is an inbound call
+        inbound_call: true,
+        // Include campaign info
+        campaign_name: campaignData?.name || "Unknown",
+        // Include previous call info if available
+        previous_call_id: mostRecentOutboundCall?.id || null,
+        is_return_call: true,
+      };
+
+      // Include important IDs in metadata for post-call processing
+      metadata = {
+        ...metadata,
+        rowId: rowData.id,
+        runId: mostRecentOutboundCall?.runId || null,
+        campaignId: campaignData?.id || null,
+        templateId: templateData.id,
+        isReturnCall: true,
+        previousCallId: mostRecentOutboundCall?.id || null,
+      };
+
+      console.log(`[WEBHOOK] Using variables and row data from previous call`);
+    } else {
+      // Fall back to default inbound handling if no recent outbound call was found
+      console.log(
+        `[WEBHOOK] No recent outbound call found, using default inbound handling`,
+      );
+
+      // Get any active default inbound campaign
+      const [inboundCampaign] = await db
+        .select()
+        .from(campaigns)
+        .where(
+          and(
+            eq(campaigns.orgId, orgId),
+            eq(campaigns.direction, "inbound"),
+            eq(campaigns.isActive, true),
+            eq(campaigns.isDefaultInbound, true),
+          ),
+        );
+
+      if (inboundCampaign) {
+        console.log(
+          `[WEBHOOK] Using default inbound campaign: ${inboundCampaign.name}`,
+        );
+
+        // Get the template for the default inbound campaign
+        const [inboundTemplate] = await db
+          .select()
+          .from(campaignTemplates)
+          .where(eq(campaignTemplates.id, inboundCampaign.templateId));
+
+        if (inboundTemplate) {
+          // Use the default inbound agent
+          overrideAgentId = inboundTemplate.agentId;
+
+          // Include campaign info in metadata
+          metadata.campaignId = inboundCampaign.id;
+          metadata.templateId = inboundTemplate.id;
+          metadata.isDefaultInbound = true;
+        }
+      }
+
+      // Basic variables for default inbound handling
+      dynamicVariables = {
+        organization_name: organization.name || "Our organization",
+        inbound_call: true,
+        patient_exists: patient ? true : false,
+        patient_first_name: patient?.firstName || "Unknown",
+        patient_last_name: patient?.lastName || "Unknown",
+        patient_phone: patient?.primaryPhone || cleanPhone,
+        first_name: patient?.firstName || "Unknown",
+        last_name: patient?.lastName || "Unknown",
+        phone: patient?.primaryPhone || cleanPhone,
+      };
+    }
 
     // Create inbound call record with better error handling
     try {
       // Ensure we have valid values for required fields
-      if (!payload.agent_id) {
-        // Try to use llm_id as a fallback if available
-        if (payload.llm_id) {
-          payload.agent_id = payload.llm_id;
-          console.log(
-            `[WEBHOOK] Using llm_id as agent_id fallback: ${payload.llm_id}`,
-          );
-        } else {
-          console.warn(
-            `[WEBHOOK] No agent_id provided in webhook for org ${orgId}. Using default value.`,
-          );
-          payload.agent_id = "default-inbound-agent";
-        }
-      }
-
-      const agent_id = payload.agent_id;
+      const agent_id = payload.agent_id || "default-inbound-agent";
 
       // Create a new call record
       const [newCall] = await db
@@ -251,101 +351,44 @@ export async function handleInboundWebhook(
           toNumber: payload.to_number,
           direction: "inbound",
           status: getStatus("call", "registered"),
-          agentId: agent_id || "unknown",
-          campaignId: inboundCampaign?.id || null,
+          agentId: agent_id, // This will be overridden in the webhook response
+          campaignId: metadata.campaignId || null,
           patientId: patientId || null,
+          rowId: metadata.rowId || null,
+          runId: metadata.runId || null,
           metadata: {
             webhook_received: true,
             webhook_time: new Date().toISOString(),
-            ...payload,
+            ...metadata,
           },
-        })
+        } as TCall)
         .returning();
 
-      // Create context for agent with important fallbacks
-      const context: Record<string, any> = {
-        organization_name: organization.name || "Our organization",
+      // Add the new call ID to metadata
+      metadata.callId = newCall.id;
+
+      // Generate context instructions if needed
+      const context = {
+        ...dynamicVariables,
         inbound_call: true,
       };
 
-      if (patient) {
-        context.patient_first_name = patient.firstName;
-        context.patient_last_name = patient.lastName;
-        context.patient_phone = patient.primaryPhone;
-        context.patient_exists = true;
-
-        // Also add alternate variable names for compatibility
-        context.first_name = patient.firstName;
-        context.last_name = patient.lastName;
-        context.phone = patient.primaryPhone;
-      } else {
-        context.patient_exists = false;
-        context.caller_phone = payload.from_number;
-
-        // Provide fallback values
-        context.patient_first_name = "Unknown";
-        context.patient_last_name = "Caller";
-        context.first_name = "Unknown";
-        context.last_name = "Caller";
+      // Generate context instructions using AI if available
+      let instructions = "";
+      try {
+        const aiResponse = await generateContextInstructions(context);
+        instructions = aiResponse.instructions || "";
+      } catch (error) {
+        console.error(
+          "[WEBHOOK] Error generating context instructions:",
+          error,
+        );
+        // Continue without instructions if generation fails
       }
 
-      // Add recent call information if available
-      if (recentCalls.length > 0) {
-        context.recent_calls_count = recentCalls.length;
-
-        // Format call data in a reliable way
-        const callSummaries = recentCalls.map((call, index) => {
-          const date = call.createdAt
-            ? new Date(call.createdAt).toLocaleDateString()
-            : "unknown date";
-          const campaign = call.campaignName || "Unknown campaign";
-          const reachedStatus =
-            call.analysis?.patient_reached === true ||
-            call.analysis?.patientReached === true ||
-            call.analysis?.patient_reached === "true" ||
-            call.analysis?.patientReached === "true";
-
-          return `Call ${index + 1}: ${date} - ${campaign} - ${reachedStatus ? "Patient was reached" : "Patient was not reached"}`;
-        });
-
-        context.recent_call_summary = callSummaries.join("; ");
-
-        // Add information about most recent call
-        const lastCall = recentCalls[0];
-        if (lastCall) {
-          context.last_call_date = lastCall.createdAt
-            ? new Date(lastCall.createdAt).toLocaleDateString()
-            : "unknown date";
-
-          context.last_call_campaign = lastCall.campaignName || "Unknown";
-
-          // Check all possible formats for patient_reached
-          context.last_call_reached_patient =
-            lastCall.analysis?.patient_reached === true ||
-            lastCall.analysis?.patientReached === true ||
-            lastCall.analysis?.patient_reached === "true" ||
-            lastCall.analysis?.patientReached === "true";
-
-          // Add any campaign-specific variables from the last call
-          const campaignVars = lastCall.variables?.variables || {};
-          Object.entries(campaignVars).forEach(([key, value]) => {
-            // Only add non-standard variables (not patient info)
-            if (
-              ![
-                "firstName",
-                "lastName",
-                "dob",
-                "primaryPhone",
-                "phone",
-              ].includes(key)
-            ) {
-              context[`campaign_${key}`] = value;
-            }
-          });
-        }
-      } else {
-        context.recent_calls_count = 0;
-        context.is_first_call = true;
+      // Add instructions to the dynamic variables if available
+      if (instructions) {
+        dynamicVariables.instructions = instructions;
       }
 
       // Send real-time update
@@ -355,6 +398,8 @@ export async function handleInboundWebhook(
           patientId,
           fromNumber: payload.from_number,
           toNumber: payload.to_number,
+          isReturnCall: !!mostRecentOutboundCall,
+          campaignId: metadata.campaignId,
           time: new Date().toISOString(),
         });
         console.log(`[WEBHOOK] Sent Pusher event for inbound call`);
@@ -366,31 +411,19 @@ export async function handleInboundWebhook(
         // Continue even if Pusher fails
       }
 
-      // Generate context instructions
-      const aiResponse = await generateContextInstructions(context);
-
-      // Add context instructions to the context object
-      const instructions = aiResponse.instructions;
-
       console.log("[WEBHOOK] Inbound call webhook processed successfully");
-      console.log("[WEBHOOK] Returning context:", context);
+      console.log("[WEBHOOK] Returning agent override:", overrideAgentId);
+      console.log("[WEBHOOK] Returning metadata:", metadata);
 
       return {
         status: "success",
         message: "Inbound call webhook processed successfully",
         error: null,
         call_inbound: {
-          override_agent_id: null,
-          dynamic_variables: {
-            instructions: instructions,
-          },
+          override_agent_id: overrideAgentId,
+          dynamic_variables: dynamicVariables,
         },
-        metadata: {
-          row_id: null,
-          run_id: null,
-          campaign_id: inboundCampaign?.id || null,
-          patient_id: patientId,
-        },
+        metadata: metadata,
       };
     } catch (error) {
       console.error("[WEBHOOK] Error processing inbound webhook:", error);
@@ -405,14 +438,18 @@ export async function handleInboundWebhook(
           dynamic_variables: {
             organization_name: organization?.name || "Our organization",
             error_occurred: true,
-            patient_exists: false,
-            patient_first_name: "Unknown",
-            patient_last_name: "Caller",
-            first_name: "Unknown",
-            last_name: "Caller",
+            patient_exists: patient ? true : false,
+            patient_first_name: patient?.firstName || "Unknown",
+            patient_last_name: patient?.lastName || "Unknown",
+            first_name: patient?.firstName || "Unknown",
+            last_name: patient?.lastName || "Unknown",
           },
         },
-        metadata: {},
+        metadata: {
+          orgId,
+          patientId,
+          error: error instanceof Error ? error.message : String(error),
+        },
       };
     }
   } catch (error) {
@@ -442,6 +479,8 @@ export async function handleInboundWebhook(
  * Handler for Retell post-call webhook with improved error handling
  * Processes call results and updates database records
  */
+// src/services/call/webhook.ts - Modified post-call webhook handler
+
 export async function handlePostCallWebhook(
   orgId: string,
   campaignId: string | null,
@@ -455,24 +494,29 @@ export async function handlePostCallWebhook(
     // Extract key fields with fallbacks
     const {
       call_id: retellCallId,
-      direction = "outbound",
-      agent_id = "",
-      metadata = {} as Record<string, any>,
-      to_number: toNumber = "",
-      from_number: fromNumber = "",
-      call_status: callStatus = "completed",
-      recording_url: recordingUrl = null,
-      disconnection_reason: disconnectionReason = null,
+      direction = payload.direction || "outbound",
+      agent_id = payload.agent_id || "",
+      metadata = payload.metadata || ({} as Record<string, any>),
+      to_number: toNumber = payload.to_number || "",
+      from_number: fromNumber = payload.from_number || "",
+      call_status: callStatus = payload.call_status || "completed",
+      recording_url: recordingUrl = payload.recording_url || null,
+      disconnection_reason:
+        disconnectionReason = payload.disconnection_reason || null,
       call_analysis = {
-        transcript: "",
+        transcript: payload.call_analysis?.transcript || "",
         in_voicemail:
           payload.call_status === "voicemail" ||
           payload.call_analysis?.in_voicemail,
-        user_sentiment: "",
-        call_successful: true,
-        custom_analysis_data: {} as Record<string, any>,
-        call_completion_rating: "",
-        agent_task_completion_rating: "",
+        user_sentiment: payload.call_analysis?.user_sentiment || "",
+        call_successful: payload.call_analysis?.call_successful || true,
+        custom_analysis_data:
+          payload.call_analysis?.custom_analysis_data ||
+          ({} as Record<string, any>),
+        call_completion_rating:
+          payload.call_analysis?.call_completion_rating || "",
+        agent_task_completion_rating:
+          payload.call_analysis?.agent_task_completion_rating || "",
       },
     } = payload as RetellPostCallObjectRaw;
 
@@ -485,55 +529,7 @@ export async function handlePostCallWebhook(
       `[WEBHOOK] Processing post-call webhook for call ${retellCallId}`,
     );
 
-    // Determine patient for this call with improved error handling
-    let patientId: string | null = null;
-
-    // For outbound calls, get patient ID from metadata
-    if (direction === "outbound" && metadata) {
-      patientId = metadata.patientId || metadata.patient_id || null;
-      console.log(`[WEBHOOK] Extracted patient ID from metadata: ${patientId}`);
-    }
-    // For inbound calls, try to find patient by phone number
-    else if (direction === "inbound" && fromNumber) {
-      console.log(
-        `[WEBHOOK] Looking up patient by phone number for inbound call`,
-      );
-
-      try {
-        // Determine which number is the patient's
-        // For inbound calls, the caller's number is in fromNumber
-        const patientPhone = fromNumber;
-        const cleanPhone = patientPhone.replace(/\D/g, "");
-
-        if (cleanPhone) {
-          // Try to find patient by phone using the service
-          const patientService = new PatientService(db);
-          const patient = await patientService.findPatientByPhone(
-            cleanPhone,
-            orgId,
-          );
-
-          if (patient) {
-            patientId = patient.id;
-            console.log(
-              `[WEBHOOK] Found patient ${patientId} by phone number ${cleanPhone}`,
-            );
-          } else {
-            console.log(
-              `[WEBHOOK] No patient found with phone number ${cleanPhone}`,
-            );
-          }
-        }
-      } catch (error) {
-        console.error("[WEBHOOK] Error finding patient by phone:", error);
-      }
-    }
-
-    // 1. Check if the call exists, update if it does, create if not
-    console.log(
-      `[WEBHOOK] Looking up existing call record for ${retellCallId}`,
-    );
-
+    // Check if this call exists in our database
     const [existingCall] = await db
       .select()
       .from(calls)
@@ -542,6 +538,8 @@ export async function handlePostCallWebhook(
     let callId: string;
     let rowId: string | null = null;
     let runId: string | null = null;
+    let patientId: string | null = null;
+    let originalCampaignId: string | null = campaignId;
 
     if (existingCall) {
       console.log(`[WEBHOOK] Found existing call record ${existingCall.id}`);
@@ -549,69 +547,107 @@ export async function handlePostCallWebhook(
       callId = existingCall.id;
       rowId = existingCall.rowId;
       runId = existingCall.runId;
+      patientId = existingCall.patientId;
 
-      // If we found a patient but the existing call doesn't have one, update it
-      if (patientId && !existingCall.patientId) {
-        console.log(
-          `[WEBHOOK] Updating call with newly found patient ID ${patientId}`,
-        );
+      // If the call is already linked to a campaign, use that
+      if (existingCall.campaignId) {
+        originalCampaignId = existingCall.campaignId;
+      }
 
-        await db
-          .update(calls)
-          .set({ patientId, updatedAt: new Date() } as any)
-          .where(eq(calls.id, callId));
+      // For inbound calls, prioritize metadata from the existing call
+      if (direction === "inbound" && existingCall.metadata) {
+        // Extract important IDs from call metadata for inbound calls
+        // These would have been set by our inbound webhook handler
+        if (existingCall.metadata.rowId && !rowId) {
+          rowId = existingCall.metadata.rowId as string;
+          console.log(`[WEBHOOK] Using rowId from call metadata: ${rowId}`);
+        }
+
+        if (existingCall.metadata.runId && !runId) {
+          runId = existingCall.metadata.runId as string;
+          console.log(`[WEBHOOK] Using runId from call metadata: ${runId}`);
+        }
+
+        if (existingCall.metadata.campaignId && !originalCampaignId) {
+          originalCampaignId = existingCall.metadata.campaignId as string;
+          console.log(
+            `[WEBHOOK] Using campaignId from call metadata: ${originalCampaignId}`,
+          );
+        }
       }
     } else {
       console.log(`[WEBHOOK] No existing call found, creating new record`);
+
+      // For inbound calls, try to extract IDs from metadata provided by Retell
+      // These would have been set in our inbound webhook response
+      if (direction === "inbound" && metadata) {
+        rowId = metadata.rowId || metadata.row_id || null;
+        runId = metadata.runId || metadata.run_id || null;
+        patientId = metadata.patientId || metadata.patient_id || null;
+
+        if (metadata.campaignId || metadata.campaign_id) {
+          originalCampaignId = metadata.campaignId || metadata.campaign_id;
+        }
+
+        console.log(
+          `[WEBHOOK] Extracted from inbound metadata - rowId: ${rowId}, runId: ${runId}, campaignId: ${originalCampaignId}`,
+        );
+      }
+      // For outbound calls, try to extract patient ID from metadata
+      else if (direction === "outbound" && metadata) {
+        patientId = metadata.patientId || metadata.patient_id || null;
+      }
+
+      // If no patient ID yet but we have a phone number, try to look up the patient
+      if (!patientId && (direction === "inbound" ? fromNumber : toNumber)) {
+        try {
+          const patientPhone = direction === "inbound" ? fromNumber : toNumber;
+          const cleanPhone = patientPhone;
+
+          if (cleanPhone) {
+            const patientService = new PatientService(db);
+            const patient = await patientService.findPatientByPhone(
+              cleanPhone,
+              orgId,
+            );
+
+            if (patient) {
+              patientId = patient.id;
+              console.log(
+                `[WEBHOOK] Found patient ${patientId} by phone number ${cleanPhone}`,
+              );
+            }
+          }
+        } catch (error) {
+          console.error("[WEBHOOK] Error finding patient by phone:", error);
+        }
+      }
 
       // Create the call with proper metadata initialization
       const [newCall] = await db
         .insert(calls)
         .values({
-          id: createId(),
           orgId,
           retellCallId,
           patientId,
+          rowId,
+          runId,
           toNumber,
           fromNumber,
           direction: direction as "inbound" | "outbound",
           status: getStatus("call", callStatus as RetellCallStatus),
           agentId: agent_id || "unknown",
-          campaignId: campaignId || null,
+          campaignId: originalCampaignId || null,
           metadata: {
             ...(metadata || {}),
-            campaignId: campaignId || null,
             webhook_received: true,
             webhook_time: new Date().toISOString(),
           },
-        } as any)
+        } as TCall)
         .returning();
 
       callId = newCall.id;
-      rowId = metadata?.rowId || null;
-      runId = metadata?.runId || null;
-
       console.log(`[WEBHOOK] Created new call record ${callId}`);
-
-      // If the call came with a rowId in metadata but we didn't set it directly, update the call
-      if (metadata?.rowId && !newCall.rowId) {
-        console.log(`[WEBHOOK] Updating call with row ID ${metadata.rowId}`);
-
-        await db
-          .update(calls)
-          .set({ rowId: metadata.rowId } as Partial<typeof calls.$inferInsert>)
-          .where(eq(calls.id, callId));
-      }
-
-      // Same for runId
-      if (metadata?.runId && !newCall.runId) {
-        console.log(`[WEBHOOK] Updating call with run ID ${metadata.runId}`);
-
-        await db
-          .update(calls)
-          .set({ runId: metadata.runId } as Partial<typeof calls.$inferInsert>)
-          .where(eq(calls.id, callId));
-      }
     }
 
     // Fetch the complete call record again to make sure we have latest data
@@ -624,19 +660,26 @@ export async function handlePostCallWebhook(
     // Re-assign these values from the latest call record
     rowId = call.rowId;
     runId = call.runId;
+    patientId = call.patientId;
+    originalCampaignId = call.campaignId;
 
     // Process campaign-specific configuration if available
     let campaignConfig = null;
-    if (campaignId) {
+    if (originalCampaignId) {
       console.log(
-        `[WEBHOOK] Looking up campaign configuration for ${campaignId}`,
+        `[WEBHOOK] Looking up campaign configuration for ${originalCampaignId}`,
       );
 
       try {
         const [campaign] = await db
           .select()
           .from(campaigns)
-          .where(and(eq(campaigns.id, campaignId), eq(campaigns.orgId, orgId)));
+          .where(
+            and(
+              eq(campaigns.id, originalCampaignId),
+              eq(campaigns.orgId, orgId),
+            ),
+          );
 
         if (campaign) {
           // Get template for this campaign
@@ -702,7 +745,7 @@ export async function handlePostCallWebhook(
               : null,
           metadata: {
             ...call.metadata,
-            campaignId: campaignId || call.metadata?.campaignId,
+            campaignId: originalCampaignId || call.metadata?.campaignId,
             insights: extractCallInsights({
               transcript: call_analysis?.transcript,
               analysis: processedAnalysis,
@@ -738,13 +781,15 @@ export async function handlePostCallWebhook(
               ...(call.metadata && typeof call.metadata === "object"
                 ? call.metadata
                 : {}),
-              campaignId: campaignId || null,
+              campaignId: originalCampaignId || null,
               callCompleted: callStatus === "completed",
               callInsights: extractCallInsights({
                 transcript: call_analysis?.transcript,
                 analysis: processedAnalysis,
               }),
               lastUpdated: new Date().toISOString(),
+              // For inbound calls, mark it as a return call
+              isReturnCall: direction === "inbound",
             },
             updatedAt: new Date(),
           } as Partial<typeof rows.$inferInsert>)
@@ -781,7 +826,14 @@ export async function handlePostCallWebhook(
               converted: 0,
               pending: 0,
               calling: 0,
+              inbound_returns: 0, // New field to track inbound returns
             };
+          }
+
+          // For inbound calls, increment inbound_returns counter
+          if (direction === "inbound") {
+            metadata.calls.inbound_returns =
+              (metadata.calls.inbound_returns || 0) + 1;
           }
 
           // Update metrics
@@ -872,35 +924,55 @@ export async function handlePostCallWebhook(
 
           console.log(`[WEBHOOK] Updated run ${runId} metrics`);
 
-          // Check if run is complete (all rows processed)
-          const [{ value: pendingRows }] = (await db
-            .select({ value: sql`COUNT(*)` })
-            .from(rows)
-            .where(
-              and(
-                eq(rows.runId, runId),
-                or(eq(rows.status, "pending"), eq(rows.status, "calling")),
-              ),
-            )) as [{ value: number }];
+          // Only check for run completion for outbound calls
+          // (inbound calls shouldn't affect run completion status)
+          if (direction === "outbound") {
+            // Check if run is complete (all rows processed)
+            const [{ value: pendingRows }] = (await db
+              .select({ value: sql`COUNT(*)` })
+              .from(rows)
+              .where(
+                and(
+                  eq(rows.runId, runId),
+                  or(eq(rows.status, "pending"), eq(rows.status, "calling")),
+                ),
+              )) as [{ value: number }];
 
-          if (Number(pendingRows) === 0) {
-            console.log(
-              `[WEBHOOK] No pending rows left, marking run ${runId} as completed`,
-            );
-
-            // Calculate duration if we have start time
-            let duration: number | undefined;
-            if (metadata.run?.startTime) {
-              duration = Math.floor(
-                (Date.now() - new Date(metadata.run.startTime).getTime()) /
-                  1000,
+            if (Number(pendingRows) === 0) {
+              console.log(
+                `[WEBHOOK] No pending rows left, marking run ${runId} as completed`,
               );
-            }
 
-            // Update run status to completed
-            await db
-              .update(runs)
-              .set({
+              // Calculate duration if we have start time
+              let duration: number | undefined;
+              if (metadata.run?.startTime) {
+                duration = Math.floor(
+                  (Date.now() - new Date(metadata.run.startTime).getTime()) /
+                    1000,
+                );
+              }
+
+              // Update run status to completed
+              await db
+                .update(runs)
+                .set({
+                  status: "completed",
+                  metadata: {
+                    ...metadata,
+                    run: {
+                      ...metadata.run,
+                      endTime: new Date().toISOString(),
+                      duration,
+                      completedAt: new Date().toISOString(),
+                    },
+                  },
+                  updatedAt: new Date(),
+                } as Partial<typeof runs.$inferInsert>)
+                .where(eq(runs.id, runId));
+
+              // Send real-time update for run completion
+              await pusherServer.trigger(`org-${orgId}`, "run-updated", {
+                runId,
                 status: "completed",
                 metadata: {
                   ...metadata,
@@ -911,26 +983,10 @@ export async function handlePostCallWebhook(
                     completedAt: new Date().toISOString(),
                   },
                 },
-                updatedAt: new Date(),
-              } as Partial<typeof runs.$inferInsert>)
-              .where(eq(runs.id, runId));
+              });
 
-            // Send real-time update for run completion
-            await pusherServer.trigger(`org-${orgId}`, "run-updated", {
-              runId,
-              status: "completed",
-              metadata: {
-                ...metadata,
-                run: {
-                  ...metadata.run,
-                  endTime: new Date().toISOString(),
-                  duration,
-                  completedAt: new Date().toISOString(),
-                },
-              },
-            });
-
-            console.log(`[WEBHOOK] Run ${runId} marked as completed`);
+              console.log(`[WEBHOOK] Run ${runId} marked as completed`);
+            }
           }
 
           // Send real-time update for run metrics
@@ -952,28 +1008,37 @@ export async function handlePostCallWebhook(
         analysis: processedAnalysis,
       });
 
+      // Include direction in the notification
+      const callDirection = direction || "unknown";
+
       // Org-level notification
       await pusherServer.trigger(`org-${orgId}`, "call-updated", {
         callId: call.id,
         status: callStatus,
         patientId,
         runId,
+        direction: callDirection,
         metadata: {
-          campaignId: campaignId || null,
+          campaignId: originalCampaignId || null,
         },
         analysis: processedAnalysis,
         insights,
       });
 
       // Campaign-specific notification
-      if (campaignId) {
-        await pusherServer.trigger(`campaign-${campaignId}`, "call-completed", {
-          callId: call.id,
-          status: callStatus,
-          patientId,
-          analysis: processedAnalysis,
-          insights,
-        });
+      if (originalCampaignId) {
+        await pusherServer.trigger(
+          `campaign-${originalCampaignId}`,
+          "call-completed",
+          {
+            callId: call.id,
+            status: callStatus,
+            patientId,
+            direction: callDirection,
+            analysis: processedAnalysis,
+            insights,
+          },
+        );
       }
 
       // Run-specific notification
@@ -982,8 +1047,9 @@ export async function handlePostCallWebhook(
           callId: call.id,
           status: callStatus,
           rowId,
+          direction: callDirection,
           metadata: {
-            campaignId: campaignId || null,
+            campaignId: originalCampaignId || null,
           },
           analysis: processedAnalysis,
           insights,
@@ -1003,6 +1069,7 @@ export async function handlePostCallWebhook(
       status: "success",
       callId: call.id,
       patientId,
+      direction,
       message: "Call data processed successfully",
       insights: extractCallInsights({
         transcript: call_analysis?.transcript,

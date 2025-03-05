@@ -358,7 +358,6 @@ CREATE INDEX IF NOT EXISTS "call_agent_id_idx" ON "rivvi_call" USING btree ("age
 CREATE INDEX IF NOT EXISTS "call_retell_call_id_idx" ON "rivvi_call" USING btree ("retell_call_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_status_idx" ON "rivvi_call" USING btree ("status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_direction_idx" ON "rivvi_call" USING btree ("direction");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "call_retell_call_id_unique_idx" ON "rivvi_call" USING btree ("retell_call_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_batch_id_idx" ON "rivvi_call" USING btree ("batch_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "campaign_request_org_id_idx" ON "rivvi_campaign_request" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "campaign_request_status_idx" ON "rivvi_campaign_request" USING btree ("status");--> statement-breakpoint
