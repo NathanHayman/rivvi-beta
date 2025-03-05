@@ -106,7 +106,7 @@ export function AdminCampaignsTable() {
     id: campaign.id || "",
     name: campaign.name || "",
     direction: campaign.direction || "",
-    agentId: "",
+    agentId: campaign.config?.agentId || "",
     createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
     // Use optional chaining for properties that might not exist in the API response
     runCount: (campaign as any).runCount,
@@ -277,22 +277,6 @@ export function AdminCampaignsTable() {
                   }}
                 >
                   View Campaign
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    router.push(`/campaigns/${campaign.id}/runs`);
-                  }}
-                >
-                  View Runs
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCreateRun(campaign.id);
-                  }}
-                >
-                  Create Run
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

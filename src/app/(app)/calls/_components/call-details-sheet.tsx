@@ -126,6 +126,14 @@ function CallDetailsContent({ callId }: { callId: string }) {
   // Cast the data to our CallDetails type
   const call = data as unknown as CallDetails;
 
+  // Determine if we should override the status
+  const hasAnalysisData =
+    call.analysis && Object.keys(call.analysis).length > 0;
+  const displayStatus =
+    call.status === "in-progress" && hasAnalysisData
+      ? ("completed" as CallStatus)
+      : call.status;
+
   // Determine status icon and color
   let StatusIcon = Clock;
   let statusColor = "text-zinc-500";
@@ -134,15 +142,15 @@ function CallDetailsContent({ callId }: { callId: string }) {
     | "success_solid"
     | "failure_solid";
 
-  if (call.status === "completed") {
+  if (displayStatus === "completed") {
     StatusIcon = CheckCircle;
     statusColor = "text-green-500";
     badgeVariant = "success_solid";
-  } else if (call.status === "failed" || call.status === "no-answer") {
+  } else if (displayStatus === "failed" || displayStatus === "no-answer") {
     StatusIcon = CircleAlert;
     statusColor = "text-red-500";
     badgeVariant = "failure_solid";
-  } else if (call.status === "in-progress") {
+  } else if (displayStatus === "in-progress") {
     StatusIcon = PhoneCall;
     statusColor = "text-amber-500";
   }
@@ -212,7 +220,9 @@ function CallDetailsContent({ callId }: { callId: string }) {
             </div>
             <div className="flex items-center gap-2">
               <StatusIcon className={`h-5 w-5 ${statusColor}`} />
-              <Badge variant={badgeVariant}>{formatStatus(call.status)}</Badge>
+              <Badge variant={badgeVariant}>
+                {formatStatus(displayStatus)}
+              </Badge>
             </div>
           </div>
 

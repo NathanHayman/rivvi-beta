@@ -526,7 +526,7 @@ export const calls = createTable(
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     direction: callDirectionEnum("direction").notNull(),
     status: callStatusEnum("status").default("pending").notNull(),
-    retellCallId: varchar("retell_call_id", { length: 256 }).notNull(),
+    retellCallId: varchar("retell_call_id", { length: 256 }),
     recordingUrl: varchar("recording_url", { length: 512 }),
     toNumber: varchar("to_number", { length: 20 }).notNull(),
     fromNumber: varchar("from_number", { length: 20 }).notNull(),

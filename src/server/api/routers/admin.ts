@@ -18,6 +18,7 @@ import {
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, like, or, SQL, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 // Add the missing functions to get LLM from agent and update Retell agent
@@ -61,6 +62,7 @@ export const adminRouter = createTRPCRouter({
             ...campaign,
             config: template
               ? {
+                  agentId: template.agentId,
                   basePrompt: template.basePrompt,
                   voicemailMessage: template.voicemailMessage,
                   variables: template.variablesConfig,
@@ -776,6 +778,9 @@ export const adminRouter = createTRPCRouter({
             console.error("Error configuring webhooks:", webhookError);
           }
         }
+
+        // Refresh the campaign page
+        revalidatePath(`/admin/campaigns`, "page");
 
         return campaign;
       } catch (error) {

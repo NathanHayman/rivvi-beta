@@ -268,6 +268,19 @@ export class CallProcessor {
         .update(rows)
         .set({
           status: "pending",
+          updatedAt: new Date(),
+          // Add a note in metadata about the reset
+          metadata: sql`
+            CASE 
+              WHEN ${rows.status} = 'calling' 
+              THEN jsonb_set(
+                COALESCE(${rows.metadata}, '{}'::jsonb), 
+                '{statusReset}', 
+                '"true"'::jsonb
+              )
+              ELSE ${rows.metadata}
+            END
+          `,
         } as Partial<typeof rows.$inferInsert>)
         .where(
           and(
@@ -278,6 +291,25 @@ export class CallProcessor {
             ),
           ),
         );
+
+      // Log how many rows were reset from calling state
+      const [{ count }] = (await this.db
+        .select({
+          count: sql`COUNT(*)`.mapWith(Number),
+        })
+        .from(rows)
+        .where(
+          and(
+            eq(rows.runId, runId),
+            sql`${rows.metadata}->>'statusReset' = 'true'`,
+          ),
+        )) as [{ count: number }];
+
+      if (count > 0) {
+        console.log(
+          `Reset ${count} rows from 'calling' to 'pending' state for run ${runId}`,
+        );
+      }
 
       // Update run status to running with timestamp
       const startTime = new Date().toISOString();
@@ -504,6 +536,7 @@ export class CallProcessor {
     let processing = true;
     let consecutiveErrors = 0;
     let currentRun: any = null;
+    let lastStuckRowCheck = Date.now();
 
     try {
       while (processing) {
@@ -954,60 +987,76 @@ export class CallProcessor {
               this.MAX_RETRY_ATTEMPTS;
             const currentRetries = row.retryCount || 0;
 
-            if (currentRetries < maxRetries) {
-              console.log(
-                `Will retry row ${row.id} later (${currentRetries + 1}/${maxRetries} retries)`,
+            try {
+              if (currentRetries < maxRetries) {
+                console.log(
+                  `Will retry row ${row.id} later (${currentRetries + 1}/${maxRetries} retries)`,
+                );
+
+                // Mark for retry
+                await this.db
+                  .update(rows)
+                  .set({
+                    status: "pending", // Ensure status is reset to pending
+                    retryCount: currentRetries + 1,
+                    error:
+                      error instanceof Error ? error.message : String(error),
+                    updatedAt: new Date(),
+                    metadata: {
+                      ...row.metadata,
+                      lastError:
+                        error instanceof Error ? error.message : String(error),
+                      lastErrorTime: new Date().toISOString(),
+                    },
+                  } as Partial<typeof rows.$inferInsert>)
+                  .where(eq(rows.id, row.id));
+
+                // Update run metrics
+                await this.incrementMetric(runId, "calls.retried");
+              } else {
+                // Mark as failed - exceeded max retries
+                await this.db
+                  .update(rows)
+                  .set({
+                    status: "failed", // Ensure status is set to failed
+                    error: `Exceeded maximum retries (${maxRetries}): ${error instanceof Error ? error.message : String(error)}`,
+                    updatedAt: new Date(),
+                    metadata: {
+                      ...row.metadata,
+                      lastError:
+                        error instanceof Error ? error.message : String(error),
+                      lastErrorTime: new Date().toISOString(),
+                      failureReason: "max_retries_exceeded",
+                    },
+                  } as Partial<typeof rows.$inferInsert>)
+                  .where(eq(rows.id, row.id));
+
+                // Update run metrics
+                await this.incrementMetric(runId, "calls.failed");
+              }
+            } catch (dbError) {
+              // Handle database errors during status update
+              console.error(
+                `Failed to update row ${row.id} status after error:`,
+                dbError,
               );
 
-              // Mark for retry with progressive backoff
-              await this.db
-                .update(rows)
-                .set({
-                  status: "pending",
-                  retryCount: currentRetries + 1,
-                  error: error instanceof Error ? error.message : String(error),
-                  updatedAt: new Date(),
-                  metadata: {
-                    ...row.metadata,
-                    lastError:
-                      error instanceof Error ? error.message : String(error),
-                    lastErrorTime: new Date().toISOString(),
-                    // Add the time to retry with progressive backoff
-                    nextRetryTime: new Date(
-                      Date.now() +
-                        Math.min(
-                          30 * 60 * 1000,
-                          5 * 60 * 1000 * Math.pow(2, currentRetries),
-                        ),
-                    ).toISOString(),
-                  },
-                  // Increase sort index to push to the end of the queue
-                  sortIndex: row.sortIndex + 1000,
-                } as Partial<typeof rows.$inferInsert>)
-                .where(eq(rows.id, row.id));
-
-              // Update run metrics
-              await this.incrementMetric(runId, "calls.retried");
-            } else {
-              // Mark as failed - exceeded max retries
-              await this.db
-                .update(rows)
-                .set({
-                  status: "failed",
-                  error: `Exceeded maximum retries (${maxRetries}): ${error instanceof Error ? error.message : String(error)}`,
-                  updatedAt: new Date(),
-                  metadata: {
-                    ...row.metadata,
-                    lastError:
-                      error instanceof Error ? error.message : String(error),
-                    lastErrorTime: new Date().toISOString(),
-                    failureReason: "max_retries_exceeded",
-                  },
-                } as Partial<typeof rows.$inferInsert>)
-                .where(eq(rows.id, row.id));
-
-              // Update run metrics
-              await this.incrementMetric(runId, "calls.failed");
+              // Last resort attempt to reset the row status
+              try {
+                await this.db
+                  .update(rows)
+                  .set({
+                    status: "pending",
+                    error: "Failed to process call and update status",
+                    updatedAt: new Date(),
+                  } as Partial<typeof rows.$inferInsert>)
+                  .where(eq(rows.id, row.id));
+              } catch (finalError) {
+                console.error(
+                  `Critical: Failed final attempt to reset row ${row.id} status:`,
+                  finalError,
+                );
+              }
             }
 
             // If we hit multiple consecutive errors, consider adjusting batch size or pausing
@@ -1042,6 +1091,13 @@ export class CallProcessor {
 
         // Add a short pause between batches to avoid overwhelming the system
         await this.delay(1000);
+
+        // Check for stuck rows every 5 minutes
+        const now = Date.now();
+        if (now - lastStuckRowCheck > 5 * 60 * 1000) {
+          await this.checkForStuckRows(runId);
+          lastStuckRowCheck = now;
+        }
       }
     } catch (error) {
       console.error(`Error processing run ${runId}:`, error);
@@ -1317,4 +1373,50 @@ export class CallProcessor {
 
   // Add to class properties:
   private metricUpdateTimeouts = new Map<string, NodeJS.Timeout>();
+
+  private async checkForStuckRows(runId: string): Promise<void> {
+    try {
+      console.log(`Checking for stuck rows in run ${runId}`);
+
+      // Find rows that have been in "calling" state for more than 10 minutes
+      const stuckRows = await this.db
+        .select()
+        .from(rows)
+        .where(
+          and(
+            eq(rows.runId, runId),
+            eq(rows.status, "calling"),
+            // Check if updatedAt is more than 10 minutes ago
+            sql`${rows.updatedAt} < NOW() - INTERVAL '10 minutes'`,
+          ),
+        );
+
+      if (stuckRows.length > 0) {
+        console.log(
+          `Found ${stuckRows.length} rows stuck in "calling" state for run ${runId}`,
+        );
+
+        // Reset these rows to "pending" state
+        for (const row of stuckRows) {
+          await this.db
+            .update(rows)
+            .set({
+              status: "pending",
+              error: "Reset from stuck 'calling' state",
+              updatedAt: new Date(),
+              metadata: {
+                ...row.metadata,
+                stuckInCalling: true,
+                resetTime: new Date().toISOString(),
+              },
+            } as Partial<typeof rows.$inferInsert>)
+            .where(eq(rows.id, row.id));
+
+          console.log(`Reset stuck row ${row.id} to "pending" state`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error checking for stuck rows in run ${runId}:`, error);
+    }
+  }
 }

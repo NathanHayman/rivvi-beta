@@ -8,7 +8,7 @@ import { z } from "zod";
 /**
  * Output schema for the enhanced campaign content
  */
-export type EnhancedCampaignContent = {
+export type TGenerateAgentPrompt = {
   newPrompt: string;
   newVoicemailMessage: string;
   suggestedRunName: string;
@@ -25,7 +25,7 @@ export type EnhancedCampaignContent = {
  * @param campaignContext Additional context about the campaign (optional)
  * @returns Enhanced campaign content including new prompt, voicemail message, suggested run name, and a summary of changes
  */
-export async function generateEnhancedCampaignContent(
+export async function generateAgentPrompt(
   basePrompt: string,
   baseVoicemailMessage: string,
   naturalLanguageInput: string,
@@ -34,7 +34,7 @@ export async function generateEnhancedCampaignContent(
     description?: string;
     type?: string;
   },
-): Promise<EnhancedCampaignContent> {
+): Promise<TGenerateAgentPrompt> {
   // Log the inputs for debugging
   console.log("Generating enhanced campaign content with inputs:");
   console.log(`Base prompt length: ${basePrompt.length} chars`);
@@ -96,7 +96,7 @@ Please enhance both the conversation prompt and voicemail message by incorporati
 
     // Use AI model to generate the enhanced content
     const { object } = await generateObject({
-      model: anthropic("claude-3-haiku-20240307"),
+      model: anthropic("claude-3-7-sonnet-20250219"),
       system: systemPrompt,
       prompt: userPrompt,
       temperature: 0.7,
@@ -112,7 +112,7 @@ Please enhance both the conversation prompt and voicemail message by incorporati
     console.log("AI generation completed successfully");
 
     // Verify the result has the expected structure and content
-    const result = object as EnhancedCampaignContent;
+    const result = object as TGenerateAgentPrompt;
 
     // Validate that variables were preserved
     const basePromptVariables = extractVariables(basePrompt);

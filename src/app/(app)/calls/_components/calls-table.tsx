@@ -223,6 +223,14 @@ export function CallsTable() {
       header: "Status",
       cell: ({ row }) => {
         const status = row.getValue("status") as Call["status"];
+        const call = row.original;
+        const hasAnalysisData =
+          call.analysis && Object.keys(call.analysis).length > 0;
+
+        // If the call has analysis data but status is still "in-progress",
+        // we should display it as "completed" instead
+        const displayStatus =
+          status === "in-progress" && hasAnalysisData ? "completed" : status;
 
         let StatusIcon = Clock;
         let statusColor = "text-zinc-500";
@@ -231,15 +239,18 @@ export function CallsTable() {
           | "success_solid"
           | "failure_solid";
 
-        if (status === "completed") {
+        if (displayStatus === "completed") {
           StatusIcon = CheckCircle;
           statusColor = "text-green-500";
           badgeVariant = "success_solid";
-        } else if (status === "failed" || status === "no-answer") {
+        } else if (
+          displayStatus === "failed" ||
+          displayStatus === "no-answer"
+        ) {
           StatusIcon = CircleAlert;
           statusColor = "text-red-500";
           badgeVariant = "failure_solid";
-        } else if (status === "in-progress") {
+        } else if (displayStatus === "in-progress") {
           StatusIcon = PhoneCall;
           statusColor = "text-amber-500";
         }
@@ -248,11 +259,12 @@ export function CallsTable() {
           <div className="flex items-center gap-2">
             <StatusIcon className={`h-4 w-4 ${statusColor}`} />
             <Badge variant={badgeVariant}>
-              {status === "in-progress"
+              {displayStatus === "in-progress"
                 ? "In Progress"
-                : status === "no-answer"
+                : displayStatus === "no-answer"
                   ? "No Answer"
-                  : status.charAt(0).toUpperCase() + status.slice(1)}
+                  : displayStatus.charAt(0).toUpperCase() +
+                    displayStatus.slice(1)}
             </Badge>
           </div>
         );
@@ -424,7 +436,58 @@ export function CallsTable() {
         // Find the main KPI field
         const mainKpiField = campaignFields.find((field) => field.isMainKPI);
 
+        // If no main KPI field is explicitly marked, use the first field that's not in the excluded list
         if (!mainKpiField) {
+          // Standard fields that we don't want to show as main KPI
+          const excludedKeys = [
+            "patient_reached",
+            "left_voicemail",
+            "duration",
+            "transcript",
+          ];
+
+          // Find the first field that's not in the excluded list
+          const analysisEntries = Object.entries(analysis).filter(
+            ([key]) => !excludedKeys.includes(key),
+          );
+
+          if (analysisEntries.length > 0) {
+            const [key, value] = analysisEntries[0];
+
+            // Try to find the field definition to get the label
+            const fieldDef = campaignFields.find((f) => f.key === key);
+            const label = fieldDef?.label || key;
+
+            // Format the value based on type
+            let displayValue = value;
+            if (
+              typeof value === "boolean" ||
+              value === "true" ||
+              value === "false"
+            ) {
+              const isPositive = value === true || value === "true";
+              displayValue = isPositive ? "Yes" : "No";
+
+              return (
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">{label}</span>
+                  <Badge
+                    variant={isPositive ? "success_solid" : "neutral_solid"}
+                  >
+                    {displayValue}
+                  </Badge>
+                </div>
+              );
+            }
+
+            return (
+              <div className="flex flex-col">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <span>{String(displayValue)}</span>
+              </div>
+            );
+          }
+
           return <span>-</span>;
         }
 
@@ -436,20 +499,35 @@ export function CallsTable() {
         }
 
         // Format the value based on type
+        let displayValue = value;
         if (
           typeof value === "boolean" ||
           value === "true" ||
           value === "false"
         ) {
           const isPositive = value === true || value === "true";
+          displayValue = isPositive ? "Yes" : "No";
+
           return (
-            <Badge variant={isPositive ? "success_solid" : "neutral_solid"}>
-              {isPositive ? "Yes" : "No"}
-            </Badge>
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">
+                {mainKpiField.label}
+              </span>
+              <Badge variant={isPositive ? "success_solid" : "neutral_solid"}>
+                {displayValue}
+              </Badge>
+            </div>
           );
         }
 
-        return <span>{String(value)}</span>;
+        return (
+          <div className="flex flex-col">
+            <span className="text-xs text-muted-foreground">
+              {mainKpiField.label}
+            </span>
+            <span>{String(displayValue)}</span>
+          </div>
+        );
       },
     },
     {
@@ -471,24 +549,6 @@ export function CallsTable() {
     },
   ];
 
-  // Add a meta column for row ID that we'll use for click handling
-  const columnsWithRowClick: ColumnDef<Call>[] = [
-    // Add a meta column for row click handling
-    {
-      id: "clickHandler",
-      cell: ({ row }) => {
-        return (
-          <div
-            className="absolute inset-0 cursor-pointer"
-            onClick={() => handleCallRowClick(row.original.id)}
-            aria-hidden="true"
-          />
-        );
-      },
-    },
-    ...columns,
-  ];
-
   // Type check and convert the data to the required format
   const callsData = (data?.calls || []) as unknown as Call[];
 
@@ -497,7 +557,7 @@ export function CallsTable() {
       <div className="relative rounded-md border">
         <CallsTableFilters />
         <DataTable
-          columns={columnsWithRowClick}
+          columns={columns}
           data={callsData}
           isLoading={isLoading}
           pagination={{
@@ -506,6 +566,7 @@ export function CallsTable() {
           }}
           searchable={true}
           onSearch={setSearchQuery}
+          onRowClick={(row) => handleCallRowClick(row.id)}
         />
       </div>
 

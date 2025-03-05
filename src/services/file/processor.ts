@@ -253,75 +253,148 @@ function transformValue(value: unknown, transform?: string): unknown {
 }
 
 /**
- * Enhanced date formatting with better format detection
+ * Enhanced date formatting with better format detection for birth dates
+ * Fixed to properly handle 2-digit years in birth dates
  */
 function formatShortDate(dateString: string): string {
   try {
+    // Debugging log
+    console.log(`Processing date: ${dateString}`);
+
     // Handle Excel date (number of days since 1/1/1900)
     if (!isNaN(Number(dateString))) {
       const excelDate = Number(dateString);
       if (excelDate > 1000) {
         // Likely a date if over 1000
-        // Excel dates are number of days since 1/1/1900, with a leap year bug
         const date = new Date(Date.UTC(1900, 0, excelDate - 1));
+        console.log(
+          `Interpreted Excel date ${excelDate} as ${date.toISOString()}`,
+        );
         return formatDate(date.toISOString());
       }
     }
 
-    // Handle common date formats
+    // For birth dates, we need a more aggressive threshold for 2-digit years
+    // Most birth dates with 2-digit years should be interpreted as 19xx
+    // since we're dealing with patient data
+
+    // Try MM/DD/YY format first (US format)
+    const mmddyyMatch = dateString.match(
+      /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/,
+    );
+    if (mmddyyMatch) {
+      const [_, month, day, yearStr] = mmddyyMatch;
+      let year = parseInt(yearStr);
+
+      // For birth dates, assume any 2-digit year is 19xx unless it's > 23 (current year)
+      // This handles most birth dates correctly
+      const currentYear = new Date().getFullYear();
+      const currentCentury = Math.floor(currentYear / 100) * 100;
+      const twoDigitCurrentYear = currentYear % 100;
+
+      // If year is a 2-digit number
+      if (year < 100) {
+        // If year is greater than current 2-digit year, it's likely from previous century
+        // Otherwise, check if it's a reasonable birth year (under 110 years old)
+        // For example: In 2025, "46" would be 1946, but "23" could be 2023 (recent birth)
+        if (year > twoDigitCurrentYear) {
+          // Definitely in the past (e.g., 46 in 2025 = 1946)
+          year += currentCentury - 100;
+          console.log(
+            `Interpreted 2-digit year ${yearStr} as ${year} (previous century)`,
+          );
+        } else if (year < 30) {
+          // Could be recent (within last 30 years) or distant past
+          // For birth dates, check if this would make a person over 80 years old
+          const possibleBirthYear = currentCentury + year;
+          const age = currentYear - possibleBirthYear;
+
+          if (age > 80) {
+            // More likely a birth from previous century
+            year += currentCentury - 100;
+            console.log(
+              `Interpreted 2-digit year ${yearStr} as ${year} (age > 80)`,
+            );
+          } else {
+            year += currentCentury;
+            console.log(
+              `Interpreted 2-digit year ${yearStr} as ${year} (current century)`,
+            );
+          }
+        } else {
+          // Year is between 30-99, almost certainly previous century for birth dates
+          year += currentCentury - 100;
+          console.log(
+            `Interpreted 2-digit year ${yearStr} as ${year} (previous century default)`,
+          );
+        }
+      }
+
+      // Validate the date
+      const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
+      if (
+        parsedDate.getFullYear() === year &&
+        parsedDate.getMonth() === parseInt(month) - 1 &&
+        parsedDate.getDate() === parseInt(day)
+      ) {
+        // Additional validation for birth dates - shouldn't be in the future
+        if (parsedDate > new Date()) {
+          console.warn(
+            `Warning: Birth date ${dateString} parsed as future date ${year}-${month}-${day}`,
+          );
+
+          // If in the future, shift back by 100 years
+          year -= 100;
+          console.log(`Corrected future date to ${year}-${month}-${day}`);
+        }
+
+        return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+      }
+    }
+
+    // Try various other date formats
     const formatsToTry = [
-      // Try to parse with Date first
+      // Try DD/MM/YY format (European format)
       () => {
-        const date = new Date(dateString);
-        if (!isNaN(date.getTime())) {
-          return formatDate(date.toISOString());
-        }
-        return null;
-      },
-      // MM/DD/YY or MM/DD/YYYY
-      () => {
-        const match = dateString.match(
-          /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/,
-        );
-        if (match) {
-          const [_, month, day, yearStr] = match;
-          let year = parseInt(yearStr);
-
-          // Handle 2-digit years - use threshold of 25
-          // Years 00-25 → 2000-2025, Years 26-99 → 1926-1999
-          if (year < 100) {
-            year += year < 25 ? 2000 : 1900;
-          }
-
-          // Ensure the date is valid
-          const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
-          if (
-            parsedDate.getFullYear() === year &&
-            parsedDate.getMonth() === parseInt(month) - 1 &&
-            parsedDate.getDate() === parseInt(day)
-          ) {
-            return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-          }
-          return null;
-        }
-        return null;
-      },
-      // DD/MM/YY or DD/MM/YYYY
-      () => {
-        const match = dateString.match(
-          /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/,
-        );
+        const match = dateString.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/);
         if (match) {
           const [_, day, month, yearStr] = match;
           let year = parseInt(yearStr);
 
-          // Handle 2-digit years - use threshold of 25
-          // Years 00-25 → 2000-2025, Years 26-99 → 1926-1999
+          // Same 2-digit year logic as above
+          const currentYear = new Date().getFullYear();
+          const currentCentury = Math.floor(currentYear / 100) * 100;
+
           if (year < 100) {
-            year += year < 25 ? 2000 : 1900;
+            // For 2-digit years in birth dates, default to 19xx
+            year += currentCentury - 100;
           }
 
-          // Ensure the date is valid
+          const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
+          if (
+            parsedDate.getFullYear() === year &&
+            parsedDate.getMonth() === parseInt(month) - 1 &&
+            parsedDate.getDate() === parseInt(day)
+          ) {
+            // Check if date is in the future
+            if (parsedDate > new Date()) {
+              year -= 100; // Shift back by 100 years
+            }
+
+            return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+          }
+          return null;
+        }
+        return null;
+      },
+
+      // Try MM/DD/YYYY format (US format with 4-digit year)
+      () => {
+        const match = dateString.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+        if (match) {
+          const [_, month, day, yearStr] = match;
+          const year = parseInt(yearStr);
+
           const parsedDate = new Date(year, parseInt(month) - 1, parseInt(day));
           if (
             parsedDate.getFullYear() === year &&
@@ -331,6 +404,24 @@ function formatShortDate(dateString: string): string {
             return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
           }
           return null;
+        }
+        return null;
+      },
+
+      // Finally, try standard date parsing
+      () => {
+        const date = new Date(dateString);
+        if (!isNaN(date.getTime())) {
+          // Check if standard parsing produced a future date for a birth date
+          if (date > new Date()) {
+            console.warn(
+              `Warning: Birth date ${dateString} parsed as future date ${date.toISOString()}`,
+            );
+            // For birth dates in the future, assume it's a century off
+            date.setFullYear(date.getFullYear() - 100);
+            console.log(`Corrected to ${date.toISOString()}`);
+          }
+          return formatDate(date.toISOString());
         }
         return null;
       },
@@ -339,13 +430,17 @@ function formatShortDate(dateString: string): string {
     // Try each format until one works
     for (const formatFn of formatsToTry) {
       const result = formatFn();
-      if (result) return result;
+      if (result) {
+        console.log(`Successfully parsed date ${dateString} as ${result}`);
+        return result;
+      }
     }
 
     // If all else fails, return original
+    console.warn(`Failed to parse date: ${dateString}, returning as-is`);
     return dateString;
   } catch (error) {
-    console.warn("Date parsing error:", error, dateString);
+    console.error("Date parsing error:", error, dateString);
     return dateString;
   }
 }
@@ -915,6 +1010,7 @@ function validatePatientData(
       // Additional check - date shouldn't be in the future
       const dobDate = new Date(String(patientData.dob));
       if (dobDate > new Date()) {
+        console.log("Date of birth is in the future:", patientData.dob);
         errors.push("Date of birth cannot be in the future");
       }
     }

@@ -1,11 +1,13 @@
-// src/server/actions/retell-actions.ts
 "use server";
 
 import { env } from "@/env";
 import { db } from "@/server/db";
 import { campaigns, campaignTemplates, runs } from "@/server/db/schema";
 import { eq, sql } from "drizzle-orm";
+
+// Import the generateWebhookUrls function
 import { revalidatePath } from "next/cache";
+import { generateWebhookUrls } from "./retell-client-safe";
 
 // Server environment API base URL for Retell
 const RETELL_BASE_URL = "https://api.retellai.com";
@@ -128,15 +130,26 @@ export async function updateRetellAgentWebhooks(
   } = {},
 ) {
   try {
+    // Log the inputs for debugging
+    console.log("updateRetellAgentWebhooks called with:", {
+      agentId,
+      orgId,
+      campaignId,
+      options,
+    });
+
     const {
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://api.rivvi.ai",
+      baseUrl = env.NEXT_PUBLIC_APP_URL || "",
       setInbound = true,
       setPostCall = true,
     } = options;
 
     // Generate webhook URLs
-    const inboundUrl = `${baseUrl}/api/webhooks/retell/${orgId}/inbound`;
-    const postCallUrl = `${baseUrl}/api/webhooks/retell/${orgId}/post-call/${campaignId}`;
+    const { inboundUrl, postCallUrl } = generateWebhookUrls(
+      baseUrl,
+      orgId,
+      campaignId,
+    );
 
     // Prepare update payload
     const updateData: Record<string, unknown> = {};
@@ -154,9 +167,23 @@ export async function updateRetellAgentWebhooks(
       return { success: true, message: "No webhook updates needed" };
     }
 
+    // Construct the API URL - use the correct PATCH /update-agent/{agent_id} endpoint
+    const apiUrl = `${RETELL_BASE_URL}/update-agent/${agentId}`;
+
+    // Log the API request for debugging
+    console.log("Calling Retell API:", {
+      url: apiUrl,
+      method: "PATCH", // Changed from POST to PATCH
+      headers: {
+        Authorization: "Bearer [REDACTED]",
+        "Content-Type": "application/json",
+      },
+      body: updateData,
+    });
+
     // Update the agent
-    const response = await fetch(`${RETELL_BASE_URL}/update-agent/${agentId}`, {
-      method: "POST",
+    const response = await fetch(apiUrl, {
+      method: "PATCH", // Changed from POST to PATCH
       headers: {
         Authorization: `Bearer ${env.RETELL_API_KEY}`,
         "Content-Type": "application/json",
@@ -164,14 +191,34 @@ export async function updateRetellAgentWebhooks(
       body: JSON.stringify(updateData),
     });
 
+    // Log the response status for debugging
+    console.log(
+      "Retell API response status:",
+      response.status,
+      response.statusText,
+    );
+
     if (!response.ok) {
+      // Try to get more details from the response
+      let errorDetails = "";
+      try {
+        const errorData = await response.json();
+        errorDetails = JSON.stringify(errorData);
+      } catch (e) {
+        // Ignore if we can't parse the response
+      }
+
       throw new Error(
-        `Retell API error: ${response.status} ${response.statusText}`,
+        `Retell API error: ${response.status} ${response.statusText}${errorDetails ? ` - ${errorDetails}` : ""}`,
       );
     }
 
     // Update the campaign config with webhook URLs
-    await updateCampaignWithWebhooks(campaignId, { inboundUrl, postCallUrl });
+    if (campaignId) {
+      await updateCampaignWithWebhooks(campaignId, { inboundUrl, postCallUrl });
+    } else {
+      console.log("Skipping campaign update - no campaignId provided");
+    }
 
     return {
       success: true,
@@ -181,7 +228,7 @@ export async function updateRetellAgentWebhooks(
       },
     };
   } catch (error) {
-    console.error("Error updating agent webhooks:", error);
+    console.error("Error in updateRetellAgentWebhooks:", error);
     throw error;
   }
 }
@@ -314,8 +361,8 @@ export async function updateCampaignVoicemail(
     }
 
     // Revalidate the campaign page
-    revalidatePath(`/campaigns/${campaignId}`);
-    revalidatePath(`/admin/campaigns/${campaignId}`);
+    // revalidatePath(`/campaigns/${campaignId}`);
+    // revalidatePath(`/admin/campaigns/${campaignId}`);
 
     return { success: true, voicemailMessage };
   } catch (error) {
@@ -385,11 +432,11 @@ export async function updatePromptWithHistory(params: {
           .set({
             customPrompt: generatedPrompt,
             metadata: updatedMetadata,
-          })
+          } as Partial<typeof runs.$inferInsert>)
           .where(eq(runs.id, runId));
 
         // Revalidate the run page
-        revalidatePath(`/campaigns/${campaignId}/runs/${runId}`);
+        // revalidatePath(`/campaigns/${campaignId}/runs/${runId}`);
       }
     }
 

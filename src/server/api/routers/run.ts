@@ -367,7 +367,11 @@ export const runRouter = createTRPCRouter({
 
       try {
         // Parse the file content based on the campaign configuration
+        console.log(`Parsing file: ${fileName}`);
         const parsedData = await parseFileContent(fileContent, fileName);
+        console.log(
+          `Parsed ${parsedData.rows.length} rows with headers: ${parsedData.headers.join(", ")}`,
+        );
 
         // Use the config from campaignWithConfig for consistent structure
         const variablesConfig = campaignWithConfig.config.variables || {
@@ -385,6 +389,8 @@ export const runRouter = createTRPCRouter({
           parsedData,
           patientFields,
           campaignFields,
+          totalRows: parsedData.rows.length, // Explicitly return the row count
+          rowSample: parsedData.rows.slice(0, 1), // Return a sample row for debugging
         };
       } catch (error) {
         console.error("Error validating file:", error);

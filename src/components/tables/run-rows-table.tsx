@@ -143,6 +143,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           patient?.phoneNumber ||
           variables.primaryPhone ||
           variables.phoneNumber ||
+          variables.phone ||
           "No phone";
 
         const name =
@@ -286,6 +287,8 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           "lastName",
           "phoneNumber",
           "primaryPhone",
+          "emrId",
+          "phone",
           "dob",
           "email",
         ];

@@ -1,15 +1,22 @@
 "use client";
 
+import {
+  RunCreateForm,
+  RunCreateFormProps,
+} from "@/components/forms/run-create-form";
+import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 import { TCampaign } from "@/types/db";
 import { format, formatDistance } from "date-fns";
 import {
   Activity,
+  BarChart3,
   Calendar,
   FileText,
   Pencil,
@@ -17,19 +24,15 @@ import {
   Settings,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CreateRunModal } from "../run/create-run-modal";
-import { CampaignAnalytics } from "./campaign-analytics";
 
 const campaignTypeColors: Record<string, string> = {
-  appointment_confirmation:
-    "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  annual_wellness:
-    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  medication_adherence:
-    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   inbound:
+    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  outbound:
     "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   default: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
 };
@@ -37,16 +40,18 @@ const campaignTypeColors: Record<string, string> = {
 export function CampaignDetails({
   campaignId,
   initialData,
+  runData,
 }: {
   campaignId: string;
   initialData: TCampaign;
+  runData: RunCreateFormProps;
 }) {
   const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const router = useRouter();
 
   // Check if the user is a super admin
   const { data: superAdminCheck } = api.organizations.isSuperAdmin.useQuery();
-  const isSuperAdmin = superAdminCheck?.isSuperAdmin || false;
+  const isSuperAdmin = superAdminCheck === true;
 
   const { data: campaign } = api.campaigns.getById.useQuery(
     { id: campaignId },
@@ -70,7 +75,7 @@ export function CampaignDetails({
   }
 
   const campaignTypeColor =
-    campaignTypeColors[campaign.type] || campaignTypeColors.default;
+    campaignTypeColors[campaign.direction] || campaignTypeColors.default;
 
   return (
     <div className="space-y-6">
@@ -79,7 +84,7 @@ export function CampaignDetails({
           <div className="flex items-center gap-2">
             <h2 className="text-2xl font-bold">{campaign.name}</h2>
             <Badge variant="outline" className={campaignTypeColor}>
-              {campaign.type}
+              {campaign.direction}
             </Badge>
             {!campaign.isActive && (
               <Badge
@@ -102,10 +107,20 @@ export function CampaignDetails({
                 Edit Campaign
               </Button>
             )}
-            <Button onClick={() => setIsCreateRunModalOpen(true)}>
-              <Calendar className="mr-1.5 h-4 w-4" />
-              Create Run
-            </Button>
+            <Link
+              href={`/campaigns/${campaignId}/analytics`}
+              prefetch={true}
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              <BarChart3 className="mr-1.5 h-4 w-4" />
+              <span>Analytics</span>
+            </Link>
+            <TriggerSheet
+              buttonText="Create Run"
+              form={<RunCreateForm {...runData} />}
+              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
+              title="Create Run"
+            />
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -221,106 +236,18 @@ export function CampaignDetails({
               </CardContent>
             </Card>
           </div>
-
-          <div className="mt-6">
-            <h3 className="mb-4 text-lg font-medium">Campaign Analytics</h3>
-            <CampaignAnalytics campaignId={campaignId} />
-          </div>
-
-          <div className="mt-6">
-            <h3 className="mb-4 text-lg font-medium">Recent Runs</h3>
-            {recentRuns && recentRuns.length > 0 ? (
-              <div className="space-y-4">
-                {recentRuns.map((run) => (
-                  <Card key={run.id} className="overflow-hidden">
-                    <CardContent className="p-0">
-                      <div className="flex items-center justify-between p-4">
-                        <div>
-                          <h4 className="font-medium">{run.name}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Created{" "}
-                            {formatDistance(
-                              new Date(run.createdAt),
-                              new Date(),
-                              { addSuffix: true },
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-sm">
-                            <span className="font-medium">
-                              {run.metadata?.calls?.completed || 0}
-                            </span>
-                            <span className="text-muted-foreground">
-                              /{run.metadata?.calls?.total || 0} calls
-                            </span>
-                          </div>
-                          <Badge
-                            variant={
-                              run.status === "completed"
-                                ? "success_solid"
-                                : run.status === "running"
-                                  ? "default"
-                                  : run.status === "paused"
-                                    ? "failure_solid"
-                                    : run.status === "failed"
-                                      ? "failure_solid"
-                                      : "neutral_solid"
-                            }
-                          >
-                            {run.status}
-                          </Badge>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              router.push(
-                                `/campaigns/${campaignId}/runs/${run.id}`,
-                              )
-                            }
-                          >
-                            View
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push(`/campaigns/${campaignId}/runs`)}
-                  >
-                    View All Runs
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="flex h-40 items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <p>No runs created yet</p>
-                    <Button
-                      variant="outline"
-                      className="mt-2"
-                      onClick={() => setIsCreateRunModalOpen(true)}
-                    >
-                      Create Run
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
         </TabsContent>
 
         <TabsContent value="runs" className="space-y-4 pt-4">
           <div className="flex justify-between">
-            <h3 className="text-lg font-medium">Campaign Runs</h3>
-            <Button onClick={() => setIsCreateRunModalOpen(true)}>
-              Create Run
-            </Button>
+            <h3 className="text-lg font-medium">Recent Runs</h3>
+            <Link
+              href={`/campaigns/${campaignId}/runs`}
+              prefetch={true}
+              className={cn(buttonVariants({ variant: "link", size: "sm" }))}
+            >
+              <span>View All Runs</span>
+            </Link>
           </div>
 
           {recentRuns && recentRuns.length > 0 ? (
@@ -411,7 +338,7 @@ export function CampaignDetails({
                     <div className="text-sm font-medium">Campaign Type</div>
                     <div className="mt-1">
                       <Badge variant="outline" className={campaignTypeColor}>
-                        {campaign.type}
+                        {campaign.direction}
                       </Badge>
                     </div>
                   </div>
@@ -419,7 +346,7 @@ export function CampaignDetails({
                   <div>
                     <div className="text-sm font-medium">Agent ID</div>
                     <div className="mt-1 truncate font-mono text-sm text-muted-foreground">
-                      {campaign.agentId}
+                      {campaign.template.agentId}
                     </div>
                   </div>
 
@@ -451,61 +378,63 @@ export function CampaignDetails({
               <Card>
                 <CardContent className="pt-6">
                   <div className="space-y-4">
-                    {campaign.config.variables.patient.fields.map((field) => (
-                      <div
-                        key={field.key}
-                        className="grid gap-2 sm:grid-cols-3"
-                      >
-                        <div>
-                          <div className="font-medium">{field.label}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {field.key}
+                    {campaign.template.variablesConfig.patient.fields.map(
+                      (field) => (
+                        <div
+                          key={field.key}
+                          className="grid gap-2 sm:grid-cols-3"
+                        >
+                          <div>
+                            <div className="font-medium">{field.label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {field.key}
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-sm text-muted-foreground sm:col-span-2">
-                          <div className="flex flex-wrap gap-2">
-                            {field.required && (
-                              <Badge
-                                variant="success_outline"
-                                className="text-xs"
-                              >
-                                Required
-                              </Badge>
+                          <div className="text-sm text-muted-foreground sm:col-span-2">
+                            <div className="flex flex-wrap gap-2">
+                              {field.required && (
+                                <Badge
+                                  variant="success_outline"
+                                  className="text-xs"
+                                >
+                                  Required
+                                </Badge>
+                              )}
+                              {field.transform && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Transform: {field.transform}
+                                </Badge>
+                              )}
+                            </div>
+                            {field.description && (
+                              <p className="mt-1">{field.description}</p>
                             )}
-                            {field.transform && (
-                              <Badge variant="secondary" className="text-xs">
-                                Transform: {field.transform}
-                              </Badge>
-                            )}
+                            <div className="mt-1">
+                              <span className="text-xs font-medium">
+                                Possible columns:{" "}
+                              </span>
+                              <span className="text-xs">
+                                {field.possibleColumns.join(", ")}
+                              </span>
+                            </div>
                           </div>
-                          {field.description && (
-                            <p className="mt-1">{field.description}</p>
-                          )}
-                          <div className="mt-1">
-                            <span className="text-xs font-medium">
-                              Possible columns:{" "}
-                            </span>
-                            <span className="text-xs">
-                              {field.possibleColumns.join(", ")}
-                            </span>
+                          <div className="sm:col-span-3">
+                            <Separator />
                           </div>
                         </div>
-                        <div className="sm:col-span-3">
-                          <Separator />
-                        </div>
-                      </div>
-                    ))}
+                      ),
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {campaign.config.variables?.campaign?.fields?.length > 0 && (
+              {campaign.template.variablesConfig.campaign.fields.length > 0 && (
                 <>
                   <h3 className="text-lg font-medium">Campaign Fields</h3>
                   <Card>
                     <CardContent className="pt-6">
                       <div className="space-y-4">
-                        {campaign.config.variables?.campaign?.fields?.map(
+                        {campaign.template.variablesConfig.campaign.fields.map(
                           (field) => (
                             <div
                               key={field.key}
@@ -567,7 +496,7 @@ export function CampaignDetails({
                     <h4 className="text-md font-medium">Standard Fields</h4>
                   </div>
                   <div className="space-y-4">
-                    {campaign.config.analysis?.standard?.fields?.map(
+                    {campaign.template.analysisConfig.standard?.fields?.map(
                       (field) => (
                         <div
                           key={field.key}
@@ -615,7 +544,8 @@ export function CampaignDetails({
                     )}
                   </div>
 
-                  {campaign.config.analysis?.campaign?.fields?.length > 0 && (
+                  {campaign.template.analysisConfig.campaign?.fields?.length >
+                    0 && (
                     <>
                       <div className="mb-4 mt-6">
                         <h4 className="text-md font-medium">
@@ -623,7 +553,7 @@ export function CampaignDetails({
                         </h4>
                       </div>
                       <div className="space-y-4">
-                        {campaign.config.analysis?.campaign?.fields?.map(
+                        {campaign.template.analysisConfig.campaign?.fields?.map(
                           (field) => (
                             <div
                               key={field.key}
@@ -694,7 +624,7 @@ export function CampaignDetails({
               </CardHeader>
               <CardContent>
                 <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 text-sm">
-                  {campaign.config.basePrompt || "No prompt configured."}
+                  {campaign.template.basePrompt || "No prompt configured."}
                 </pre>
               </CardContent>
             </Card>

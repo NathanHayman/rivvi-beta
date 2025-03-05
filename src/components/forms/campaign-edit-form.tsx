@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { env } from "@/env";
+import { updateCampaignWithWebhooks } from "@/lib/retell/retell-actions";
+import { updateAgentWebhooks } from "@/lib/retell/retell-client-safe";
 import { api } from "@/trpc/react";
 import type { TCampaign } from "@/types/db";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,13 +44,22 @@ const campaignFormSchema = z.object({
   basePrompt: z.string().min(10, {
     message: "Base prompt must be at least 10 characters.",
   }),
+  inboundWebhookUrl: z.string().url().optional().or(z.literal("")),
+  postCallWebhookUrl: z.string().url().optional().or(z.literal("")),
 });
 
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
 
 // Define the expected campaign type
 type CampaignWithTemplate = TCampaign & {
-  template?: { basePrompt?: string; agentId?: string };
+  template?: {
+    basePrompt?: string;
+    agentId?: string;
+    inboundWebhookUrl?: string;
+    postCallWebhookUrl?: string;
+    // Allow any other properties
+    [key: string]: any;
+  };
 };
 
 export function CampaignEditForm({
@@ -61,6 +73,9 @@ export function CampaignEditForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [templateData, setTemplateData] = useState<{
     basePrompt: string;
+    agentId?: string;
+    inboundWebhookUrl?: string;
+    postCallWebhookUrl?: string;
   } | null>(null);
 
   // Fetch template data if not provided
@@ -78,10 +93,68 @@ export function CampaignEditForm({
     templateData?.basePrompt ||
     "Loading prompt...";
 
+  // Determine webhook URLs based on available data
+  const rawTemplate = campaign.template as Record<string, any>;
+
+  const inboundWebhookUrl =
+    campaign.template?.inboundWebhookUrl ||
+    rawTemplate?.inbound_webhook_url ||
+    rawTemplate?.inbound_dynamic_variables_webhook_url ||
+    templateData?.inboundWebhookUrl ||
+    (campaign.template?.agentId
+      ? `${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${campaign.template.agentId}/webhooks`
+      : "");
+
+  const postCallWebhookUrl =
+    campaign.template?.postCallWebhookUrl ||
+    rawTemplate?.post_call_webhook_url ||
+    rawTemplate?.webhook_url ||
+    templateData?.postCallWebhookUrl ||
+    (campaign.template?.agentId
+      ? `${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${campaign.template.agentId}/webhooks`
+      : "");
+
+  // Get agent ID from template
+  const agentId = campaign.template?.agentId || templateData?.agentId;
+
+  // Debug log for agent ID and webhook URLs
+  console.log("Campaign data:", {
+    campaignId: campaign.id,
+    templateAgentId: campaign.template?.agentId,
+    templateDataAgentId: templateData?.agentId,
+    finalAgentId: agentId,
+    // Add webhook URL debugging
+    templateInboundWebhookUrl: campaign.template?.inboundWebhookUrl,
+    templatePostCallWebhookUrl: campaign.template?.postCallWebhookUrl,
+    templateDataInboundWebhookUrl: templateData?.inboundWebhookUrl,
+    templateDataPostCallWebhookUrl: templateData?.postCallWebhookUrl,
+    finalInboundWebhookUrl: inboundWebhookUrl,
+    finalPostCallWebhookUrl: postCallWebhookUrl,
+    // Raw template data for inspection
+    rawTemplateData: getTemplate.data?.template,
+  });
+
   useEffect(() => {
     if (getTemplate.data && !templateData) {
+      // Log the raw template data to see what fields are available
+      console.log("Raw template data from API:", getTemplate.data.template);
+
+      const template = getTemplate.data.template;
+      const rawTemplate = template as Record<string, any>;
+
       setTemplateData({
-        basePrompt: getTemplate.data.template?.basePrompt || "",
+        basePrompt: template?.basePrompt || "",
+        agentId: template?.agentId || "",
+        inboundWebhookUrl:
+          template?.inboundWebhookUrl ||
+          rawTemplate?.inbound_webhook_url ||
+          rawTemplate?.inbound_dynamic_variables_webhook_url ||
+          "",
+        postCallWebhookUrl:
+          template?.postCallWebhookUrl ||
+          rawTemplate?.post_call_webhook_url ||
+          rawTemplate?.webhook_url ||
+          "",
       });
     }
   }, [getTemplate.data, templateData]);
@@ -93,6 +166,16 @@ export function CampaignEditForm({
       direction: campaign.direction,
       isActive: campaign.isActive ?? true,
       basePrompt: basePrompt,
+      inboundWebhookUrl:
+        inboundWebhookUrl ||
+        (agentId
+          ? `${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${agentId}/webhooks`
+          : ""),
+      postCallWebhookUrl:
+        postCallWebhookUrl ||
+        (agentId
+          ? `${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${agentId}/webhooks`
+          : ""),
     },
   });
 
@@ -101,7 +184,13 @@ export function CampaignEditForm({
     if (basePrompt && basePrompt !== "Loading prompt...") {
       form.setValue("basePrompt", basePrompt);
     }
-  }, [basePrompt, form]);
+    if (inboundWebhookUrl) {
+      form.setValue("inboundWebhookUrl", inboundWebhookUrl);
+    }
+    if (postCallWebhookUrl) {
+      form.setValue("postCallWebhookUrl", postCallWebhookUrl);
+    }
+  }, [basePrompt, inboundWebhookUrl, postCallWebhookUrl, form]);
 
   const updateCampaign = api.campaigns.update.useMutation({
     onSuccess: () => {
@@ -110,7 +199,6 @@ export function CampaignEditForm({
         onSuccess();
       } else {
         router.refresh();
-        router.push(`/admin/campaigns/${campaign.id}`);
       }
     },
     onError: (error) => {
@@ -119,15 +207,59 @@ export function CampaignEditForm({
     },
   });
 
-  function onSubmit(data: CampaignFormValues) {
+  async function onSubmit(data: CampaignFormValues) {
     setIsSubmitting(true);
 
-    updateCampaign.mutate({
-      id: campaign.id,
-      name: data.name,
-      isActive: data.isActive,
-      basePrompt: data.basePrompt,
-    });
+    try {
+      // Update webhook URLs if they've changed
+      const webhooksChanged =
+        data.inboundWebhookUrl !== inboundWebhookUrl ||
+        data.postCallWebhookUrl !== postCallWebhookUrl;
+
+      if (webhooksChanged) {
+        // First, update the webhook URLs in our database
+        await updateCampaignWithWebhooks(campaign.id, {
+          inboundUrl: data.inboundWebhookUrl || undefined,
+          postCallUrl: data.postCallWebhookUrl || undefined,
+        });
+
+        // Then, if we have an agent ID, update the webhook URLs in Retell
+        if (agentId) {
+          // Get the organization ID from the campaign
+          const orgId = campaign.orgId;
+
+          // Determine which webhooks to update
+          const setInbound = data.inboundWebhookUrl !== inboundWebhookUrl;
+          const setPostCall = data.postCallWebhookUrl !== postCallWebhookUrl;
+
+          // Update the webhooks in Retell
+          await updateAgentWebhooks(agentId, orgId, campaign.id, {
+            setInbound,
+            setPostCall,
+          });
+
+          console.log("Updated webhook URLs in Retell");
+        } else {
+          console.warn(
+            "No agent ID available for campaign ID:",
+            campaign.id,
+            "skipping Retell webhook update",
+          );
+        }
+      }
+
+      // Update other campaign data
+      updateCampaign.mutate({
+        id: campaign.id,
+        name: data.name,
+        isActive: data.isActive,
+        basePrompt: data.basePrompt,
+      });
+    } catch (error) {
+      console.error("Error updating campaign:", error);
+      toast.error("Failed to update webhook URLs");
+      setIsSubmitting(false);
+    }
   }
 
   // Show loading state if still fetching template data
@@ -136,6 +268,9 @@ export function CampaignEditForm({
       <div className="p-8 text-center">Loading campaign template data...</div>
     );
   }
+
+  // Get current direction value for conditional rendering
+  const currentDirection = form.watch("direction");
 
   return (
     <Form {...form}>
@@ -223,6 +358,52 @@ export function CampaignEditForm({
               <FormDescription>
                 The base prompt instructions for the AI agent that will be used
                 for this campaign.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Conditionally render inbound webhook URL field based on direction */}
+        {currentDirection === "inbound" && (
+          <FormField
+            control={form.control}
+            name="inboundWebhookUrl"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Inbound Webhook URL</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="https://your-webhook-url.com/inbound"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  The webhook URL that will be called when an inbound call is
+                  received.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {/* Post-call webhook URL field (always visible) */}
+        <FormField
+          control={form.control}
+          name="postCallWebhookUrl"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Post-Call Webhook URL</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="https://your-webhook-url.com/post-call"
+                  value={`${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${agentId}/webhooks`}
+                  {...field}
+                />
+              </FormControl>
+              <FormDescription>
+                The webhook URL that will be called after a call is completed.
               </FormDescription>
               <FormMessage />
             </FormItem>

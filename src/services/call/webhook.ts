@@ -10,9 +10,62 @@ import {
   rows,
   runs,
 } from "@/server/db/schema";
-import { RetellPostCallObjectRaw } from "@/types/retell";
+import {
+  RetellInboundWebhookPayload,
+  RetellInboundWebhookResponse,
+  RetellPostCallObjectRaw,
+} from "@/types/retell";
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, or, sql } from "drizzle-orm";
+import { generateContextInstructions } from "../ai/context";
+
+export type RetellCallStatus = "registered" | "ongoing" | "ended" | "error";
+export type RowStatus =
+  | "pending"
+  | "calling"
+  | "completed"
+  | "failed"
+  | "skipped";
+export type CallStatus =
+  | "pending"
+  | "in-progress"
+  | "completed"
+  | "failed"
+  | "voicemail"
+  | "no-answer";
+
+function getStatus(
+  type: "call" | "row",
+  status: RetellCallStatus,
+): CallStatus | RowStatus {
+  if (type === "call") {
+    switch (status) {
+      case "registered":
+        return "in-progress";
+      case "ongoing":
+        return "in-progress";
+      case "ended":
+        return "completed";
+      case "error":
+        return "failed";
+      default:
+        return "pending";
+    }
+  } else {
+    switch (status) {
+      case "ongoing":
+        return "calling";
+      case "registered":
+        return "pending";
+      case "ended":
+        return "completed";
+      case "error":
+        return "failed";
+      default:
+        return "pending";
+    }
+  }
+}
 
 /**
  * Handle inbound webhook from Retell with better error handling
@@ -20,15 +73,8 @@ import { and, desc, eq, or, sql } from "drizzle-orm";
  */
 export async function handleInboundWebhook(
   orgId: string,
-  payload: {
-    from_number: string;
-    to_number: string;
-    call_id?: string;
-    agent_id?: string;
-    llm_id?: string;
-    [key: string]: any;
-  },
-) {
+  payload: RetellInboundWebhookPayload,
+): Promise<RetellInboundWebhookResponse> {
   console.log(
     `[WEBHOOK] Inbound call received for org ${orgId}:`,
     JSON.stringify(payload),
@@ -40,11 +86,17 @@ export async function handleInboundWebhook(
       console.error(`[WEBHOOK] Missing from_number in inbound webhook payload`);
       return {
         status: "error",
-        variables: {
-          error_occurred: true,
-          error_message: "Missing caller phone number",
-          organization_name: "Our organization", // Fallback to ensure call continues
+        message: "Missing caller phone number",
+        error: "Missing caller phone number",
+        call_inbound: {
+          override_agent_id: null,
+          dynamic_variables: {
+            error_occurred: true,
+            error_message: "Missing caller phone number",
+            organization_name: "Our organization", // Fallback to ensure call continues
+          },
         },
+        metadata: {},
       };
     }
 
@@ -66,11 +118,17 @@ export async function handleInboundWebhook(
       console.error(`[WEBHOOK] Organization ${orgId} not found`);
       return {
         status: "error",
-        variables: {
-          error_occurred: true,
-          error_message: "Organization not found",
-          organization_name: "Our organization", // Fallback
+        message: "Organization not found",
+        error: "Organization not found",
+        call_inbound: {
+          override_agent_id: null,
+          dynamic_variables: {
+            error_occurred: true,
+            error_message: "Organization not found",
+            organization_name: "Our organization", // Fallback
+          },
         },
+        metadata: {},
       };
     }
 
@@ -184,71 +242,25 @@ export async function handleInboundWebhook(
 
       const agent_id = payload.agent_id;
 
-      if (!payload.call_id) {
-        payload.call_id = createId();
-        console.log(`[WEBHOOK] Generated new call_id: ${payload.call_id}`);
-      }
-
-      const call_id = payload.call_id;
-
-      // Insert call record with retry logic
-      let insertedCall: { id: string } | null = null;
-      try {
-        const result = await db
-          .insert(calls)
-          .values({
-            id: createId(), // Generate a unique ID
-            orgId,
-            patientId,
-            fromNumber: payload.from_number,
-            toNumber: payload.to_number,
-            retellCallId: call_id,
-            agentId: agent_id,
-            direction: "inbound",
-            status: "in-progress",
-            campaignId: inboundCampaign?.id, // Link to inbound campaign if found
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .returning();
-
-        insertedCall = result[0] ? { id: result[0].id } : null;
-        console.log(
-          `[WEBHOOK] Successfully inserted call record: ${insertedCall?.id}`,
-        );
-      } catch (error) {
-        console.error("[WEBHOOK] Error inserting call record:", error);
-
-        // Try a simplified insert as a fallback
-        try {
-          const result = await db
-            .insert(calls)
-            .values({
-              id: createId(),
-              orgId,
-              fromNumber: payload.from_number,
-              toNumber: payload.to_number,
-              retellCallId: call_id,
-              agentId: agent_id,
-              direction: "inbound",
-              status: "in-progress",
-            })
-            .returning();
-
-          insertedCall = result[0] ? { id: result[0].id } : null;
-          console.log(
-            `[WEBHOOK] Fallback call record insert succeeded: ${insertedCall?.id}`,
-          );
-        } catch (fallbackError) {
-          console.error(
-            "[WEBHOOK] Fallback call insert also failed:",
-            fallbackError,
-          );
-          throw new Error(
-            `Failed to create inbound call record: ${fallbackError.message}`,
-          );
-        }
-      }
+      // Create a new call record
+      const [newCall] = await db
+        .insert(calls)
+        .values({
+          orgId,
+          fromNumber: payload.from_number,
+          toNumber: payload.to_number,
+          direction: "inbound",
+          status: getStatus("call", "registered"),
+          agentId: agent_id || "unknown",
+          campaignId: inboundCampaign?.id || null,
+          patientId: patientId || null,
+          metadata: {
+            webhook_received: true,
+            webhook_time: new Date().toISOString(),
+            ...payload,
+          },
+        })
+        .returning();
 
       // Create context for agent with important fallbacks
       const context: Record<string, any> = {
@@ -339,11 +351,10 @@ export async function handleInboundWebhook(
       // Send real-time update
       try {
         await pusherServer.trigger(`org-${orgId}`, "inbound-call", {
-          callId: insertedCall?.id ?? call_id,
+          callId: newCall.id,
           patientId,
           fromNumber: payload.from_number,
           toNumber: payload.to_number,
-          retellCallId: call_id,
           time: new Date().toISOString(),
         });
         console.log(`[WEBHOOK] Sent Pusher event for inbound call`);
@@ -355,13 +366,31 @@ export async function handleInboundWebhook(
         // Continue even if Pusher fails
       }
 
+      // Generate context instructions
+      const aiResponse = await generateContextInstructions(context);
+
+      // Add context instructions to the context object
+      const instructions = aiResponse.instructions;
+
       console.log("[WEBHOOK] Inbound call webhook processed successfully");
       console.log("[WEBHOOK] Returning context:", context);
 
       return {
         status: "success",
-        call_id: insertedCall?.id ?? call_id,
-        variables: context,
+        message: "Inbound call webhook processed successfully",
+        error: null,
+        call_inbound: {
+          override_agent_id: null,
+          dynamic_variables: {
+            instructions: instructions,
+          },
+        },
+        metadata: {
+          row_id: null,
+          run_id: null,
+          campaign_id: inboundCampaign?.id || null,
+          patient_id: patientId,
+        },
       };
     } catch (error) {
       console.error("[WEBHOOK] Error processing inbound webhook:", error);
@@ -369,16 +398,21 @@ export async function handleInboundWebhook(
       // Return minimal context to avoid disrupting the call
       return {
         status: "partial_success",
-        variables: {
-          organization_name: organization?.name || "Our organization",
-          error_occurred: true,
-          patient_exists: false,
-          patient_first_name: "Unknown",
-          patient_last_name: "Caller",
-          first_name: "Unknown",
-          last_name: "Caller",
-        },
+        message: "Partial success",
         error: error instanceof Error ? error.message : String(error),
+        call_inbound: {
+          override_agent_id: null,
+          dynamic_variables: {
+            organization_name: organization?.name || "Our organization",
+            error_occurred: true,
+            patient_exists: false,
+            patient_first_name: "Unknown",
+            patient_last_name: "Caller",
+            first_name: "Unknown",
+            last_name: "Caller",
+          },
+        },
+        metadata: {},
       };
     }
   } catch (error) {
@@ -390,11 +424,16 @@ export async function handleInboundWebhook(
     // Return a minimal context to avoid disrupting the call
     return {
       status: "error",
-      variables: {
-        organization_name: "Our organization",
-        error_occurred: true,
-      },
+      message: "Inbound call webhook processing failed",
       error: error instanceof Error ? error.message : String(error),
+      call_inbound: {
+        override_agent_id: null,
+        dynamic_variables: {
+          organization_name: "Our organization",
+          error_occurred: true,
+        },
+      },
+      metadata: {},
     };
   }
 }
@@ -417,15 +456,25 @@ export async function handlePostCallWebhook(
     const {
       call_id: retellCallId,
       direction = "outbound",
-      from_number: fromNumber = "",
-      to_number: toNumber = "",
       agent_id = "",
-      metadata = {},
+      metadata = {} as Record<string, any>,
+      to_number: toNumber = "",
+      from_number: fromNumber = "",
       call_status: callStatus = "completed",
       recording_url: recordingUrl = null,
       disconnection_reason: disconnectionReason = null,
-      call_analysis = {} as Record<string, any>,
-    } = payload;
+      call_analysis = {
+        transcript: "",
+        in_voicemail:
+          payload.call_status === "voicemail" ||
+          payload.call_analysis?.in_voicemail,
+        user_sentiment: "",
+        call_successful: true,
+        custom_analysis_data: {} as Record<string, any>,
+        call_completion_rating: "",
+        agent_task_completion_rating: "",
+      },
+    } = payload as RetellPostCallObjectRaw;
 
     if (!retellCallId) {
       console.error("[WEBHOOK] Missing call_id in post-call webhook payload");
@@ -509,7 +558,7 @@ export async function handlePostCallWebhook(
 
         await db
           .update(calls)
-          .set({ patientId, updatedAt: new Date() })
+          .set({ patientId, updatedAt: new Date() } as any)
           .where(eq(calls.id, callId));
       }
     } else {
@@ -525,13 +574,8 @@ export async function handlePostCallWebhook(
           patientId,
           toNumber,
           fromNumber,
-          direction: direction,
-          status:
-            callStatus === "completed"
-              ? "completed"
-              : callStatus === "failed"
-                ? "failed"
-                : "in-progress",
+          direction: direction as "inbound" | "outbound",
+          status: getStatus("call", callStatus as RetellCallStatus),
           agentId: agent_id || "unknown",
           campaignId: campaignId || null,
           metadata: {
@@ -540,9 +584,7 @@ export async function handlePostCallWebhook(
             webhook_received: true,
             webhook_time: new Date().toISOString(),
           },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
+        } as any)
         .returning();
 
       callId = newCall.id;
@@ -557,7 +599,7 @@ export async function handlePostCallWebhook(
 
         await db
           .update(calls)
-          .set({ rowId: metadata.rowId })
+          .set({ rowId: metadata.rowId } as Partial<typeof calls.$inferInsert>)
           .where(eq(calls.id, callId));
       }
 
@@ -567,7 +609,7 @@ export async function handlePostCallWebhook(
 
         await db
           .update(calls)
-          .set({ runId: metadata.runId })
+          .set({ runId: metadata.runId } as Partial<typeof calls.$inferInsert>)
           .where(eq(calls.id, callId));
       }
     }
@@ -641,12 +683,7 @@ export async function handlePostCallWebhook(
       await db
         .update(calls)
         .set({
-          status:
-            callStatus === "completed"
-              ? "completed"
-              : callStatus === "failed"
-                ? "failed"
-                : call.status,
+          status: getStatus("call", callStatus as RetellCallStatus),
           recordingUrl: recordingUrl || call.recordingUrl,
           transcript: call_analysis?.transcript || call.transcript,
           analysis: processedAnalysis,
@@ -673,7 +710,7 @@ export async function handlePostCallWebhook(
             updated_at: new Date().toISOString(),
           },
           updatedAt: new Date(),
-        })
+        } as Partial<typeof calls.$inferInsert>)
         .where(eq(calls.id, call.id));
 
       console.log(
@@ -691,12 +728,7 @@ export async function handlePostCallWebhook(
         await db
           .update(rows)
           .set({
-            status:
-              callStatus === "completed"
-                ? "completed"
-                : callStatus === "failed"
-                  ? "failed"
-                  : "in-progress",
+            status: getStatus("row", callStatus as RetellCallStatus),
             error:
               callStatus === "failed"
                 ? disconnectionReason || "Call failed"
@@ -817,7 +849,7 @@ export async function handlePostCallWebhook(
             if (conversionValue) {
               metadata.calls.converted = (metadata.calls.converted || 0) + 1;
             }
-          } else if (callStatus === "failed") {
+          } else if (callStatus === "error") {
             metadata.calls.failed = (metadata.calls.failed || 0) + 1;
 
             // If call was previously calling, decrement that counter
@@ -1048,19 +1080,18 @@ export function extractCallInsights(payload: {
       processedAnalysis.left_voicemail === true ||
       processedAnalysis.leftVoicemail === true ||
       processedAnalysis.voicemail === true ||
-      processedAnalysis.in_voicemail === true;
+      processedAnalysis.in_voicemail === true ||
+      processedAnalysis.voicemail_detected === true;
 
     // Determine if follow-up is needed - check multiple possible conditions
     const scheduleFollowUp =
-      processedAnalysis.schedule_followup === true ||
-      processedAnalysis.scheduleFollowup === true ||
-      processedAnalysis.needs_followup === true ||
-      processedAnalysis.needsFollowup === true ||
-      processedAnalysis.schedule_followup === "true" ||
-      processedAnalysis.scheduleFollowup === "true";
+      processedAnalysis.callback_requested === true ||
+      processedAnalysis.callbackRequested === true ||
+      processedAnalysis.callback_requested === "true" ||
+      processedAnalysis.callbackRequested === "true";
 
     const patientHadQuestions =
-      processedAnalysis.patient_question === true ||
+      processedAnalysis.patient_questions === true ||
       processedAnalysis.patientQuestion === true ||
       processedAnalysis.has_questions === true ||
       processedAnalysis.hasQuestions === true ||

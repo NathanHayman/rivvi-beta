@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/trpc/react";
 import { CreateRunModal } from "../app/run/create-run-modal";
-import { RequestCampaignButton } from "../buttons/request-campaign-button";
 
 interface Campaign {
   id: string;
@@ -52,6 +51,10 @@ interface Campaign {
   runCount?: number;
   callCount?: number;
 }
+
+const removeInboundCampaigns = (campaigns: Campaign[]) => {
+  return campaigns.filter((campaign) => campaign.direction !== "inbound");
+};
 
 export function CampaignsTable() {
   const router = useRouter();
@@ -70,22 +73,31 @@ export function CampaignsTable() {
   const isAdmin = pathname.includes("/admin");
 
   // Get campaigns data
-  const { data, isLoading, refetch } = api.campaigns.getAll.useQuery({
+  const {
+    data: allData,
+    isLoading,
+    refetch,
+  } = api.campaigns.getAll.useQuery({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
   });
 
-  // Map API response to Campaign interface
-  const campaignsData: Campaign[] = (data?.campaigns || []).map((campaign) => ({
-    id: campaign.id || "",
-    name: campaign.name || "",
-    direction: campaign.direction || "",
-    agentId: campaign.config.agentId || "",
-    createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
-    // Use optional chaining for properties that might not exist in the API response
-    runCount: (campaign as any).runCount,
-    callCount: (campaign as any).callCount,
-  }));
+  // Map API response to Campaign interface first
+  const campaignsData: Campaign[] = (allData?.campaigns || []).map(
+    (campaign) => ({
+      id: campaign.id || "",
+      name: campaign.name || "",
+      direction: campaign.direction || "",
+      agentId: (campaign.config as any)?.agentId || campaign.templateId || "",
+      createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
+      // Use optional chaining for properties that might not exist in the API response
+      runCount: (campaign as any).runCount,
+      callCount: (campaign as any).callCount,
+    }),
+  );
+
+  // Then filter out inbound campaigns
+  const data = removeInboundCampaigns(campaignsData);
 
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -237,7 +249,7 @@ export function CampaignsTable() {
   ];
 
   const table = useReactTable<Campaign>({
-    data: campaignsData,
+    data: data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -245,11 +257,13 @@ export function CampaignsTable() {
     onPaginationChange: setPagination,
     onSortingChange: setSorting,
     state: {
-      pagination,
       sorting,
+      pagination,
     },
     manualPagination: true,
-    pageCount: data ? Math.ceil(data.totalCount / pagination.pageSize) : 0,
+    pageCount: allData
+      ? Math.ceil(allData.totalCount / pagination.pageSize)
+      : 0,
   });
 
   return (
@@ -274,7 +288,6 @@ export function CampaignsTable() {
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
-        {!isAdmin && <RequestCampaignButton />}
       </div>
 
       <div className="rounded-md">
@@ -342,8 +355,8 @@ export function CampaignsTable() {
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {data?.totalCount || 0}{" "}
-          campaigns
+          Showing {table.getRowModel().rows.length} of{" "}
+          {allData?.totalCount || 0} campaigns
         </div>
         <div className="flex items-center space-x-2">
           <Button

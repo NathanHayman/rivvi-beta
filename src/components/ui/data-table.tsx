@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import {
   ColumnDef,
+  Row,
   SortingState,
   flexRender,
   getCoreRowModel,
@@ -29,6 +30,7 @@ interface DataTableProps<TData, TValue> {
   searchable?: boolean;
   onSearch?: (query: string) => void;
   isLoading?: boolean;
+  onRowClick?: (row: TData) => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -38,6 +40,7 @@ export function DataTable<TData, TValue>({
   searchable = false,
   onSearch,
   isLoading = false,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -63,6 +66,13 @@ export function DataTable<TData, TValue>({
 
     return () => clearTimeout(handler);
   }, [searchQuery, onSearch]);
+
+  // Handle row click
+  const handleRowClick = (row: Row<TData>) => {
+    if (onRowClick) {
+      onRowClick(row.original);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -135,6 +145,10 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  className={
+                    onRowClick ? "cursor-pointer hover:bg-muted/50" : ""
+                  }
+                  onClick={onRowClick ? () => handleRowClick(row) : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

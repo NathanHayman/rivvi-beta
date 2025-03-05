@@ -124,7 +124,16 @@ async function getCampaignWithTemplate(
     });
   }
 
-  return { ...campaign, template };
+  const result = { ...campaign, template };
+
+  // Debug log
+  console.log("getCampaignWithTemplate result:", {
+    campaignId: campaign.id,
+    templateId: campaign.templateId,
+    templateAgentId: template.agentId,
+  });
+
+  return result;
 }
 
 export const campaignRouter = createTRPCRouter({

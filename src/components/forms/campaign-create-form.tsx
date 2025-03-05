@@ -99,6 +99,12 @@ const campaignFormSchema = z.object({
   ),
   requestId: z.string().uuid().optional(),
   configureWebhooks: z.boolean().default(true),
+  webhookUrls: z
+    .object({
+      inbound: z.string().optional(),
+      postCall: z.string().optional(),
+    })
+    .optional(),
 });
 
 type CampaignFormValues = z.infer<typeof campaignFormSchema>;
@@ -118,6 +124,9 @@ export function CampaignCreateForm({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isConfiguringWebhooks, setIsConfiguringWebhooks] = useState(false);
+  const [webhooksConfigured, setWebhooksConfigured] = useState(false);
+  const [isVerifyingAgent, setIsVerifyingAgent] = useState(false);
 
   const { data: agents } = api.admin.getAgents.useQuery();
   const { data: organizations } =
@@ -207,6 +216,12 @@ export function CampaignCreateForm({
       configureWebhooks: true,
     },
   });
+
+  // Watch webhook URLs for reactive updates
+  const webhookUrls = form.watch("webhookUrls");
+  const agentId = form.watch("agentId");
+  const orgId = form.watch("orgId");
+  const direction = form.watch("direction");
 
   // Handle agent selection and data loading
   useEffect(() => {
@@ -327,7 +342,7 @@ export function CampaignCreateForm({
       if (onSuccess) {
         onSuccess();
       } else {
-        router.push(`/admin/orgs/${data?.orgId}/campaigns/${data?.id}`);
+        router.refresh();
       }
     },
     onError: (error) => {
@@ -344,6 +359,114 @@ export function CampaignCreateForm({
       }
     },
   });
+
+  // Function to verify agent exists before configuring webhooks
+  const verifyAgentExists = async (agentId: string): Promise<boolean> => {
+    try {
+      setIsVerifyingAgent(true);
+      const agent = await getAgentComplete(agentId);
+      return !!agent;
+    } catch (error) {
+      console.error("Error verifying agent:", error);
+      return false;
+    } finally {
+      setIsVerifyingAgent(false);
+    }
+  };
+
+  // Function to configure webhooks
+  // const handleConfigureWebhooks = async () => {
+  //   if (!agentId || !orgId) {
+  //     toast.error("Please select an organization and agent first");
+  //     return;
+  //   }
+
+  //   // Validate agent ID format - Retell agent IDs typically start with "agent_"
+  //   if (!agentId.startsWith("agent_")) {
+  //     toast.error(
+  //       "Invalid agent ID format. Agent IDs should start with 'agent_'",
+  //     );
+  //     return;
+  //   }
+
+  //   // Verify agent exists before configuring webhooks
+  //   const agentExists = await verifyAgentExists(agentId);
+  //   if (!agentExists) {
+  //     toast.error(
+  //       "Agent not found in Retell. Please verify the agent ID is correct.",
+  //     );
+  //     return;
+  //   }
+
+  //   setIsConfiguringWebhooks(true);
+  //   toast.loading("Configuring webhooks...");
+
+  //   try {
+  //     console.log("Configuring webhooks for agent:", agentId, "org:", orgId);
+
+  //     // We don't have a campaign ID yet, so we'll use a temporary one
+  //     // The actual campaign ID will be used when the form is submitted
+  //     const result = await updateAgentWebhooks(
+  //       agentId,
+  //       orgId,
+  //       undefined, // campaignId will be set when the campaign is created
+  //       {
+  //         setInbound: direction === "inbound",
+  //         setPostCall: true,
+  //       },
+  //     );
+
+  //     // Update form with webhook URLs
+  //     form.setValue("webhookUrls", {
+  //       inbound: result.webhooks.inbound,
+  //       postCall: result.webhooks.postCall,
+  //     });
+
+  //     // Set configureWebhooks to true so it's still included in the final submission
+  //     form.setValue("configureWebhooks", true);
+
+  //     setWebhooksConfigured(true);
+  //     toast.dismiss();
+  //     toast.success("Agent webhooks configured successfully");
+  //   } catch (error) {
+  //     console.error("Error configuring webhooks:", error);
+  //     toast.dismiss();
+
+  //     // More detailed error message
+  //     let errorMessage = "Failed to configure webhooks.";
+  //     if (error instanceof Error) {
+  //       if (error.message.includes("404")) {
+  //         errorMessage =
+  //           "Agent not found in Retell. Please verify the agent ID is correct and exists in your Retell account.";
+  //       } else if (error.message.includes("401")) {
+  //         errorMessage =
+  //           "Authentication failed. Please check your Retell API key.";
+  //       } else if (error.message.includes("403")) {
+  //         errorMessage =
+  //           "Permission denied. Your API key may not have access to this agent.";
+  //       } else {
+  //         errorMessage = `Error: ${error.message}`;
+  //       }
+  //     }
+
+  //     toast.error(errorMessage);
+  //   } finally {
+  //     setIsConfiguringWebhooks(false);
+  //   }
+  // };
+
+  // Function to copy text to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => {
+        toast.success("Copied to clipboard");
+      },
+      (err) => {
+        console.error("Could not copy text: ", err);
+        toast.error("Failed to copy to clipboard");
+      },
+    );
+  };
 
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
@@ -680,30 +803,30 @@ export function CampaignCreateForm({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="configureWebhooks"
-                  render={({ field }) => (
-                    <FormItem className="bg-gray-50 flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          id="configure-webhooks"
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel htmlFor="configure-webhooks">
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                      <Checkbox
+                        className="size-6"
+                        checked={form.watch("configureWebhooks")}
+                        onCheckedChange={(checked) =>
+                          form.setValue("configureWebhooks", checked === true)
+                        }
+                      >
+                        Configure webhooks for this campaign
+                      </Checkbox>
+                      <div>
+                        <h4 className="font-medium">
                           Configure Agent Webhooks
-                        </FormLabel>
-                        <FormDescription>
-                          Automatically update the Retell agent with appropriate
-                          webhook URLs for inbound calls and post-call analysis
-                        </FormDescription>
+                        </h4>
+                        <p className="text-gray-500 text-sm">
+                          Update the Retell agent with appropriate webhook URLs
+                          for inbound calls and post-call analysis
+                        </p>
                       </div>
-                    </FormItem>
-                  )}
-                />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

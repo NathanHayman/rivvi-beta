@@ -79,114 +79,91 @@ export function OrganizationCampaignRequestsTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Your Campaign Requests</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Refresh"
-            )}
-          </Button>
-          <Button onClick={() => router.push("/campaigns/request")}>
-            New Request
-          </Button>
-        </div>
-      </div>
-
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Requested</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.requests.map((request) => (
-                <TableRow key={request.id}>
-                  <TableCell>
-                    <div className="font-medium">{request.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {request.description?.length > 60
-                        ? `${request.description.substring(0, 60)}...`
-                        : request.description}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        request.status === "pending"
-                          ? "neutral_solid"
-                          : request.status === "approved"
-                            ? "success_solid"
-                            : request.status === "rejected"
-                              ? "failure_solid"
-                              : "neutral_solid"
-                      }
-                      className="flex w-fit items-center"
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Requested</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data?.requests.map((request) => (
+              <TableRow key={request.id}>
+                <TableCell>
+                  <div className="font-medium">{request.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {request.description?.length > 60
+                      ? `${request.description.substring(0, 60)}...`
+                      : request.description}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      request.status === "pending"
+                        ? "neutral_solid"
+                        : request.status === "approved"
+                          ? "success_solid"
+                          : request.status === "rejected"
+                            ? "failure_solid"
+                            : "neutral_solid"
+                    }
+                    className="flex w-fit items-center"
+                  >
+                    {request.status === "pending" && (
+                      <Clock className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {request.status === "approved" && (
+                      <Check className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {request.status === "rejected" && (
+                      <X className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {request.status?.charAt(0).toUpperCase() +
+                      request.status?.slice(1)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {formatDistance(new Date(request.createdAt), new Date(), {
+                    addSuffix: true,
+                  })}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleViewDetails(request)}
                     >
-                      {request.status === "pending" && (
-                        <Clock className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {request.status === "approved" && (
-                        <Check className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {request.status === "rejected" && (
-                        <X className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {request.status?.charAt(0).toUpperCase() +
-                        request.status?.slice(1)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {formatDistance(new Date(request.createdAt), new Date(), {
-                      addSuffix: true,
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
+                      View Details
+                    </Button>
+                    {request.resultingCampaignId && (
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        onClick={() => handleViewDetails(request)}
+                        onClick={() =>
+                          router.push(
+                            `/campaigns/${request.resultingCampaignId}`,
+                          )
+                        }
                       >
-                        View Details
+                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        View Campaign
                       </Button>
-                      {request.resultingCampaignId && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            router.push(
-                              `/campaigns/${request.resultingCampaignId}`,
-                            )
-                          }
-                        >
-                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                          View Campaign
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
 
       {/* Campaign Request Details Sheet */}

@@ -1,5 +1,5 @@
 // src/app/api/webhooks/retell/[orgId]/inbound/route.ts
-import { handleInboundWebhook } from "@/lib/call/call-webhook-handler";
+import { handleInboundWebhook } from "@/services/call";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 10; // 10 seconds

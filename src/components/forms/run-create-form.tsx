@@ -5,7 +5,7 @@ import type React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowUpIcon, Check, ChevronRight, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -31,6 +31,7 @@ import { format } from "date-fns";
 const runFormSchema = z.object({
   name: z.string().min(1, "Run name is required"),
   customPrompt: z.string().optional(),
+  aiDescription: z.string().optional(), // New field for AI input
   file: z.instanceof(File).optional(),
   scheduleForLater: z.boolean().default(false),
   scheduledDate: z.date().optional().nullable(),
@@ -38,9 +39,9 @@ const runFormSchema = z.object({
   useAiGeneration: z.boolean().default(false),
 });
 
-type RunFormValues = z.infer<typeof runFormSchema>;
+export type RunFormValues = z.infer<typeof runFormSchema>;
 
-interface RunCreateFormProps {
+export interface RunCreateFormProps {
   campaignId: string;
   onSuccess?: (runId?: string) => void;
   onCancel?: () => void;
@@ -80,6 +81,7 @@ export function RunCreateForm({
     defaultValues: {
       name: defaultValues?.name || "",
       customPrompt: defaultValues?.customPrompt || "",
+      aiDescription: "", // Initialize empty
       scheduleForLater: defaultValues?.scheduleForLater || false,
       scheduledDate: defaultValues?.scheduledDate || null,
       scheduledTime: defaultValues?.scheduledTime || "",
@@ -98,8 +100,9 @@ export function RunCreateForm({
     onSuccess: (data) => {
       setProcessedData(data);
       setIsProcessingFile(false);
+      // Use the explicit totalRows property
       toast.success(
-        `File validated successfully. Found ${data.parsedData?.rows?.length || 0} rows.`,
+        `File validated successfully. Found ${data.totalRows || data.parsedData?.rows?.length || 0} rows.`,
       );
     },
     onError: (error) => {
@@ -198,7 +201,7 @@ export function RunCreateForm({
 
       try {
         // Call the API route
-        const response = await fetch("/api/ai/generate", {
+        const response = await fetch("/api/ai/agent", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -206,7 +209,7 @@ export function RunCreateForm({
           body: JSON.stringify({
             basePrompt: campaignBasePrompt,
             baseVoicemailMessage: campaignVoicemailMessage,
-            naturalLanguageInput: description,
+            naturalLanguageInput: description, // Use the user's input
             campaignContext: {
               name: campaignName,
               description: campaignDescription,
@@ -312,29 +315,40 @@ export function RunCreateForm({
   const canProceedFromCurrentStep = () => {
     switch (currentStep) {
       case 0: // Upload & Validate
-        return !!processedData;
+        // Make sure we have processed data with rows
+        return (
+          !!processedData &&
+          (processedData.totalRows > 0 ||
+            processedData.parsedData?.rows?.length > 0)
+        );
+
       case 1: // Configure Prompt
-        return true; // Always allow proceeding from prompt step
+        // For AI generation, require either a description or already-generated prompt
+        if (useAiGeneration) {
+          const aiDescription = form.getValues("aiDescription");
+          const customPrompt = form.getValues("customPrompt");
+          return !!aiDescription || !!customPrompt;
+        }
+        // For manual prompt, allow proceeding even with empty prompt (will use campaign default)
+        return true;
+
       case 2: // Schedule & Name
-        return !!form.getValues("name");
+        // Require name; if scheduling, also require date and time
+        const hasName = !!form.getValues("name");
+        const isScheduled = form.getValues("scheduleForLater");
+
+        if (isScheduled) {
+          const hasDate = !!form.getValues("scheduledDate");
+          const hasTime = !!form.getValues("scheduledTime");
+          return hasName && hasDate && hasTime;
+        }
+
+        return hasName;
+
       default:
         return false;
     }
   };
-
-  // Effect to handle AI prompt generation when toggle changes
-  useEffect(() => {
-    if (useAiGeneration && currentStep === 1) {
-      // Generate a default description if none provided
-      const defaultDescription = `Generate a friendly prompt for ${campaignName} that is professional and concise.`;
-      void generatePromptFromDescription(defaultDescription);
-    }
-  }, [
-    useAiGeneration,
-    currentStep,
-    generatePromptFromDescription,
-    campaignName,
-  ]);
 
   return (
     <div className="mx-auto max-w-[500px]">
@@ -444,7 +458,10 @@ export function RunCreateForm({
                             </p>
                             <p className="mt-1 text-xs">
                               The file has been validated and is ready for
-                              upload.
+                              upload.{" "}
+                              {processedData.totalRows ||
+                                processedData.parsedData?.rows?.length}{" "}
+                              rows found.
                             </p>
                           </div>
                         </div>
@@ -488,6 +505,47 @@ export function RunCreateForm({
                 )}
               />
 
+              {/* AI Description Input - Only shown when useAiGeneration is true */}
+              {useAiGeneration && (
+                <FormField
+                  control={form.control}
+                  name="aiDescription"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Describe what you want the AI to do</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="E.g., Make the prompt more friendly and add reminders about appointment details"
+                          className="min-h-[80px] resize-none"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Describe how you want to customize the prompt
+                      </FormDescription>
+                      <FormMessage />
+                      <Button
+                        type="button"
+                        className="mt-2"
+                        onClick={() =>
+                          generatePromptFromDescription(field.value)
+                        }
+                        disabled={isGeneratingPrompt || !field.value}
+                      >
+                        {isGeneratingPrompt ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          "Generate Prompt"
+                        )}
+                      </Button>
+                    </FormItem>
+                  )}
+                />
+              )}
+
               {/* Custom Prompt */}
               <FormField
                 control={form.control}
@@ -504,12 +562,12 @@ export function RunCreateForm({
                         }
                         className="min-h-[120px] resize-none"
                         {...field}
-                        readOnly={useAiGeneration && isGeneratingPrompt}
+                        readOnly={isGeneratingPrompt}
                       />
                     </FormControl>
                     <FormDescription>
                       {useAiGeneration
-                        ? "This AI-generated prompt will be used for all calls in this run"
+                        ? "This prompt was generated by AI based on your description"
                         : "Your custom prompt will be combined with the base prompt"}
                     </FormDescription>
                     <FormMessage />

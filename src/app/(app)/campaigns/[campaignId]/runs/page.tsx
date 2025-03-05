@@ -24,7 +24,6 @@ interface PageProps {
 export default async function CampaignRunsPage({ params }: PageProps) {
   const { campaignId } = await params;
 
-  // Fetch campaign data from the server
   const campaign = await api.campaigns.getById({ id: campaignId });
 
   return (

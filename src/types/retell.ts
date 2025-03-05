@@ -20,25 +20,16 @@ export type RetellPostCallObjectRaw = {
     user_sentiment: string;
     call_successful: boolean;
     transcript: string;
-    custom_analysis_data: {
-      notes: string;
-      callback_requested: boolean;
-      callback_date_time: string;
-      transferred: boolean;
-      transfer_reason: string;
-      patient_reached: boolean;
-      patient_questions: string;
-      detected_ai: boolean;
-      call_summary: string;
-      [key: string]:
-        | string
-        | boolean
-        | number
-        | Record<string, string>
-        | Record<string, boolean>
-        | Record<string, number>
-        | null;
-    };
+    custom_analysis_data: Record<
+      string,
+      | string
+      | boolean
+      | number
+      | null
+      | Record<string, string>
+      | Record<string, boolean>
+      | Record<string, number>
+    >;
     agent_task_completion_rating: string;
     call_completion_rating: string;
   };
@@ -56,4 +47,39 @@ export type RetellPostCallWebhookRaw = {
     event: string; // later add the full enum of events
     call: RetellPostCallObjectRaw;
   };
+};
+
+export type RetellInboundWebhookRaw = {
+  headers: {
+    Accept: string;
+    "Accept-Encoding": string;
+    "Content-Type": string;
+    Host: string;
+    "User-Agent": string;
+  };
+  body: {
+    event: "call_inbound"; // later add the full enum of events
+    call_inbound: RetellInboundWebhookPayload;
+  };
+};
+
+export type RetellInboundWebhookPayload = {
+  agent_id: string;
+  to_number: string;
+  from_number: string;
+  llm_id: string;
+};
+
+export type RetellInboundWebhookResponse = {
+  status: "success" | "error" | "pending" | "warning" | "partial_success";
+  message: string;
+  error: string | null;
+  call_inbound: {
+    override_agent_id: string | null;
+    dynamic_variables: Record<
+      string,
+      string | boolean | number | null | undefined
+    >;
+  };
+  metadata: Record<string, string | boolean | number | null | undefined>;
 };

@@ -225,7 +225,7 @@ export const generateWebhookUrls = (
   campaignId?: string,
 ) => {
   // Base URL fallback
-  const apiBaseUrl = baseUrl || window.location.origin;
+  const apiBaseUrl = baseUrl;
 
   // Generate inbound and post-call webhook URLs
   const inboundUrl = `${apiBaseUrl}/api/webhooks/retell/${orgId}/inbound`;

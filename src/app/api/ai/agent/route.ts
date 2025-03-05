@@ -1,4 +1,4 @@
-import { generateEnhancedCampaignContent } from "@/services/ai/generator";
+import { generateAgentPrompt } from "@/services/ai";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const validatedData = generateRequestSchema.parse(body);
 
     // Call the generator function with validated data
-    const result = await generateEnhancedCampaignContent(
+    const result = await generateAgentPrompt(
       validatedData.basePrompt,
       validatedData.baseVoicemailMessage || "",
       validatedData.naturalLanguageInput,

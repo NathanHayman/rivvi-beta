@@ -1,5 +1,5 @@
 {
-  "id": "c76ce835-f434-4c52-bc73-973c073ab068",
+  "id": "cdc4620c-ebc3-4d33-8569-c7905f0a56ed",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -206,7 +206,7 @@
           "name": "retell_call_id",
           "type": "varchar(256)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "recording_url": {
           "name": "recording_url",
@@ -605,6 +605,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "main_goal": {
+          "name": "main_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "desired_analysis": {
+          "name": "desired_analysis",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "example_sheets": {
+          "name": "example_sheets",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",
