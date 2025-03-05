@@ -1,4 +1,4 @@
-// src/lib/call/call-processor.ts - Improved version
+// src/services/call/processor.ts
 import { pusherServer } from "@/lib/pusher-server";
 import { createPhoneCall } from "@/lib/retell-client-safe";
 import {
@@ -17,14 +17,15 @@ type DatabaseClient = typeof import("@/server/db").db;
 
 export class CallProcessor {
   private db: DatabaseClient;
-  private processorId: string;
   private processingRuns: Set<string> = new Set();
   private scheduledRuns: Map<string, NodeJS.Timeout> = new Map();
   private callBatchSizes: Map<string, number> = new Map(); // Track optimal batch sizes
+  private processorId: string;
 
   // Rate limiting
   private lastCallTimes: Map<string, number> = new Map(); // runId -> timestamp
   private rateLimitErrors: Map<string, number> = new Map(); // runId -> count
+  private metricUpdateTimeouts = new Map<string, NodeJS.Timeout>();
 
   // Batching configuration
   private readonly MAX_RETRY_ATTEMPTS = 3;
@@ -41,9 +42,6 @@ export class CallProcessor {
 
   /**
    * Schedule a run for execution at a future time
-   * @param runId The run ID to schedule
-   * @param scheduleTime The time to schedule the run (ISO string)
-   * @param orgId The organization ID
    */
   async scheduleRun(
     runId: string,
@@ -85,7 +83,7 @@ export class CallProcessor {
             },
             run: {
               scheduledTime: scheduleDate.toISOString(),
-              scheduledBy: "system", // Track who scheduled it
+              scheduledBy: "system",
               scheduledAt: new Date().toISOString(),
             },
           },
@@ -110,6 +108,7 @@ export class CallProcessor {
             this.db
               .update(runs)
               .set({
+                status: "failed",
                 metadata: {
                   rows: { total: 0, invalid: 0 },
                   calls: {
@@ -161,7 +160,6 @@ export class CallProcessor {
 
   /**
    * Clear a scheduled run
-   * @param runId The run ID to clear
    */
   clearScheduledRun(runId: string): void {
     const timeout = this.scheduledRuns.get(runId);
@@ -173,41 +171,7 @@ export class CallProcessor {
   }
 
   /**
-   * Dynamically adjust batch size based on success/failure
-   */
-  private adjustBatchSize(runId: string, increase: boolean) {
-    const currentSize =
-      this.callBatchSizes.get(runId) || this.INITIAL_BATCH_SIZE;
-
-    if (increase) {
-      // Increase by 1 at a time, don't exceed max
-      const newSize = Math.min(this.MAX_BATCH_SIZE, currentSize + 1);
-      this.callBatchSizes.set(runId, newSize);
-    } else {
-      // Reduce by factor, don't go below min
-      const newSize = Math.max(
-        this.MIN_BATCH_SIZE,
-        Math.floor(currentSize * this.BATCH_ADJUSTMENT_FACTOR),
-      );
-      this.callBatchSizes.set(runId, newSize);
-    }
-
-    console.log(
-      `Adjusted batch size for run ${runId}: ${currentSize} → ${this.callBatchSizes.get(runId)}`,
-    );
-  }
-
-  /**
-   * Helper method for delay with Promise
-   */
-  private async delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  /**
    * Start a run immediately
-   * @param runId The run ID to start
-   * @param orgId The organization ID
    */
   async startRun(runId: string, orgId: string): Promise<void> {
     try {
@@ -408,8 +372,6 @@ export class CallProcessor {
 
   /**
    * Check if current time is within office hours for an organization
-   * @param orgId The organization ID
-   * @returns Whether the current time is within office hours
    */
   async isWithinOfficeHours(orgId: string): Promise<boolean> {
     try {
@@ -517,58 +479,83 @@ export class CallProcessor {
     }
   }
 
-  // Mark row as calling with stronger concurrency control
+  /**
+   * Dynamically adjust batch size based on success/failure
+   */
+  private adjustBatchSize(runId: string, increase: boolean) {
+    const currentSize =
+      this.callBatchSizes.get(runId) || this.INITIAL_BATCH_SIZE;
+
+    if (increase) {
+      // Increase by 1 at a time, don't exceed max
+      const newSize = Math.min(this.MAX_BATCH_SIZE, currentSize + 1);
+      this.callBatchSizes.set(runId, newSize);
+    } else {
+      // Reduce by factor, don't go below min
+      const newSize = Math.max(
+        this.MIN_BATCH_SIZE,
+        Math.floor(currentSize * this.BATCH_ADJUSTMENT_FACTOR),
+      );
+      this.callBatchSizes.set(runId, newSize);
+    }
+
+    console.log(
+      `Adjusted batch size for run ${runId}: ${currentSize} → ${this.callBatchSizes.get(runId)}`,
+    );
+  }
+
+  /**
+   * Helper method for delay with Promise
+   */
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Mark a row as calling - FIXED VERSION
+   */
   async markRowAsCalling(row: any) {
     try {
-      // Use a transaction with SELECT FOR UPDATE
-      return await this.db.transaction(async (tx) => {
-        // Lock the row for update
-        const [currentRow] = await tx
-          .update(rows)
-          .set({
-            status: "calling",
-            updatedAt: new Date(),
-            metadata: {
-              ...row.metadata,
-              lastProcessAttempt: new Date().toISOString(),
-              processorId: this.processorId, // Track which processor claimed this row
-            },
-          } as Partial<typeof rows.$inferInsert>)
-          .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
-          .returning();
+      // Simplified atomic update - no transaction needed
+      const updatedRows = await this.db
+        .update(rows)
+        .set({
+          status: "calling",
+          updatedAt: new Date(),
+          metadata: {
+            ...row.metadata,
+            lastProcessAttempt: new Date().toISOString(),
+            processorId: this.processorId,
+            claimedAt: new Date().toISOString(),
+          },
+        } as Partial<typeof rows.$inferInsert>)
+        .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
+        .returning();
 
-        if (!currentRow) {
-          console.log(
-            `Row ${row.id} is no longer pending or is locked, skipping`,
-          );
-          return null;
-        }
+      if (!updatedRows || updatedRows.length === 0) {
+        console.log(`Row ${row.id} is no longer pending, skipping`);
+        return null;
+      }
 
-        // Update the row within the same transaction
-        const [updatedRow] = await tx
-          .update(rows)
-          .set({
-            status: "calling",
-            updatedAt: new Date(),
-            metadata: {
-              ...row.metadata,
-              lastProcessAttempt: new Date().toISOString(),
-              processorId: this.processorId, // Track which processor claimed this row
-              claimedAt: new Date().toISOString(),
-            },
-          } as Partial<typeof rows.$inferInsert>)
-          .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
-          .returning();
-
-        return updatedRow;
-      });
+      return updatedRows[0];
     } catch (error) {
       console.error(`Failed to mark row ${row.id} as calling:`, error);
       return null;
     }
   }
+
   /**
-   * Process a run's calls in batches with improved error handling and dynamic batch sizing
+   * Helper function to create a SQL expression for "not in array"
+   */
+  notInArray(column: any, values: any[]) {
+    if (values.length === 0) {
+      return sql`TRUE`;
+    }
+    return sql`${column} NOT IN (${sql.join(values, sql`, `)})`;
+  }
+
+  /**
+   * Process a run's calls in batches
    */
   async processRun(runId: string, orgId: string) {
     // Check if this run is already being processed
@@ -587,7 +574,6 @@ export class CallProcessor {
     }
 
     // Initialize a Set to track rows already being processed in this batch
-    // This prevents the same row from being processed multiple times
     const processedRowIds = new Set<string>();
 
     let processing = true;
@@ -694,7 +680,7 @@ export class CallProcessor {
         // Check concurrency limits
         const concurrencyLimit = organization.concurrentCallLimit || 20;
 
-        // Get active calls count with a single query (both for this run and total for the org)
+        // Get active calls count with a single query
         const [activeCallCounts] = await this.db
           .select({
             runCallCount: sql`COUNT(*) FILTER (WHERE ${calls.runId} = ${runId} AND 
@@ -724,7 +710,6 @@ export class CallProcessor {
         }
 
         // Clear processed row set if it's been more than 10 seconds since last processing
-        // This prevents the set from growing indefinitely and allows retrying rows that failed
         const now = Date.now();
         if (now - lastRowsProcessedTime > 10000) {
           processedRowIds.clear();
@@ -750,7 +735,6 @@ export class CallProcessor {
         );
 
         // Get next batch of pending rows with priority ordering
-        // Also make sure to exclude rows that are already being processed in this batch
         const pendingRows = await this.db
           .select()
           .from(rows)
@@ -758,7 +742,7 @@ export class CallProcessor {
             and(
               eq(rows.runId, runId),
               eq(rows.status, "pending"),
-              // Important: This excludes rows we're already processing in this batch
+              // Exclude rows we're already processing in this batch
               this.notInArray(rows.id, Array.from(processedRowIds)),
             ),
           )
@@ -773,8 +757,7 @@ export class CallProcessor {
         console.log(`Found ${pendingRows.length} pending rows to process`);
 
         if (pendingRows.length === 0) {
-          // If no new rows to process, wait a bit before checking again
-          // But first check if there are any active calls still in progress
+          // If no new rows to process, check if there are any active rows still in progress
           const [{ value: activeRowCount }] = (await this.db
             .select({
               value: sql`COUNT(*)`,
@@ -825,18 +808,6 @@ export class CallProcessor {
           }
 
           try {
-            // Check row status again to make sure it's still pending
-            // This prevents issues where a row might have been processed by another instance
-            const [currentRow] = await this.db
-              .select()
-              .from(rows)
-              .where(and(eq(rows.id, row.id), eq(rows.status, "pending")));
-
-            if (!currentRow) {
-              console.log(`Row ${row.id} is no longer pending, skipping`);
-              continue;
-            }
-
             // Apply rate limiting based on last call time
             const now = Date.now();
             const lastCallTime = this.lastCallTimes.get(runId) || 0;
@@ -850,11 +821,12 @@ export class CallProcessor {
               await this.delay(waitTime);
             }
 
-            // Try to mark this row as calling with improved concurrency control
+            // Try to mark this row as calling
             const updatedRow = await this.markRowAsCalling(row);
 
             // If we couldn't claim the row, skip to the next one
             if (!updatedRow) {
+              console.log(`Skipping row ${row.id} - couldn't claim it`);
               continue;
             }
 
@@ -941,59 +913,30 @@ export class CallProcessor {
             };
 
             // Create call in Retell with enhanced context and error handling
-            let retellCall;
-            try {
-              retellCall = await createPhoneCall({
-                toNumber: String(phone),
-                fromNumber: organization.phone || "",
-                agentId: template.agentId,
-                variables: callVariables,
-                metadata: {
-                  runId,
-                  rowId: row.id,
-                  orgId,
-                  campaignId: campaign.id,
-                  patientId: row.patientId,
-                  timezone: organization.timezone || "America/New_York",
-                },
-              });
+            console.log(`Starting call to ${phone} for row ${row.id}`);
+            const retellCall = await createPhoneCall({
+              toNumber: String(phone),
+              fromNumber: organization.phone || "",
+              agentId: template.agentId,
+              variables: callVariables,
+              metadata: {
+                runId,
+                rowId: row.id,
+                orgId,
+                campaignId: campaign.id,
+                patientId: row.patientId,
+                timezone: organization.timezone || "America/New_York",
+              },
+            });
 
-              // Update last call time for rate limiting
-              this.lastCallTimes.set(runId, Date.now());
-            } catch (error) {
-              console.error(`Retell API call failed:`, error);
-
-              // Increment rate limit error counter
-              if (
-                error.message?.includes("rate limit") ||
-                error.message?.includes("too many requests")
-              ) {
-                const currentCount = this.rateLimitErrors.get(runId) || 0;
-                this.rateLimitErrors.set(runId, currentCount + 1);
-
-                // If we hit rate limits repeatedly, reduce batch size
-                if (currentCount >= 2) {
-                  this.adjustBatchSize(runId, false);
-                  this.rateLimitErrors.set(runId, 0);
-
-                  // Add exponential backoff
-                  const backoffTime = Math.min(
-                    30000,
-                    5000 * Math.pow(2, currentCount),
-                  );
-                  console.log(
-                    `Rate limit hit ${currentCount} times, backing off for ${backoffTime}ms`,
-                  );
-                  await this.delay(backoffTime);
-                }
-              }
-
-              throw error;
-            }
+            // Update last call time for rate limiting
+            this.lastCallTimes.set(runId, Date.now());
 
             if (!retellCall.ok || !retellCall.call_id) {
               throw new Error("No call ID returned from Retell");
             }
+
+            console.log(`Retell call created with ID: ${retellCall.call_id}`);
 
             // Update row with call ID
             await this.db
@@ -1189,10 +1132,8 @@ export class CallProcessor {
         // Add a short pause between batches to avoid overwhelming the system
         await this.delay(delayBetweenCalls);
 
-        // Check for stuck rows every 5 minutes
-        // In the processRun method
+        // Check for stuck rows every minute
         if (Date.now() - lastStuckRowCheck > 60000) {
-          // Check every minute instead of 5 minutes
           await this.checkForStuckRows(runId);
           lastStuckRowCheck = Date.now();
         }
@@ -1232,18 +1173,8 @@ export class CallProcessor {
     }
   }
 
-  // Helper function to create a SQL expression for "not in array"
-  notInArray(column: any, values: any[]) {
-    if (values.length === 0) {
-      return sql`TRUE`;
-    }
-    return sql`${column} NOT IN (${sql.join(values, sql`, `)})`;
-  }
-
   /**
    * Mark a run as completed
-   * @param runId The run ID to complete
-   * @param orgId The organization ID
    */
   async completeRun(runId: string, orgId: string): Promise<void> {
     try {
@@ -1339,8 +1270,6 @@ export class CallProcessor {
 
   /**
    * Increment a metric in run metadata
-   * @param runId The run ID
-   * @param metricPath The dot-notation path to the metric (e.g., 'calls.completed')
    */
   async incrementMetric(runId: string, metricPath: string): Promise<void> {
     try {
@@ -1479,9 +1408,9 @@ export class CallProcessor {
     }
   }
 
-  // Add to class properties:
-  private metricUpdateTimeouts = new Map<string, NodeJS.Timeout>();
-
+  /**
+   * Check for stuck rows and reset them
+   */
   private async checkForStuckRows(runId: string): Promise<void> {
     try {
       console.log(`Checking for stuck rows in run ${runId}`);

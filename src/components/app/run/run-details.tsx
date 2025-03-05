@@ -23,54 +23,22 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRunEvents } from "@/hooks/use-pusher";
 import { api } from "@/trpc/react";
+import { TCampaign, TRun } from "@/types/db";
 import { RunRowsTable } from "../../tables/run-rows-table";
 
-// Define the type for the run to properly type our props
 type RunDetailsProps = {
-  run: {
-    id: string;
-    name: string;
-    status: string;
-    customPrompt?: string | null;
-    scheduledAt?: Date | null;
-    metadata?: {
-      rows?: {
-        total?: number;
-        invalid?: number;
-      };
-      calls?: {
-        total?: number;
-        completed?: number;
-        failed?: number;
-        calling?: number;
-        pending?: number;
-        skipped?: number;
-        voicemail?: number;
-        connected?: number;
-        converted?: number;
-      };
-      run?: {
-        error?: string;
-        startTime?: string;
-        endTime?: string;
-        lastPausedAt?: string;
-        scheduledTime?: string;
-        duration?: number;
-      };
-    };
-    createdAt: Date;
-    updatedAt: Date;
-  };
-  campaign: {
-    id: string;
-    name: string;
-    direction: string;
-  };
+  run: TRun;
+  campaign: TCampaign;
 };
 
 export function RunDetails({ run, campaign }: RunDetailsProps) {
@@ -421,18 +389,45 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
 
         {run.customPrompt && (
           <TabsContent value="prompt">
-            <Card>
-              <CardHeader>
-                <CardTitle>Custom Prompt</CardTitle>
-              </CardHeader>
-              <CardContent>
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium">Run Configuration</h3>
+
+              {run?.variationNotes ? (
                 <div className="rounded-md bg-muted p-4">
-                  <pre className="whitespace-pre-wrap text-sm">
-                    {run.customPrompt}
-                  </pre>
+                  <h4 className="mb-2 font-medium">Changes Made to Prompt</h4>
+                  <p className="text-sm">{run.variationNotes}</p>
+
+                  {run.naturalLanguageInput && (
+                    <div className="mt-3 border-t pt-3">
+                      <h5 className="text-sm font-medium">
+                        Requested Changes:
+                      </h5>
+                      <p className="text-sm text-muted-foreground">
+                        "{run.naturalLanguageInput}"
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Collapsible section for the full prompt */}
+                  <Collapsible className="mt-3">
+                    <CollapsibleTrigger className="text-xs text-blue-500 hover:underline">
+                      Show full prompt
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs">
+                        {run.customPrompt}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
-              </CardContent>
-            </Card>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  {run.customPrompt
+                    ? "Using custom prompt"
+                    : "Using default campaign prompt"}
+                </div>
+              )}
+            </div>
           </TabsContent>
         )}
       </Tabs>
