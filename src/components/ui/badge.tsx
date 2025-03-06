@@ -26,12 +26,27 @@ const badgeVariants = cva(
         neutral_outline: "text-zinc-700 dark:text-zinc-500 ",
         neutral_solid:
           "bg-zinc-200/50 text-zinc-700 dark:bg-zinc-500/30 dark:text-zinc-400 border-zinc-200 dark:border-zinc-500/20",
+        blue_outline: "text-blue-700 dark:text-blue-500",
+        blue_solid:
+          "bg-blue-100 text-blue-800 dark:bg-blue-400/20 dark:text-blue-500",
+        blue_solid_outline:
+          "bg-blue-100 text-blue-800 ring-blue-600/10 dark:bg-blue-400/20 dark:text-blue-500 dark:ring-blue-400/20 border-blue-600/10",
+        violet_outline: "text-violet-700 dark:text-violet-500",
+        violet_solid:
+          "bg-violet-100 text-violet-800 dark:bg-violet-400/20 dark:text-violet-500",
+        violet_solid_outline:
+          "bg-violet-100 text-violet-800 ring-violet-600/10 dark:bg-violet-400/20 dark:text-violet-500 dark:ring-violet-400/20 border-violet-600/10",
+        yellow_outline: "text-yellow-700 dark:text-yellow-500",
+        yellow_solid:
+          "bg-yellow-100 text-yellow-800 dark:bg-yellow-400/20 dark:text-yellow-500",
+        yellow_solid_outline:
+          "bg-yellow-100 text-yellow-800 ring-yellow-600/10 dark:bg-yellow-400/20 dark:text-yellow-500 dark:ring-yellow-400/20 border-yellow-600/10",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 );
 
 export interface BadgeProps

@@ -89,12 +89,7 @@ export function DashboardStatsSimple({ stats }: DashboardStatsSimpleProps) {
   );
 }
 
-// Advanced dashboard stats component with analytics
-interface DashboardStatsProps {
-  orgId: string;
-}
-
-export function DashboardStats({ orgId }: DashboardStatsProps) {
+export function DashboardStats() {
   const [dateRange, setDateRange] = useState<"week" | "month" | "quarter">(
     "week",
   );
@@ -109,7 +104,7 @@ export function DashboardStats({ orgId }: DashboardStatsProps) {
 
   // Fetch dashboard data
   const { data, isLoading, error } = api.dashboard.getOrgDashboard.useQuery(
-    { orgId },
+    undefined,
     {
       retry: 1,
       staleTime: 60000,
@@ -120,7 +115,6 @@ export function DashboardStats({ orgId }: DashboardStatsProps) {
   const { data: timeAnalytics, isLoading: timeLoading } =
     api.dashboard.getCallAnalyticsByTime.useQuery(
       {
-        orgId,
         period: dateRange,
       },
       {
@@ -174,7 +168,7 @@ export function DashboardStats({ orgId }: DashboardStatsProps) {
             </div>
           </div>
         </div>
-        <DashboardStatsSimple stats={simpleStats} />
+        <DashboardStatsSimple stats={simpleStats as any} />
       </div>
     );
   }

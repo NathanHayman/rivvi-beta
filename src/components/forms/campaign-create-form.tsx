@@ -36,6 +36,7 @@ import {
 } from "@/lib/retell/retell-client-safe";
 import { api } from "@/trpc/react";
 import { Badge } from "../ui/badge";
+import { SheetFooter } from "../ui/sheet";
 
 // Define the campaign creation schema
 const campaignFormSchema = z.object({
@@ -360,114 +361,6 @@ export function CampaignCreateForm({
     },
   });
 
-  // Function to verify agent exists before configuring webhooks
-  const verifyAgentExists = async (agentId: string): Promise<boolean> => {
-    try {
-      setIsVerifyingAgent(true);
-      const agent = await getAgentComplete(agentId);
-      return !!agent;
-    } catch (error) {
-      console.error("Error verifying agent:", error);
-      return false;
-    } finally {
-      setIsVerifyingAgent(false);
-    }
-  };
-
-  // Function to configure webhooks
-  // const handleConfigureWebhooks = async () => {
-  //   if (!agentId || !orgId) {
-  //     toast.error("Please select an organization and agent first");
-  //     return;
-  //   }
-
-  //   // Validate agent ID format - Retell agent IDs typically start with "agent_"
-  //   if (!agentId.startsWith("agent_")) {
-  //     toast.error(
-  //       "Invalid agent ID format. Agent IDs should start with 'agent_'",
-  //     );
-  //     return;
-  //   }
-
-  //   // Verify agent exists before configuring webhooks
-  //   const agentExists = await verifyAgentExists(agentId);
-  //   if (!agentExists) {
-  //     toast.error(
-  //       "Agent not found in Retell. Please verify the agent ID is correct.",
-  //     );
-  //     return;
-  //   }
-
-  //   setIsConfiguringWebhooks(true);
-  //   toast.loading("Configuring webhooks...");
-
-  //   try {
-  //     console.log("Configuring webhooks for agent:", agentId, "org:", orgId);
-
-  //     // We don't have a campaign ID yet, so we'll use a temporary one
-  //     // The actual campaign ID will be used when the form is submitted
-  //     const result = await updateAgentWebhooks(
-  //       agentId,
-  //       orgId,
-  //       undefined, // campaignId will be set when the campaign is created
-  //       {
-  //         setInbound: direction === "inbound",
-  //         setPostCall: true,
-  //       },
-  //     );
-
-  //     // Update form with webhook URLs
-  //     form.setValue("webhookUrls", {
-  //       inbound: result.webhooks.inbound,
-  //       postCall: result.webhooks.postCall,
-  //     });
-
-  //     // Set configureWebhooks to true so it's still included in the final submission
-  //     form.setValue("configureWebhooks", true);
-
-  //     setWebhooksConfigured(true);
-  //     toast.dismiss();
-  //     toast.success("Agent webhooks configured successfully");
-  //   } catch (error) {
-  //     console.error("Error configuring webhooks:", error);
-  //     toast.dismiss();
-
-  //     // More detailed error message
-  //     let errorMessage = "Failed to configure webhooks.";
-  //     if (error instanceof Error) {
-  //       if (error.message.includes("404")) {
-  //         errorMessage =
-  //           "Agent not found in Retell. Please verify the agent ID is correct and exists in your Retell account.";
-  //       } else if (error.message.includes("401")) {
-  //         errorMessage =
-  //           "Authentication failed. Please check your Retell API key.";
-  //       } else if (error.message.includes("403")) {
-  //         errorMessage =
-  //           "Permission denied. Your API key may not have access to this agent.";
-  //       } else {
-  //         errorMessage = `Error: ${error.message}`;
-  //       }
-  //     }
-
-  //     toast.error(errorMessage);
-  //   } finally {
-  //     setIsConfiguringWebhooks(false);
-  //   }
-  // };
-
-  // Function to copy text to clipboard
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(
-      () => {
-        toast.success("Copied to clipboard");
-      },
-      (err) => {
-        console.error("Could not copy text: ", err);
-        toast.error("Failed to copy to clipboard");
-      },
-    );
-  };
-
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
     try {
@@ -629,7 +522,7 @@ export function CampaignCreateForm({
           </div>
         </div>
 
-        <ScrollArea className="h-[calc(100vh-280px)]" ref={scrollRef}>
+        <ScrollArea className="h-[calc(80vh-95px)]" ref={scrollRef}>
           <div className="p-6">
             {/* Step 1: Campaign Details */}
             {step === 0 && (
@@ -1852,7 +1745,7 @@ export function CampaignCreateForm({
           </div>
         </ScrollArea>
 
-        <div className="bg-gray-50 flex items-center justify-between border-t p-6">
+        <SheetFooter>
           <Button
             type="button"
             variant="outline"
@@ -1885,7 +1778,7 @@ export function CampaignCreateForm({
               </Button>
             )}
           </div>
-        </div>
+        </SheetFooter>
       </form>
     </Form>
   );

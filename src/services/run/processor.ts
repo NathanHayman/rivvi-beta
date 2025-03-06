@@ -15,7 +15,7 @@ import { and, asc, desc, eq, lt, or, sql } from "drizzle-orm";
 
 type DatabaseClient = typeof import("@/server/db").db;
 
-export class CallProcessor {
+export class RunProcessor {
   private db: DatabaseClient;
   private processingRuns: Set<string> = new Set();
   private scheduledRuns: Map<string, NodeJS.Timeout> = new Map();
@@ -28,7 +28,7 @@ export class CallProcessor {
   private metricUpdateTimeouts = new Map<string, NodeJS.Timeout>();
 
   // Batching configuration
-  private readonly MAX_RETRY_ATTEMPTS = 3;
+  private readonly MAX_RETRY_ATTEMPTS = 1;
   private readonly INITIAL_BATCH_SIZE = 10;
   private readonly MIN_BATCH_SIZE = 1;
   private readonly MAX_BATCH_SIZE = 20;
@@ -37,7 +37,7 @@ export class CallProcessor {
   constructor(db: DatabaseClient) {
     this.db = db;
     this.processorId = `proc-${createId()}`; // Generate unique ID for this processor
-    console.log(`Created CallProcessor with ID: ${this.processorId}`);
+    console.log(`Created RunProcessor with ID: ${this.processorId}`);
   }
 
   /**
@@ -892,7 +892,24 @@ export class CallProcessor {
 
             // Prepare variables for the call with improved merging
             const callVariables = {
+              // Base variables from row
               ...row.variables,
+
+              // Add run-specific variables
+              custom_prompt: run.customPrompt || undefined,
+              organization_name: organization.name,
+              campaign_name: campaign.name,
+              retry_count: row.retryCount || 0,
+
+              // Ensure patient fields are explicitly mapped
+              patient_first_name: row.variables.firstName,
+              patient_last_name: row.variables.lastName,
+              patient_phone: phone,
+
+              // For compatibility with different templates
+              first_name: row.variables.firstName,
+              last_name: row.variables.lastName,
+              phone: phone,
             };
 
             // Create call in Retell with enhanced context and error handling
@@ -932,31 +949,29 @@ export class CallProcessor {
               .where(eq(rows.id, row.id));
 
             // Create call record with enhanced tracking
-            const generatedCall = await this.db
-              .insert(calls)
-              .values({
-                orgId,
-                runId,
-                rowId: row.id,
-                patientId: row.patientId,
-                agentId: template.agentId,
-                campaignId: campaign.id,
-                direction: "outbound",
-                status: "pending",
-                retellCallId: retellCall.call_id,
-                toNumber: String(phone),
-                fromNumber: organization.phone || "",
-                metadata: {
-                  variables: callVariables,
-                  attempt: (row.callAttempts || 0) + 1,
-                  rowMetadata: row.metadata,
-                },
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              } as typeof calls.$inferInsert)
-              .returning({ id: calls.id });
-
-            const callId = generatedCall[0].id;
+            const callId = createId();
+            await this.db.insert(calls).values({
+              id: callId,
+              orgId,
+              runId,
+              rowId: row.id,
+              patientId: row.patientId,
+              agentId: template.agentId,
+              campaignId: campaign.id,
+              direction: "outbound",
+              status: "pending",
+              retellCallId: retellCall.call_id,
+              toNumber: String(phone),
+              fromNumber: organization.phone || "",
+              metadata: {
+                variables: callVariables,
+                attempt: (row.callAttempts || 0) + 1,
+                rowMetadata: row.metadata,
+                callId, // Include our call ID in the metadata for easier tracking
+              },
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            } as typeof calls.$inferInsert);
 
             // Update run metrics
             await this.incrementMetric(runId, "calls.calling");
@@ -1117,7 +1132,7 @@ export class CallProcessor {
         // Add a short pause between batches to avoid overwhelming the system
         await this.delay(delayBetweenCalls);
 
-        // Check for stuck rows every 3
+        // Check for stuck rows every minute
         if (Date.now() - lastStuckRowCheck > 60000) {
           await this.checkForStuckRows(runId);
           lastStuckRowCheck = Date.now();

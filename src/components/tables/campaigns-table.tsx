@@ -22,7 +22,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge, BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -128,18 +128,12 @@ export function CampaignsTable() {
       cell: ({ row }) => {
         const direction = row.getValue("direction") as string;
 
-        const campaignTypeColor =
-          direction === "inbound"
-            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-            : direction === "outbound"
-              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-              : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
+        const campaignTypeColor: BadgeProps["variant"] =
+          direction === "inbound" || direction === "outbound"
+            ? "violet_solid"
+            : "yellow_solid";
 
-        return (
-          <Badge variant="outline" className={campaignTypeColor}>
-            {direction}
-          </Badge>
-        );
+        return <Badge variant={campaignTypeColor}>{direction}</Badge>;
       },
     },
     {

@@ -48,9 +48,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useRunEvents } from "@/hooks/use-pusher";
+import { useRun, useRunRows } from "@/hooks/use-runs";
 import { formatPhoneDisplay } from "@/services/file/utils";
-import { api } from "@/trpc/react";
 import Link from "next/link";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
@@ -81,18 +80,10 @@ interface RunRowsTableProps {
 }
 
 export function RunRowsTable({ runId }: RunRowsTableProps) {
-  const [filter, setFilter] = useState<RowStatus | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: 10,
-  });
 
-  // Get run details to access campaign information
-  const { data: runData } = api.runs.getById.useQuery(
-    { id: runId },
-    { enabled: !!runId },
-  );
+  // Use the useRun hook to get run details
+  const { run: runData } = useRun(runId);
 
   // Get campaign variables from the run's campaign
   const campaignVariables =
@@ -103,29 +94,16 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
     runData?.campaign?.config?.analysis?.campaign?.fields || [];
   const mainKpiField = campaignAnalysisFields.find((field) => field.isMainKPI);
 
-  // Get rows data
-  const { data, isLoading, isError, refetch } = api.runs.getRows.useQuery(
-    {
-      runId,
-      page: pagination.pageIndex + 1,
-      pageSize: pagination.pageSize,
-      filter:
-        filter === "all"
-          ? undefined
-          : filter === "skipped"
-            ? "pending"
-            : filter,
-    },
-    {
-      refetchInterval: 15000, // Refetch every 15 seconds
-    },
-  );
-
-  // Real-time updates with Pusher
-  useRunEvents(runId, {
-    onCallStarted: () => void refetch(),
-    onCallCompleted: () => void refetch(),
-  });
+  // Use the useRunRows hook for better real-time updates
+  const {
+    rows,
+    pagination: paginationData,
+    counts,
+    isLoading,
+    refetch,
+    pageOptions: { pagination, setPagination },
+    filterOptions: { filter, setFilter },
+  } = useRunRows(runId);
 
   // Define base columns
   const baseColumns: ColumnDef<Row>[] = [
@@ -243,32 +221,32 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           | "secondary"
           | "success_outline"
           | "success_solid" = "default";
-        let icon = <CircleIcon className="h-2 w-2" />;
+        let icon = <CircleIcon className="h-3 w-3" />;
 
         if (status === "pending") {
           label = "Pending";
           variant = "outline";
-          icon = <CircleIcon className="h-2 w-2" />;
+          icon = <CircleIcon className="h-3 w-3" />;
         } else if (status === "calling") {
           label = "Calling";
           variant = "secondary";
-          icon = <PhoneIcon className="h-2 w-2" />;
+          icon = <PhoneIcon className="h-3 w-3" />;
         } else if (status === "completed") {
           label = "Completed";
           variant = "success_solid";
-          icon = <CheckIcon className="h-2 w-2" />;
+          icon = <CheckIcon className="h-3 w-3" />;
         } else if (status === "failed") {
           label = "Failed";
           variant = "destructive";
-          icon = <XIcon className="h-2 w-2" />;
+          icon = <XIcon className="h-3 w-3" />;
         } else if (status === "skipped") {
           label = "Skipped";
           variant = "outline";
-          icon = <SkipForwardIcon className="h-2 w-2" />;
+          icon = <SkipForwardIcon className="h-3 w-3" />;
         }
 
         return (
-          <Badge variant={variant} className="flex w-fit items-center">
+          <Badge variant={variant} className="flex w-fit items-center gap-1.5">
             {icon}
             {label}
           </Badge>
@@ -541,7 +519,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
   // Create table
   const table = useReactTable({
-    data: data?.rows || [],
+    data: rows || [],
     columns: columns as any,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -550,7 +528,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       pagination,
     },
     manualPagination: true,
-    pageCount: data?.pagination?.totalPages || 0,
+    pageCount: paginationData?.totalPages || 0,
   });
 
   return (
@@ -564,8 +542,8 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         />
 
         <Select
-          value={filter}
-          onValueChange={(value) => setFilter(value as RowStatus | "all")}
+          value={filter || "all"}
+          onValueChange={(value) => setFilter(value as RowStatus | undefined)}
         >
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Filter status" />
@@ -595,7 +573,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         </Button>
       </div>
 
-      <div className="rounded-md border">
+      <div className="">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -659,12 +637,12 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          {data?.counts ? (
+          {counts && paginationData ? (
             <>
               Showing {table.getRowModel().rows.length} of{" "}
-              {data.pagination.totalCount} rows • {data.counts.pending} pending,{" "}
-              {data.counts.calling} calling, {data.counts.completed} completed,{" "}
-              {data.counts.failed} failed
+              {paginationData.totalCount} rows • {counts.pending || 0} pending,{" "}
+              {counts.calling || 0} calling, {counts.completed || 0} completed,{" "}
+              {counts.failed || 0} failed
             </>
           ) : null}
         </div>

@@ -36,7 +36,7 @@ const SheetForm = (props: SheetFormProps) => {
             <SheetDescription>{props.description}</SheetDescription>
           )}
         </SheetHeader>
-        <div className="relative h-[calc(90vh-20px)]">{props.children}</div>
+        <div className="relative h-[calc(94vh-37px)]">{props.children}</div>
       </SheetContent>
     </Sheet>
   );

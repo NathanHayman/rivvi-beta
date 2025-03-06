@@ -31,6 +31,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import { SheetBody, SheetFooter } from "../ui/sheet";
 
 // Form schema
 const campaignFormSchema = z.object({
@@ -274,143 +275,151 @@ export function CampaignEditForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Campaign Name</FormLabel>
-              <FormControl>
-                <Input placeholder="Enter campaign name" {...field} />
-              </FormControl>
-              <FormDescription>
-                A descriptive name for the campaign.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="direction"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Campaign Direction</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select campaign direction" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="outbound">Outbound</SelectItem>
-                  <SelectItem value="inbound">Inbound</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                The direction of the campaign determines the workflow and data
-                requirements.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="isActive"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel className="text-base">Active Status</FormLabel>
-                <FormDescription>
-                  Enable or disable this campaign.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="basePrompt"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Base Prompt</FormLabel>
-              <FormControl>
-                <Textarea
-                  placeholder="Enter base prompt for the agent"
-                  className="min-h-[200px]"
-                  {...field}
-                  disabled={
-                    getTemplate.isLoading && !campaign.template?.basePrompt
-                  }
-                />
-              </FormControl>
-              <FormDescription>
-                The base prompt instructions for the AI agent that will be used
-                for this campaign.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* Conditionally render inbound webhook URL field based on direction */}
-        {currentDirection === "inbound" && (
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="h-[calc(80vh-10px)] space-y-8"
+      >
+        <SheetBody className="h-full space-y-8">
           <FormField
             control={form.control}
-            name="inboundWebhookUrl"
+            name="name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Inbound Webhook URL</FormLabel>
+                <FormLabel>Campaign Name</FormLabel>
                 <FormControl>
-                  <Input
-                    placeholder="https://your-webhook-url.com/inbound"
-                    {...field}
-                  />
+                  <Input placeholder="Enter campaign name" {...field} />
                 </FormControl>
                 <FormDescription>
-                  The webhook URL that will be called when an inbound call is
-                  received.
+                  A descriptive name for the campaign.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
-        )}
 
-        {/* Post-call webhook URL field (always visible) */}
-        <FormField
-          control={form.control}
-          name="postCallWebhookUrl"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Post-Call Webhook URL</FormLabel>
-              <FormControl>
-                <Input
-                  placeholder="https://your-webhook-url.com/post-call"
-                  value={`${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${agentId}/webhooks`}
-                  {...field}
-                />
-              </FormControl>
-              <FormDescription>
-                The webhook URL that will be called after a call is completed.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
+          <FormField
+            control={form.control}
+            name="direction"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Campaign Direction</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select campaign direction" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="outbound">Outbound</SelectItem>
+                    <SelectItem value="inbound">Inbound</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  The direction of the campaign determines the workflow and data
+                  requirements.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="isActive"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <FormLabel className="text-base">Active Status</FormLabel>
+                  <FormDescription>
+                    Enable or disable this campaign.
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="basePrompt"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Base Prompt</FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="Enter base prompt for the agent"
+                    className="min-h-[200px]"
+                    {...field}
+                    disabled={
+                      getTemplate.isLoading && !campaign.template?.basePrompt
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  The base prompt instructions for the AI agent that will be
+                  used for this campaign.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* Conditionally render inbound webhook URL field based on direction */}
+          {currentDirection === "inbound" && (
+            <FormField
+              control={form.control}
+              name="inboundWebhookUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Inbound Webhook URL</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="https://your-webhook-url.com/inbound"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    The webhook URL that will be called when an inbound call is
+                    received.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           )}
-        />
 
-        <div className="flex justify-end gap-2">
+          {/* Post-call webhook URL field (always visible) */}
+          <FormField
+            control={form.control}
+            name="postCallWebhookUrl"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Post-Call Webhook URL</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="https://your-webhook-url.com/post-call"
+                    value={`${env.NEXT_PUBLIC_APP_URL}/api/retell/agent/${agentId}/webhooks`}
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  The webhook URL that will be called after a call is completed.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </SheetBody>
+
+        <SheetFooter className="flex justify-end gap-2">
           <Button
             type="button"
             variant="outline"
@@ -422,7 +431,7 @@ export function CampaignEditForm({
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Updating..." : "Update Campaign"}
           </Button>
-        </div>
+        </SheetFooter>
       </form>
     </Form>
   );

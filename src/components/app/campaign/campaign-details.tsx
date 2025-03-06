@@ -29,14 +29,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CreateRunModal } from "../run/create-run-modal";
 
-const campaignTypeColors: Record<string, string> = {
-  inbound:
-    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  outbound:
-    "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  default: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-};
-
 export function CampaignDetails({
   campaignId,
   initialData,
@@ -75,7 +67,9 @@ export function CampaignDetails({
   }
 
   const campaignTypeColor =
-    campaignTypeColors[campaign.direction] || campaignTypeColors.default;
+    campaign.direction === "inbound" || campaign.direction === "outbound"
+      ? "violet_solid"
+      : "yellow_solid";
 
   return (
     <div className="space-y-6">
@@ -83,16 +77,9 @@ export function CampaignDetails({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h2 className="text-2xl font-bold">{campaign.name}</h2>
-            <Badge variant="outline" className={campaignTypeColor}>
-              {campaign.direction}
-            </Badge>
+            <Badge variant={campaignTypeColor}>{campaign.direction}</Badge>
             {!campaign.isActive && (
-              <Badge
-                variant="outline"
-                className="bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300"
-              >
-                Inactive
-              </Badge>
+              <Badge variant="neutral_solid">Inactive</Badge>
             )}
           </div>
           <div className="flex gap-2">

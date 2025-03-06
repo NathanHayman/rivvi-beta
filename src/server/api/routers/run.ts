@@ -12,7 +12,8 @@ import { CallProcessor } from "@/services/call";
 import { parseFileContent, processExcelFile } from "@/services/file";
 import { TCampaignTemplate } from "@/types/db";
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 // Helper function to get campaign template
@@ -268,13 +269,23 @@ export const runRouter = createTRPCRouter({
     }),
 
   // Create a new run
+  // Modify the run creation mutation in src/server/api/routers/run.ts
+
+  // Create a new run
   create: orgProcedure
     .input(
       z.object({
-        campaignId: z.string().uuid(),
         name: z.string().min(1),
+        campaignId: z.string().uuid(),
         customPrompt: z.string().optional(),
+        customVoicemailMessage: z.string().optional(),
+        aiGenerated: z.boolean().optional(),
+        variationNotes: z.string().optional(),
+        naturalLanguageInput: z.string().optional(),
+        promptVersion: z.number().optional(),
         scheduledAt: z.string().datetime().optional(),
+        // Add deduplication parameters
+        clientRequestId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -285,6 +296,61 @@ export const runRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message: "No active organization",
         });
+      }
+
+      // Check for duplicate run with the same name in this campaign
+      // This will prevent duplicate runs from being created
+      if (input.clientRequestId) {
+        console.log(
+          `Checking for existing run with clientRequestId: ${input.clientRequestId}`,
+        );
+
+        // Look for a recently created run with the same client request ID
+        const existingRuns = await ctx.db
+          .select()
+          .from(runs)
+          .where(
+            and(
+              eq(runs.campaignId, input.campaignId),
+              eq(runs.orgId, orgId),
+              sql`${runs.metadata}->>'clientRequestId' = ${input.clientRequestId}`,
+              sql`${runs.createdAt} > NOW() - INTERVAL '30 minutes'`,
+            ),
+          )
+          .limit(1);
+
+        if (existingRuns.length > 0) {
+          console.log(
+            `Found existing run with ID ${existingRuns[0].id} for clientRequestId ${input.clientRequestId}`,
+          );
+
+          // Revalidate Paths
+          revalidatePath("/campaigns/[campaignId]", "page");
+          revalidatePath("/campaigns/[campaignId]/runs", "page");
+          revalidatePath("/campaigns/[campaignId]/runs/[runId]", "page");
+          return existingRuns[0];
+        }
+      } else {
+        // If no client request ID, check by name as a fallback
+        const existingRuns = await ctx.db
+          .select()
+          .from(runs)
+          .where(
+            and(
+              eq(runs.campaignId, input.campaignId),
+              eq(runs.orgId, orgId),
+              eq(runs.name, input.name),
+              sql`${runs.createdAt} > NOW() - INTERVAL '5 minutes'`,
+            ),
+          )
+          .limit(1);
+
+        if (existingRuns.length > 0) {
+          console.log(
+            `Found existing run with same name ${input.name} created in the last 5 minutes, skipping creation`,
+          );
+          return existingRuns[0];
+        }
       }
 
       // Verify the campaign exists and belongs to the organization
@@ -318,9 +384,21 @@ export const runRouter = createTRPCRouter({
           voicemail: 0,
           connected: 0,
           converted: 0,
+          inbound_returns: 0, // Track inbound returns
         },
-        run: {},
+        run: {
+          createdAt: new Date().toISOString(),
+        },
+        // Store the client request ID to help with deduplication
+        clientRequestId: input.clientRequestId,
       };
+
+      const customPrompt = input.customPrompt || undefined;
+      const customVoicemailMessage = input.customVoicemailMessage || undefined;
+      const aiGenerated = input.aiGenerated || undefined;
+      const variationNotes = input.variationNotes || undefined;
+      const naturalLanguageInput = input.naturalLanguageInput || undefined;
+      const promptVersion = input.promptVersion || undefined;
 
       // Create the run
       const [run] = await ctx.db
@@ -330,7 +408,12 @@ export const runRouter = createTRPCRouter({
           orgId,
           name: input.name,
           status: "draft",
-          customPrompt: input.customPrompt,
+          customPrompt,
+          customVoicemailMessage,
+          aiGenerated,
+          variationNotes,
+          naturalLanguageInput,
+          promptVersion,
           metadata,
           scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
         } as typeof runs.$inferInsert)

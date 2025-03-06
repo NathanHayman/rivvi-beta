@@ -66,6 +66,7 @@
     "@trpc/react-query": "^11.0.0-rc.446",
     "@trpc/server": "^11.0.0-rc.446",
     "@uploadthing/react": "^7.3.0",
+    "@wavesurfer/react": "^1.0.9",
     "ai": "^4.1.47",
     "canvas-confetti": "^1.9.3",
     "class-variance-authority": "^0.7.1",

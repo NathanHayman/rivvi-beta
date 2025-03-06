@@ -12,9 +12,9 @@ import {
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 import { type ColumnDef } from "@tanstack/react-table";
-import { formatDistance } from "date-fns";
+import { format } from "date-fns";
 import {
-  CheckCircle,
+  Check,
   CircleAlert,
   Clock,
   InfoIcon,
@@ -127,12 +127,12 @@ export function CallsTable() {
           <div className="flex items-center gap-2">
             {direction === "inbound" ? (
               <>
-                <PhoneIncoming className="h-4 w-4 text-blue-500" />
+                <PhoneIncoming className="h-5 w-5 fill-yellow-50 text-yellow-500 dark:fill-yellow-400/20 dark:text-yellow-500" />
                 <span>Inbound</span>
               </>
             ) : (
               <>
-                <PhoneOutgoing className="h-4 w-4 text-green-500" />
+                <PhoneOutgoing className="h-5 w-5 fill-violet-50 text-violet-500 dark:fill-violet-400/20 dark:text-violet-500" />
                 <span>Outbound</span>
               </>
             )}
@@ -233,40 +233,37 @@ export function CallsTable() {
           status === "in-progress" && hasAnalysisData ? "completed" : status;
 
         let StatusIcon = Clock;
-        let statusColor = "text-zinc-500";
         let badgeVariant = "neutral_solid" as
           | "neutral_solid"
           | "success_solid"
           | "failure_solid";
 
         if (displayStatus === "completed") {
-          StatusIcon = CheckCircle;
-          statusColor = "text-green-500";
+          StatusIcon = Check;
           badgeVariant = "success_solid";
         } else if (
           displayStatus === "failed" ||
           displayStatus === "no-answer"
         ) {
           StatusIcon = CircleAlert;
-          statusColor = "text-red-500";
           badgeVariant = "failure_solid";
         } else if (displayStatus === "in-progress") {
           StatusIcon = PhoneCall;
-          statusColor = "text-amber-500";
         }
 
         return (
-          <div className="flex items-center gap-2">
-            <StatusIcon className={`h-4 w-4 ${statusColor}`} />
-            <Badge variant={badgeVariant}>
-              {displayStatus === "in-progress"
-                ? "In Progress"
-                : displayStatus === "no-answer"
-                  ? "No Answer"
-                  : displayStatus.charAt(0).toUpperCase() +
-                    displayStatus.slice(1)}
-            </Badge>
-          </div>
+          <Badge
+            variant={badgeVariant}
+            className="flex w-fit items-center gap-1.5"
+          >
+            <StatusIcon className="h-3 w-3" />
+            {displayStatus === "in-progress"
+              ? "In Progress"
+              : displayStatus === "no-answer"
+                ? "No Answer"
+                : displayStatus.charAt(0).toUpperCase() +
+                  displayStatus.slice(1)}
+          </Badge>
         );
       },
     },
@@ -277,7 +274,7 @@ export function CallsTable() {
         const date = new Date(row.original.createdAt);
         return (
           <span className="whitespace-nowrap">
-            {formatDistance(date, new Date(), { addSuffix: true })}
+            {format(date, "MMM d, yyyy h:mm a")}
           </span>
         );
       },
@@ -417,8 +414,8 @@ export function CallsTable() {
       },
     },
     {
-      accessorKey: "mainKpi",
-      header: "Main KPI",
+      accessorKey: "conversion",
+      header: "Conversion",
       cell: ({ row }) => {
         const call = row.original;
         const analysis = call.analysis || {};
@@ -470,11 +467,11 @@ export function CallsTable() {
 
               return (
                 <div className="flex flex-col">
-                  <span className="text-xs text-muted-foreground">{label}</span>
                   <Badge
                     variant={isPositive ? "success_solid" : "neutral_solid"}
+                    className="w-fit"
                   >
-                    {displayValue}
+                    {displayValue} ({label})
                   </Badge>
                 </div>
               );
@@ -554,7 +551,7 @@ export function CallsTable() {
 
   return (
     <div className="space-y-4">
-      <div className="relative rounded-md border">
+      <div className="relative">
         <CallsTableFilters />
         <DataTable
           columns={columns}

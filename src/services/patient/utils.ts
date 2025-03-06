@@ -365,7 +365,8 @@ export class PatientService {
   ): Promise<typeof patients.$inferSelect | null> {
     try {
       // Clean phone input
-      const cleanPhone = phone.replace(/\D/g, "");
+      // const cleanPhone = phone.replace(/\D/g, "");
+      const cleanPhone = phone;
 
       console.log(
         `Finding patient by phone: ${phone} (cleaned: ${cleanPhone})`,

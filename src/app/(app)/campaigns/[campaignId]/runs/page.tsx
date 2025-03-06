@@ -1,4 +1,7 @@
-import { CreateRunModalButton } from "@/components/app/run/create-run-modal-button";
+import {
+  RunCreateForm,
+  RunCreateFormProps,
+} from "@/components/forms/run-create-form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -6,8 +9,10 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
+import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { RunsTable } from "@/components/tables/runs-table";
 import { api } from "@/trpc/server";
+import { Calendar } from "lucide-react";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -26,6 +31,14 @@ export default async function CampaignRunsPage({ params }: PageProps) {
 
   const campaign = await api.campaigns.getById({ id: campaignId });
 
+  const runData: RunCreateFormProps = {
+    campaignId,
+    campaignBasePrompt: campaign?.template.basePrompt,
+    campaignVoicemailMessage: campaign?.template.voicemailMessage,
+    campaignName: campaign?.name,
+    campaignDescription: campaign?.template.description,
+  };
+
   return (
     <AppPage>
       <AppBreadcrumbs
@@ -42,7 +55,14 @@ export default async function CampaignRunsPage({ params }: PageProps) {
         <AppHeader
           className=""
           title={`${campaign?.name || "Campaign"} - Runs`}
-          buttons={<CreateRunModalButton campaignId={campaignId} />}
+          buttons={
+            <TriggerSheet
+              buttonText="Create Run"
+              form={<RunCreateForm {...runData} />}
+              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
+              title="Create Run"
+            />
+          }
         />
         <AppContent>
           <Suspense fallback={<div>Loading...</div>}>

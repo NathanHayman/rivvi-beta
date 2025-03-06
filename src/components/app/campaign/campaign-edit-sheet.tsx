@@ -29,10 +29,8 @@ export function CampaignEditSheet({ campaignId }: CampaignEditSheetProps) {
     !campaignData.id ||
     !campaignData.name ||
     !campaignData.orgId ||
-    !campaignData.agentId ||
-    !campaignData.type ||
-    !campaignData.config ||
-    !campaignData.config.basePrompt
+    !campaignData.template.agentId ||
+    !campaignData.template.basePrompt
   ) {
     console.error("Campaign data is missing required fields", campaignData);
     return null;

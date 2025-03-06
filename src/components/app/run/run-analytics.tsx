@@ -791,13 +791,13 @@ export function RunAnalytics({ runId }: RunAnalyticsProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {data.postCallData && data.postCallData.length > 0 ? (
+              {data.analysis && data.analysis.length > 0 ? (
                 <div className="space-y-6">
                   {/* Group post-call data by field */}
                   {Array.from(
-                    new Set(data.postCallData.map((item) => item.field)),
+                    new Set(data.analysis.map((item) => item.field)),
                   ).map((field, fieldIndex) => {
-                    const fieldItems = data.postCallData.filter(
+                    const fieldItems = data.analysis.filter(
                       (item) => item.field === field,
                     );
                     const totalItems = fieldItems.reduce(

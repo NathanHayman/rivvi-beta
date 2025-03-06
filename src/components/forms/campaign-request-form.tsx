@@ -32,6 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
+import { SheetFooter } from "../ui/sheet";
 import { TagInput } from "../ui/tag-input";
 
 // Define the form schema using zod
@@ -272,8 +273,14 @@ export function CampaignRequestForm({
   return (
     <div className="flex h-full flex-col">
       {/* Progress indicator */}
-      <div className="px-6 pt-4">
-        <div className="mb-2 flex items-center justify-between">
+      <div className="px-6 pt-6">
+        <CampaignRequestStepHelper
+          progress={progress}
+          formSteps={formSteps}
+          currentStep={currentStep}
+          currentStepIndex={currentStepIndex}
+        />
+        {/* <div className="mb-2 flex items-center justify-between">
           <span className="text-sm font-medium">
             Step {currentStepIndex + 1} of {formSteps.length}
           </span>
@@ -281,7 +288,7 @@ export function CampaignRequestForm({
             {currentStep.title}
           </span>
         </div>
-        <Progress value={progress} className="h-2" />
+        <Progress value={progress} className="h-2" /> */}
       </div>
 
       <Form {...form}>
@@ -290,15 +297,8 @@ export function CampaignRequestForm({
           onSubmit={form.handleSubmit(onSubmit)}
         >
           <ScrollArea className="flex-1 px-6 py-4">
-            <div className="mb-6">
-              <h2 className="text-xl font-bold">{currentStep.title}</h2>
-              <p className="text-sm text-muted-foreground">
-                {currentStep.description}
-              </p>
-            </div>
-
             {/* Step content */}
-            <div className="space-y-6">
+            <div className="space-y-6 px-2">
               {/* Step 1: Basics */}
               {currentStep.id === "basics" && (
                 <>
@@ -307,9 +307,7 @@ export function CampaignRequestForm({
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-base font-medium">
-                          Campaign Name
-                        </FormLabel>
+                        <FormLabel className="">Campaign Name</FormLabel>
                         <FormControl>
                           <Input
                             placeholder="e.g., Annual Wellness Visit Reminders"
@@ -332,7 +330,7 @@ export function CampaignRequestForm({
                     name="description"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-base font-medium">
+                        <FormLabel className=" ">
                           Campaign Description
                         </FormLabel>
                         <FormControl>
@@ -361,9 +359,7 @@ export function CampaignRequestForm({
                     name="mainGoal"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-base font-medium">
-                          Main Goal
-                        </FormLabel>
+                        <FormLabel className="">Main Goal</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="What is the primary objective of this campaign? What outcomes are you hoping to achieve?"
@@ -387,7 +383,7 @@ export function CampaignRequestForm({
                     name="desiredAnalysis"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-base font-medium">
+                        <FormLabel className="">
                           Desired Analysis/KPIs
                         </FormLabel>
                         <FormControl>
@@ -416,9 +412,7 @@ export function CampaignRequestForm({
                   name="exampleSheets"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-base font-medium">
-                        Example Data Sheets
-                      </FormLabel>
+                      <FormLabel className="">Example Data Sheets</FormLabel>
                       <div className="space-y-3">
                         {(field.value || []).length > 0 && (
                           <div className="rounded-md border border-border bg-background p-2">
@@ -517,9 +511,7 @@ export function CampaignRequestForm({
                 <div className="space-y-6">
                   <Card>
                     <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-sm font-medium">
-                        Campaign Basics
-                      </CardTitle>
+                      <CardTitle className="">Campaign Basics</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 p-4 pt-0">
                       <div>
@@ -539,9 +531,7 @@ export function CampaignRequestForm({
 
                   <Card>
                     <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-sm font-medium">
-                        Campaign Goals
-                      </CardTitle>
+                      <CardTitle className="">Campaign Goals</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 p-4 pt-0">
                       <div>
@@ -577,9 +567,7 @@ export function CampaignRequestForm({
 
                   <Card>
                     <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-sm font-medium">
-                        Example Data
-                      </CardTitle>
+                      <CardTitle className="">Example Data</CardTitle>
                     </CardHeader>
                     <CardContent className="p-4 pt-0">
                       <div>
@@ -612,9 +600,7 @@ export function CampaignRequestForm({
 
                   <Card className="border bg-accent/40 shadow-none">
                     <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-sm font-medium">
-                        What happens next?
-                      </CardTitle>
+                      <CardTitle className="">What happens next?</CardTitle>
                     </CardHeader>
                     <CardContent className="p-4 pt-0 text-xs text-muted-foreground">
                       <p>
@@ -636,7 +622,7 @@ export function CampaignRequestForm({
           </ScrollArea>
 
           {/* Navigation buttons */}
-          <div className="flex items-center justify-between border-t p-4">
+          <SheetFooter className="flex w-full items-center justify-between border-t p-4">
             <Button
               type="button"
               variant="outline"
@@ -667,9 +653,42 @@ export function CampaignRequestForm({
                 </>
               )}
             </Button>
-          </div>
+          </SheetFooter>
         </form>
       </Form>
     </div>
   );
 }
+
+const CampaignRequestStepHelper = ({
+  progress,
+  formSteps,
+  currentStep,
+  currentStepIndex,
+}: {
+  progress: number;
+  formSteps: FormStep[];
+  currentStep: FormStep;
+  currentStepIndex: number;
+}) => {
+  return (
+    <div className="relative flex w-full flex-col gap-4 overflow-hidden rounded-xl border border-primary/20 bg-primary/5 p-4">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-base font-medium">
+          {currentStepIndex + 1}) {currentStep.title}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {currentStep.description}
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Progress value={progress} className="h-2 bg-primary/20" />
+        <div className="flex items-center justify-end">
+          <p className="text-xs text-muted-foreground">
+            {currentStepIndex + 1} / {formSteps.length}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -503,6 +503,7 @@ export async function updatePromptAndVoicemail(params: {
   naturalLanguageInput?: string;
   generatedPrompt: string;
   generatedVoicemail: string;
+  suggestedRunName: string;
   summary: string;
 }) {
   const {
@@ -513,6 +514,7 @@ export async function updatePromptAndVoicemail(params: {
     generatedPrompt,
     generatedVoicemail,
     summary,
+    suggestedRunName,
   } = params;
 
   try {
@@ -554,7 +556,7 @@ export async function updatePromptAndVoicemail(params: {
     const promptResponse = await fetch(
       `${RETELL_BASE_URL}/update-retell-llm/${template.llmId}`,
       {
-        method: "POST",
+        method: "PATCH",
         headers: {
           Authorization: `Bearer ${env.RETELL_API_KEY}`,
           "Content-Type": "application/json",
@@ -573,7 +575,7 @@ export async function updatePromptAndVoicemail(params: {
     const voicemailResponse = await fetch(
       `${RETELL_BASE_URL}/update-agent/${template.agentId}`,
       {
-        method: "POST",
+        method: "PATCH",
         headers: {
           Authorization: `Bearer ${env.RETELL_API_KEY}`,
           "Content-Type": "application/json",
@@ -601,7 +603,7 @@ export async function updatePromptAndVoicemail(params: {
       ...(generatedVoicemail
         ? { customizedVoicemailMessage: generatedVoicemail }
         : {}),
-      ...(runId === undefined ? { suggestedRunName: "" } : {}),
+      ...(suggestedRunName ? { suggestedRunName } : {}),
       ...(summary ? { changeDescription: summary } : {}),
       ...(userId ? { userId } : {}),
     });
@@ -611,9 +613,18 @@ export async function updatePromptAndVoicemail(params: {
       prompt: generatedPrompt,
       voicemail: generatedVoicemail,
       summary: summary,
-    };
+      suggestedRunName: suggestedRunName,
+    } as TUpdatePromptAndVoicemailResponse;
   } catch (error) {
     console.error("Error updating prompt and voicemail:", error);
     throw error;
   }
 }
+
+export type TUpdatePromptAndVoicemailResponse = {
+  success: boolean;
+  prompt: string;
+  voicemail: string;
+  summary: string;
+  suggestedRunName: string;
+};

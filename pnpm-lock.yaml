@@ -146,6 +146,9 @@ importers:
       '@uploadthing/react':
         specifier: ^7.3.0
         version: 7.3.0(next@15.2.0(@opentelemetry/api@1.9.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(react@19.0.0)(uploadthing@7.5.2(next@15.2.0(@opentelemetry/api@1.9.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0))(tailwindcss@3.4.17(ts-node@10.9.2(@types/node@20.17.19)(typescript@5.7.3))))
+      '@wavesurfer/react':
+        specifier: ^1.0.9
+        version: 1.0.9(react@19.0.0)(wavesurfer.js@7.9.1)
       ai:
         specifier: ^4.1.47
         version: 4.1.47(react@19.0.0)(zod@3.24.2)
@@ -1880,6 +1883,12 @@ packages:
 
   '@uploadthing/shared@7.1.7':
     resolution: {integrity: sha512-VDvGmyHhdwaivC+eee77yZnOVvz59mOmLVbcuYFo4SkoNvPuc3AyPORqJJMBveQivTvELdrQcjlx6IPv98JkSA==}
+
+  '@wavesurfer/react@1.0.9':
+    resolution: {integrity: sha512-HD3x+p48kWITd3tCOA7KG+6zae8btulNjSTdnRmgrtp9/XPzXc61ZCaPgbqT0gioPGhIcvBcpXZAmnhE8lUDBw==}
+    peerDependencies:
+      react: ^18.2.0 || ^19.0.0
+      wavesurfer.js: '>=7.7.14'
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -4039,6 +4048,9 @@ packages:
   victory-vendor@36.9.2:
     resolution: {integrity: sha512-PnpQQMuxlwYdocC8fIJqVXvkeViHYzotI+NJrCuav0ZYFoq912ZHBk3mCeuj+5/VpodOjPe1z0Fk2ihgzlXqjQ==}
 
+  wavesurfer.js@7.9.1:
+    resolution: {integrity: sha512-+pG8X9c9BrfAW8KR54OPzZcAj/57sOL08He/tc6/7Mt6NCX3IfDFwexQxXVTILggGZUOUk7tFKfny32yGrysKA==}
+
   web-streams-polyfill@4.0.0-beta.3:
     resolution: {integrity: sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug==}
     engines: {node: '>= 14'}
@@ -5559,6 +5571,11 @@ snapshots:
       '@uploadthing/mime-types': 0.3.4
       effect: 3.12.0
       sqids: 0.3.0
+
+  '@wavesurfer/react@1.0.9(react@19.0.0)(wavesurfer.js@7.9.1)':
+    dependencies:
+      react: 19.0.0
+      wavesurfer.js: 7.9.1
 
   abort-controller@3.0.0:
     dependencies:
@@ -7845,6 +7862,8 @@ snapshots:
       d3-shape: 3.2.0
       d3-time: 3.1.0
       d3-timer: 3.0.1
+
+  wavesurfer.js@7.9.1: {}
 
   web-streams-polyfill@4.0.0-beta.3: {}
 

@@ -23,20 +23,30 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { updatePromptAndVoicemail } from "@/lib/retell/retell-actions";
 import { cn } from "@/lib/utils";
+import { TGenerateAgentPrompt } from "@/services/ai";
 import { api } from "@/trpc/react";
 import { format } from "date-fns";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../ui/collapsible";
 
 // Define the form schema for creating a run
 const runFormSchema = z.object({
   name: z.string().min(1, "Run name is required"),
-  customPrompt: z.string().optional(),
-  aiDescription: z.string().optional(), // New field for AI input
   file: z.instanceof(File).optional(),
+  variationNotes: z.string().optional(),
+  promptVersion: z.number().optional(),
+  customPrompt: z.string().optional(),
+  customVoicemailMessage: z.string().optional(),
+  naturalLanguageInput: z.string().optional(),
   scheduleForLater: z.boolean().default(false),
   scheduledDate: z.date().optional().nullable(),
   scheduledTime: z.string().optional(),
-  useAiGeneration: z.boolean().default(false),
+  aiGenerated: z.boolean().default(false),
 });
 
 export type RunFormValues = z.infer<typeof runFormSchema>;
@@ -50,6 +60,7 @@ export interface RunCreateFormProps {
   campaignVoicemailMessage?: string;
   campaignName?: string;
   campaignDescription?: string;
+  onFormSuccess?: () => void;
 }
 
 export function RunCreateForm({
@@ -61,6 +72,7 @@ export function RunCreateForm({
   campaignVoicemailMessage = "",
   campaignName = "",
   campaignDescription = "",
+  onFormSuccess,
 }: RunCreateFormProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -82,19 +94,25 @@ export function RunCreateForm({
     defaultValues: {
       name: defaultValues?.name || "",
       customPrompt: defaultValues?.customPrompt || "",
-      aiDescription: "", // Initialize empty
+      naturalLanguageInput: "", // Initialize empty
       scheduleForLater: defaultValues?.scheduleForLater || false,
       scheduledDate: defaultValues?.scheduledDate || null,
       scheduledTime: defaultValues?.scheduledTime || "",
-      useAiGeneration: defaultValues?.useAiGeneration || false,
+      aiGenerated: defaultValues?.aiGenerated || false,
+      promptVersion: defaultValues?.promptVersion || 1,
+      customVoicemailMessage: defaultValues?.customVoicemailMessage || "",
+      variationNotes: defaultValues?.variationNotes || "",
     },
     mode: "onChange",
   });
 
   // Watch form fields for conditional rendering and validation
   const scheduleForLater = form.watch("scheduleForLater");
-  const useAiGeneration = form.watch("useAiGeneration");
+  const aiGenerated = form.watch("aiGenerated");
+  const promptVersion = form.watch("promptVersion");
   const customPrompt = form.watch("customPrompt");
+  const customVoicemailMessage = form.watch("customVoicemailMessage");
+  const naturalLanguageInput = form.watch("naturalLanguageInput");
 
   // tRPC mutations
   const validateDataMutation = api.runs.validateData.useMutation({
@@ -194,9 +212,9 @@ export function RunCreateForm({
   };
 
   // Function to generate prompt using AI
-  const generatePromptFromDescription = useCallback(
-    async (description: string) => {
-      if (!description || isGeneratingPrompt) return;
+  const generateAIPrompt = useCallback(
+    async (userInput: string) => {
+      if (!userInput || isGeneratingPrompt) return;
 
       setIsGeneratingPrompt(true);
 
@@ -210,7 +228,7 @@ export function RunCreateForm({
           body: JSON.stringify({
             basePrompt: campaignBasePrompt,
             baseVoicemailMessage: campaignVoicemailMessage,
-            naturalLanguageInput: description, // Use the user's input
+            naturalLanguageInput: userInput, // Use the user's input
             campaignContext: {
               name: campaignName,
               description: campaignDescription,
@@ -224,14 +242,31 @@ export function RunCreateForm({
         }
 
         // Parse the response
-        const enhancedContent = await response.json();
+        const generatedAgent = (await response.json()) as TGenerateAgentPrompt;
+
+        await updatePromptAndVoicemail({
+          runId: "",
+          userId: "",
+          campaignId,
+          summary: generatedAgent.summary,
+          naturalLanguageInput: userInput,
+          suggestedRunName: generatedAgent.suggestedRunName,
+          generatedPrompt: generatedAgent.newPrompt,
+          generatedVoicemail: generatedAgent.newVoicemailMessage,
+        });
 
         // Update the custom prompt with the generated content
-        form.setValue("customPrompt", enhancedContent.newPrompt);
+        form.setValue("customPrompt", generatedAgent.newPrompt);
+        form.setValue(
+          "customVoicemailMessage",
+          generatedAgent.newVoicemailMessage,
+        );
+        form.setValue("aiGenerated", true);
+        form.setValue("variationNotes", generatedAgent.summary);
 
         // If run name isn't manually set yet, suggest the AI-generated name
         if (!form.getValues("name")) {
-          form.setValue("name", enhancedContent.suggestedRunName);
+          form.setValue("name", generatedAgent.suggestedRunName);
         }
 
         toast.success("Prompt generated successfully!");
@@ -279,11 +314,17 @@ export function RunCreateForm({
         campaignId,
         name: values.name,
         customPrompt: values.customPrompt || undefined,
+        customVoicemailMessage: values.customVoicemailMessage || undefined,
+        variationNotes: values.variationNotes || undefined,
+        naturalLanguageInput: values.naturalLanguageInput || undefined,
+        promptVersion: values.promptVersion || undefined,
+        aiGenerated: values.aiGenerated || undefined,
         ...(scheduledAt ? { scheduledAt } : {}),
-      });
+      } as any);
     } catch (error) {
       console.error("Error submitting form:", error);
       toast.error("Failed to create run");
+      setIsSubmitting(false);
       setIsProcessingFile(false);
     }
   };
@@ -291,7 +332,7 @@ export function RunCreateForm({
   // Handle successful run creation
   const handleSuccess = (runId?: string) => {
     setIsProcessingFile(false);
-
+    setIsSubmitting(false);
     if (onSuccess) {
       onSuccess(runId);
     } else if (runId) {
@@ -327,10 +368,23 @@ export function RunCreateForm({
 
       case 1: // Configure Prompt
         // For AI generation, require either a description or already-generated prompt
-        if (useAiGeneration) {
-          const aiDescription = form.getValues("aiDescription");
+        if (aiGenerated) {
+          const naturalLanguageInput = form.getValues("naturalLanguageInput");
           const customPrompt = form.getValues("customPrompt");
-          return !!aiDescription || !!customPrompt;
+          const customVoicemailMessage = form.getValues(
+            "customVoicemailMessage",
+          );
+          const promptVersion = form.getValues("promptVersion");
+          const aiGenerated = form.getValues("aiGenerated");
+          const variationNotes = form.getValues("variationNotes");
+          return (
+            !!naturalLanguageInput ||
+            !!customPrompt ||
+            !!customVoicemailMessage ||
+            !!promptVersion ||
+            !!aiGenerated ||
+            !!variationNotes
+          );
         }
         // For manual prompt, allow proceeding even with empty prompt (will use campaign default)
         return true;
@@ -354,13 +408,8 @@ export function RunCreateForm({
   };
 
   return (
-    <div className="mx-auto max-w-[500px]">
+    <div className="mx-auto max-w-[600px] p-4">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold">Create New Run</h2>
-        <p className="text-sm text-muted-foreground">
-          Start a new run to make calls for this campaign.
-        </p>
-
         {/* Step indicator */}
         <div className="mt-4">
           <div className="flex items-center justify-between">
@@ -368,7 +417,7 @@ export function RunCreateForm({
               <div key={index} className="flex flex-col items-center">
                 <div
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full border text-xs font-medium",
+                    "flex h-6 w-6 items-center justify-center rounded-full border text-xs font-medium",
                     currentStep === index
                       ? "border-primary bg-primary text-primary-foreground"
                       : currentStep > index
@@ -485,7 +534,7 @@ export function RunCreateForm({
               {/* AI Prompt Generation Toggle */}
               <FormField
                 control={form.control}
-                name="useAiGeneration"
+                name="aiGenerated"
                 render={({ field }) => (
                   <FormItem className="rounded-md border p-4">
                     <div className="flex items-center justify-between">
@@ -509,10 +558,10 @@ export function RunCreateForm({
               />
 
               {/* AI Description Input - Only shown when useAiGeneration is true */}
-              {useAiGeneration && (
+              {aiGenerated && (
                 <FormField
                   control={form.control}
-                  name="aiDescription"
+                  name="naturalLanguageInput"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Describe what you want the AI to do</FormLabel>
@@ -530,9 +579,7 @@ export function RunCreateForm({
                       <Button
                         type="button"
                         className="mt-2"
-                        onClick={() =>
-                          generatePromptFromDescription(field.value)
-                        }
+                        onClick={() => generateAIPrompt(field.value)}
                         disabled={isGeneratingPrompt || !field.value}
                       >
                         {isGeneratingPrompt ? (
@@ -549,42 +596,45 @@ export function RunCreateForm({
                 />
               )}
 
-              {/* REMOVE: Custom Prompt */}
-              <FormField
-                control={form.control}
-                name="customPrompt"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Custom Prompt</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder={
-                          useAiGeneration
-                            ? "AI-generated prompt will appear here"
-                            : "Enter a custom prompt or leave blank to use the campaign's default"
-                        }
-                        className="min-h-[120px] resize-none"
-                        {...field}
-                        readOnly={isGeneratingPrompt}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {useAiGeneration
-                        ? "This prompt was generated by AI based on your description"
-                        : "Your custom prompt will be combined with the base prompt"}
-                    </FormDescription>
-                    <FormMessage />
+              <div className="space-y-2">
+                {form.getValues("variationNotes") ? (
+                  <div className="rounded-md bg-muted p-4">
+                    <h4 className="mb-2 font-medium">Changes Made to Prompt</h4>
+                    <p className="text-sm">
+                      {form.getValues("variationNotes")}
+                    </p>
 
-                    {/* Generating indicator */}
-                    {isGeneratingPrompt && (
-                      <div className="mt-2 flex items-center text-sm text-muted-foreground">
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        Generating prompt...
+                    {form.getValues("naturalLanguageInput") && (
+                      <div className="mt-3 border-t pt-3">
+                        <h5 className="text-sm font-medium">
+                          Requested Changes:
+                        </h5>
+                        <p className="text-sm text-muted-foreground">
+                          "{form.getValues("naturalLanguageInput")}"
+                        </p>
                       </div>
                     )}
-                  </FormItem>
+
+                    {/* Collapsible section for the full prompt */}
+                    <Collapsible className="mt-3">
+                      <CollapsibleTrigger className="text-xs text-blue-500 hover:underline">
+                        Show full prompt
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs">
+                          {form.getValues("customPrompt")}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    {form.getValues("customPrompt")
+                      ? "Using custom prompt"
+                      : "Using default campaign prompt"}
+                  </div>
                 )}
-              />
+              </div>
             </div>
           )}
 

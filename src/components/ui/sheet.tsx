@@ -32,7 +32,7 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  "fixed rounded-2xl z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  "fixed rounded-2xl z-50 gap-4 bg-background shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
   {
     variants: {
       side: {
@@ -77,11 +77,13 @@ SheetContent.displayName = SheetPrimitive.Content.displayName;
 
 const SheetHeader = ({
   className,
+  hasBorder = true,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
+}: React.HTMLAttributes<HTMLDivElement> & { hasBorder?: boolean }) => (
   <div
     className={cn(
-      "flex flex-col space-y-2 text-center sm:text-left",
+      "flex flex-col space-y-2 rounded-t-2xl bg-accent/50 p-4 py-2 text-center sm:text-left lg:p-6",
+      hasBorder && "border-y border-border/50",
       className,
     )}
     {...props}
@@ -91,17 +93,27 @@ SheetHeader.displayName = "SheetHeader";
 
 const SheetFooter = ({
   className,
+  hasBorder = true,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
+}: React.HTMLAttributes<HTMLDivElement> & { hasBorder?: boolean }) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "flex flex-col-reverse rounded-b-2xl bg-accent/50 p-4 py-2 sm:flex-row sm:justify-end sm:space-x-2 lg:p-6 lg:py-4",
+      hasBorder && "border-y border-border/50",
       className,
     )}
     {...props}
   />
 );
 SheetFooter.displayName = "SheetFooter";
+
+const SheetBody = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("p-4 py-2 lg:p-6 lg:py-4", className)} {...props} />
+);
+SheetBody.displayName = "SheetBody";
 
 const SheetTitle = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Title>,
@@ -129,6 +141,7 @@ SheetDescription.displayName = SheetPrimitive.Description.displayName;
 
 export {
   Sheet,
+  SheetBody,
   SheetClose,
   SheetContent,
   SheetDescription,

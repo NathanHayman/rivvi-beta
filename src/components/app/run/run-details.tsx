@@ -16,9 +16,7 @@ import {
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,8 +29,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRunEvents } from "@/hooks/use-pusher";
-import { api } from "@/trpc/react";
+import { useRun } from "@/hooks/use-runs";
 import { TCampaign, TRun } from "@/types/db";
 import { RunRowsTable } from "../../tables/run-rows-table";
 
@@ -41,9 +38,44 @@ type RunDetailsProps = {
   campaign: TCampaign;
 };
 
-export function RunDetails({ run, campaign }: RunDetailsProps) {
-  const router = useRouter();
+type RunMetadata = {
+  run?: {
+    startTime?: string;
+    duration?: number;
+  };
+  rows?: {
+    total: number;
+    invalid: number;
+  };
+  calls?: {
+    total: number;
+    completed: number;
+    failed: number;
+    calling: number;
+    pending: number;
+    voicemail: number;
+    connected: number;
+    converted: number;
+  };
+};
+
+export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   const [activeTab, setActiveTab] = useState("overview");
+
+  // Use the useRun hook for real-time updates and actions
+  const {
+    run: updatedRun,
+    startRun,
+    pauseRun,
+    isStartingRun,
+    isPausingRun,
+  } = useRun(initialRun.id);
+
+  // Use the most up-to-date run data, falling back to the initial data if needed
+  const run = updatedRun || initialRun;
+
+  // Type-safe metadata
+  const metadata = run.metadata as RunMetadata;
 
   // Optimistic state updates
   const [optimisticStatus, setOptimisticStatus] = useState<string | null>(null);
@@ -51,55 +83,19 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
   // Get the actual status (optimistic or real)
   const status = optimisticStatus || run.status;
 
-  // tRPC mutations
-  const startRunMutation = api.runs.start.useMutation({
-    onSuccess: () => {
-      toast.success("Run started successfully");
-      router.refresh();
-    },
-    onError: (error) => {
-      toast.error(`Error starting run: ${error.message}`);
-      setOptimisticStatus(null);
-    },
-  });
-
-  const pauseRunMutation = api.runs.pause.useMutation({
-    onSuccess: () => {
-      toast.success("Run paused successfully");
-      router.refresh();
-    },
-    onError: (error) => {
-      toast.error(`Error pausing run: ${error.message}`);
-      setOptimisticStatus(null);
-    },
-  });
-
-  // Real-time updates with Pusher
-  useRunEvents(run.id, {
-    onCallStarted: () => {
-      router.refresh();
-    },
-    onCallCompleted: () => {
-      router.refresh();
-    },
-    onMetricsUpdated: () => {
-      router.refresh();
-    },
-  });
-
   // Calculate stats
-  const totalRows = run.metadata?.rows?.total || 0;
-  const invalidRows = run.metadata?.rows?.invalid || 0;
+  const totalRows = metadata?.rows?.total || 0;
+  const invalidRows = metadata?.rows?.invalid || 0;
   const validRows = totalRows - invalidRows;
 
-  const totalCalls = run.metadata?.calls?.total || 0;
-  const completedCalls = run.metadata?.calls?.completed || 0;
-  const failedCalls = run.metadata?.calls?.failed || 0;
-  const callingCalls = run.metadata?.calls?.calling || 0;
-  const pendingCalls = run.metadata?.calls?.pending || 0;
-  const voicemailCalls = run.metadata?.calls?.voicemail || 0;
-  const connectedCalls = run.metadata?.calls?.connected || 0;
-  const convertedCalls = run.metadata?.calls?.converted || 0;
+  const totalCalls = metadata?.calls?.total || 0;
+  const completedCalls = metadata?.calls?.completed || 0;
+  const failedCalls = metadata?.calls?.failed || 0;
+  const callingCalls = metadata?.calls?.calling || 0;
+  const pendingCalls = metadata?.calls?.pending || 0;
+  const voicemailCalls = metadata?.calls?.voicemail || 0;
+  const connectedCalls = metadata?.calls?.connected || 0;
+  const convertedCalls = metadata?.calls?.converted || 0;
 
   const callProgress =
     totalCalls > 0
@@ -119,17 +115,23 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
   // Handle start run
   const handleStartRun = async () => {
     setOptimisticStatus("running");
-    await startRunMutation.mutateAsync({ runId: run.id });
+    const success = await startRun();
+    if (!success) {
+      setOptimisticStatus(null);
+    }
   };
 
   // Handle pause run
   const handlePauseRun = async () => {
     setOptimisticStatus("paused");
-    await pauseRunMutation.mutateAsync({ runId: run.id });
+    const success = await pauseRun();
+    if (!success) {
+      setOptimisticStatus(null);
+    }
   };
 
   // Loading state
-  const isLoading = startRunMutation.isPending || pauseRunMutation.isPending;
+  const isLoading = isStartingRun || isPausingRun;
 
   // Get the appropriate status badge variant
   const getStatusBadgeVariant = (status: string) => {
@@ -181,15 +183,13 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
             {formatDistance(new Date(run.createdAt), new Date(), {
               addSuffix: true,
             })}
-            {run.metadata?.run?.startTime && (
+            {metadata?.run?.startTime && (
               <>
                 {" "}
                 • Started{" "}
-                {formatDistance(
-                  new Date(run.metadata.run.startTime),
-                  new Date(),
-                  { addSuffix: true },
-                )}
+                {formatDistance(new Date(metadata.run.startTime), new Date(), {
+                  addSuffix: true,
+                })}
               </>
             )}
           </p>
@@ -211,7 +211,7 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
               onClick={handleStartRun}
               disabled={isLoading}
             >
-              {isLoading && startRunMutation.isPending ? (
+              {isLoading && isStartingRun ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
                 <PlayCircle className="mr-1.5 h-4 w-4" />
@@ -227,7 +227,7 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
               onClick={handlePauseRun}
               disabled={isLoading}
             >
-              {isLoading && pauseRunMutation.isPending ? (
+              {isLoading && isPausingRun ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
                 <PauseCircle className="mr-1.5 h-4 w-4" />
@@ -365,12 +365,12 @@ export function RunDetails({ run, campaign }: RunDetailsProps) {
                   </div>
                 )}
 
-                {run.metadata?.run?.duration !== undefined && (
+                {metadata?.run?.duration !== undefined && (
                   <div className="flex items-center justify-between">
                     <p className="text-sm">Run Duration</p>
                     <p className="text-sm font-medium">
-                      {Math.floor(run.metadata.run.duration / 60)} min{" "}
-                      {run.metadata.run.duration % 60} sec
+                      {Math.floor(metadata.run.duration / 60)} min{" "}
+                      {metadata.run.duration % 60} sec
                     </p>
                   </div>
                 )}

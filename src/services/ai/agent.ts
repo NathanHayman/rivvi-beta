@@ -99,7 +99,7 @@ Please enhance both the conversation prompt and voicemail message by incorporati
       model: anthropic("claude-3-7-sonnet-20250219"),
       system: systemPrompt,
       prompt: userPrompt,
-      temperature: 0.7,
+      temperature: 0.4,
       maxTokens: 4000,
       schema: z.object({
         newPrompt: z.string().min(10),

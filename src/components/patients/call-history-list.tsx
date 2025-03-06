@@ -65,7 +65,7 @@ export function CallHistoryList({ patientId, limit }: CallHistoryListProps) {
                 )}
               </div>
               <p className="text-sm">
-                {typeof call.analysis?.summary === "string"
+                {typeof call?.analysis?.summary === "string"
                   ? call.analysis.summary
                   : "No summary available"}
               </p>

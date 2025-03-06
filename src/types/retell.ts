@@ -14,12 +14,12 @@ export type RetellPostCallObjectRaw = {
   public_log_url: string;
   disconnection_reason: string;
   metadata: Record<string, string>;
+  transcript: string;
   call_analysis: {
     call_summary: string;
     in_voicemail: boolean;
     user_sentiment: string;
     call_successful: boolean;
-    transcript: string;
     custom_analysis_data: Record<
       string,
       | string
@@ -67,19 +67,18 @@ export type RetellInboundWebhookPayload = {
   agent_id: string;
   to_number: string;
   from_number: string;
-  llm_id: string;
 };
 
 export type RetellInboundWebhookResponse = {
   status: "success" | "error" | "pending" | "warning" | "partial_success";
-  message: string;
-  error: string | null;
+  message?: string;
+  error?: string | null;
   call_inbound: {
-    override_agent_id: string | null;
+    override_agent_id?: string | null;
     dynamic_variables: Record<
       string,
       string | boolean | number | null | undefined
     >;
+    metadata: Record<string, string | boolean | number | null | undefined>;
   };
-  metadata: Record<string, string | boolean | number | null | undefined>;
 };
