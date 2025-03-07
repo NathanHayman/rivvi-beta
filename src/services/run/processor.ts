@@ -12,6 +12,7 @@ import {
 import { createId } from "@paralleldrive/cuid2";
 import { toZonedTime } from "date-fns-tz";
 import { and, asc, desc, eq, lt, or, sql } from "drizzle-orm";
+import { isMinor } from "../patient";
 
 type DatabaseClient = typeof import("@/server/db").db;
 
@@ -894,6 +895,10 @@ export class RunProcessor {
             const callVariables = {
               // Base variables from row
               ...row.variables,
+
+              is_minor: row.variables.dob
+                ? isMinor(row.variables.dob as string)
+                : false,
 
               // Add run-specific variables
               custom_prompt: run.customPrompt || undefined,

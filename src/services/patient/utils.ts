@@ -35,6 +35,12 @@ type PatientResult = {
   metadata?: Record<string, unknown>;
 };
 
+export function isMinor(dob: string): boolean {
+  const dobDate = new Date(dob);
+  const today = new Date();
+  const age = today.getFullYear() - dobDate.getFullYear();
+  return age < 18;
+}
 export class PatientService {
   private db: DatabaseClient;
 

@@ -596,7 +596,7 @@ export function RunCreateForm({
                 />
               )}
 
-              <div className="space-y-2">
+              <div className="space-y-2 hidden">
                 {form.getValues("variationNotes") ? (
                   <div className="rounded-md bg-muted p-4">
                     <h4 className="mb-2 font-medium">Changes Made to Prompt</h4>
