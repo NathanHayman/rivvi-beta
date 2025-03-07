@@ -1,38 +1,25 @@
+// src/app/(app)/campaigns/[campaignId]/page.tsx
 import { CampaignDetails } from "@/components/app/campaign/campaign-details";
-import { RunCreateFormProps } from "@/components/forms/run-create-form";
 import {
   AppBody,
   AppBreadcrumbs,
   AppContent,
   AppPage,
 } from "@/components/layout/shell";
-import { api } from "@/trpc/server";
-import { Metadata } from "next";
+import { getCampaign } from "@/server/actions/campaigns";
 import { Suspense } from "react";
 
-export const metadata: Metadata = {
-  title: "Campaign Details - Rivvi",
-  description:
-    "Campaign details for Rivvi's human-like conversational AI for healthcare.",
-};
-
-type PageProps = {
-  params: Promise<{ campaignId: string }>;
-};
+interface PageProps {
+  params: {
+    campaignId: string;
+  };
+}
 
 export default async function CampaignPage({ params }: PageProps) {
-  const { campaignId } = await params;
+  const { campaignId } = params;
 
-  // Fetch campaign data from the server
-  const campaign = await api.campaigns.getById({ id: campaignId });
-
-  const runData: RunCreateFormProps = {
-    campaignId,
-    campaignBasePrompt: campaign?.template.basePrompt,
-    campaignVoicemailMessage: campaign?.template.voicemailMessage,
-    campaignName: campaign?.name,
-    campaignDescription: campaign?.template.description,
-  };
+  // Server-side data fetching
+  const campaign = await getCampaign(campaignId);
 
   return (
     <AppPage>
@@ -48,14 +35,21 @@ export default async function CampaignPage({ params }: PageProps) {
       <AppBody maxWidth="max-w-screen-xl">
         <AppContent className="space-y-10">
           <Suspense fallback={<div>Loading...</div>}>
-            <CampaignDetails
-              campaignId={campaignId}
-              initialData={campaign}
-              runData={runData}
-            />
+            <CampaignDetails campaignId={campaignId} initialData={campaign} />
           </Suspense>
         </AppContent>
       </AppBody>
     </AppPage>
   );
 }
+
+/**
+ *   
+ * const runData: RunCreateFormProps = {
+    campaignId,
+    campaignBasePrompt: campaign?.template.basePrompt,
+    campaignVoicemailMessage: campaign?.template.voicemailMessage,
+    campaignName: campaign?.name,
+    campaignDescription: campaign?.template.description,
+  };
+ */

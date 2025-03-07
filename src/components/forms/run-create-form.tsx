@@ -25,8 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { updatePromptAndVoicemail } from "@/lib/retell/retell-actions";
 import { cn } from "@/lib/utils";
-import { TGenerateAgentPrompt } from "@/services/ai";
-import { api } from "@/trpc/react";
+import { TGenerateAgentPrompt } from "@/services/out/ai";
 import { format } from "date-fns";
 import {
   Collapsible,
@@ -596,7 +595,7 @@ export function RunCreateForm({
                 />
               )}
 
-              <div className="space-y-2 hidden">
+              <div className="hidden space-y-2">
                 {form.getValues("variationNotes") ? (
                   <div className="rounded-md bg-muted p-4">
                     <h4 className="mb-2 font-medium">Changes Made to Prompt</h4>

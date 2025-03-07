@@ -3,7 +3,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/trpc/react";
 import { TCall } from "@/types/db";
 import { format } from "date-fns";
 import { useState } from "react";

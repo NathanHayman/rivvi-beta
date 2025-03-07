@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/trpc/react";
 import { addDays, format } from "date-fns";
 
 // Define state shape and action types for reducer
@@ -151,59 +150,60 @@ export function CreateRunModal({
   const router = useRouter();
   const [state, dispatch] = useReducer(runCreationReducer, initialState);
 
-  // tRPC mutations with improved error handling
-  const createRunMutation = api.runs.create.useMutation({
-    onSuccess: (data) => {
-      router.push(`/campaigns/${campaignId}/runs/${data?.id}`);
-      onOpenChange(false);
-      toast.success("Run created successfully");
-      dispatch({ type: "RESET_FORM" });
-    },
-    onError: (error) => {
-      toast.error(`Error creating run: ${error.message}`);
-      // Set specific error based on the error message
-      if (error.message.includes("name")) {
-        dispatch({
-          type: "SET_ERROR",
-          payload: { field: "runName", message: "Invalid run name" },
-        });
-      }
-    },
-  });
-
-  const uploadFileMutation = api.runs.uploadFile.useMutation({
-    onSuccess: (data) => {
-      toast.success(
-        `File processed successfully: ${data.rowsAdded} rows added`,
-      );
-      if (data.invalidRows > 0) {
-        toast.warning(`${data.invalidRows} rows had validation issues`);
-      }
-    },
-    onError: (error) => {
-      toast.error(`Error processing file: ${error.message}`);
-      dispatch({
-        type: "SET_ERROR",
-        payload: { field: "file", message: "File processing failed" },
-      });
-    },
-  });
-
-  const validateDataMutation = api.runs.validateData.useMutation({
-    onSuccess: (data) => {
-      dispatch({ type: "SET_PROCESSED_DATA", payload: data });
-      dispatch({ type: "SET_PROCESSING", payload: false });
-      dispatch({ type: "SET_STEP", payload: "review" });
-    },
-    onError: (error) => {
-      dispatch({ type: "SET_PROCESSING", payload: false });
-      toast.error(`Error validating data: ${error.message}`);
-      dispatch({
-        type: "SET_ERROR",
-        payload: { field: "file", message: error.message },
-      });
-    },
-  });
+  // TODO: Use the new implementation (tRPC is removed)
+  // // tRPC mutations with improved error handling
+  // const createRunMutation = api.runs.create.useMutation({
+  //   onSuccess: (data) => {
+  //     router.push(`/campaigns/${campaignId}/runs/${data?.id}`);
+  //     onOpenChange(false);
+  //     toast.success("Run created successfully");
+  //     dispatch({ type: "RESET_FORM" });
+  //   },
+  //   onError: (error) => {
+  //     toast.error(`Error creating run: ${error.message}`);
+  //     // Set specific error based on the error message
+  //     if (error.message.includes("name")) {
+  //       dispatch({
+  //         type: "SET_ERROR",
+  //         payload: { field: "runName", message: "Invalid run name" },
+  //       });
+  //     }
+  //   },
+  // });
+  // TODO: Use the new implementation (tRPC is removed)
+  // const uploadFileMutation = api.runs.uploadFile.useMutation({
+  //   onSuccess: (data) => {
+  //     toast.success(
+  //       `File processed successfully: ${data.rowsAdded} rows added`,
+  //     );
+  //     if (data.invalidRows > 0) {
+  //       toast.warning(`${data.invalidRows} rows had validation issues`);
+  //     }
+  //   },
+  //   onError: (error) => {
+  //     toast.error(`Error processing file: ${error.message}`);
+  //     dispatch({
+  //       type: "SET_ERROR",
+  //       payload: { field: "file", message: "File processing failed" },
+  //     });
+  //   },
+  // });
+  // TODO: Use the new implementation (tRPC is removed)
+  // const validateDataMutation = api.runs.validateData.useMutation({
+  //   onSuccess: (data) => {
+  //     dispatch({ type: "SET_PROCESSED_DATA", payload: data });
+  //     dispatch({ type: "SET_PROCESSING", payload: false });
+  //     dispatch({ type: "SET_STEP", payload: "review" });
+  //   },
+  //   onError: (error) => {
+  //     dispatch({ type: "SET_PROCESSING", payload: false });
+  //     toast.error(`Error validating data: ${error.message}`);
+  //     dispatch({
+  //       type: "SET_ERROR",
+  //       payload: { field: "file", message: error.message },
+  //     });
+  //   },
+  // });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -292,7 +292,7 @@ export function CreateRunModal({
 
     return isValid;
   };
-
+  // TODO: Use the new implementation (tRPC is removed)
   const processFile = useCallback(async () => {
     // Validate form first
     if (!validateForm()) {
@@ -337,6 +337,7 @@ export function CreateRunModal({
     }
   }, [state.file, state.runName, campaignId, validateDataMutation]);
 
+  // TODO: Use the new implementation (tRPC is removed)
   const handleCreateRun = async () => {
     try {
       // Final validation check

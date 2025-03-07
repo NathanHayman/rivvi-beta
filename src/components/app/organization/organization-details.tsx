@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/trpc/react";
 import { Edit, Phone, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -12,15 +11,18 @@ interface OrganizationDetailsProps {
   organizationId: string;
 }
 
-export function OrganizationDetails({ organizationId }: OrganizationDetailsProps) {
+export function OrganizationDetails({
+  organizationId,
+}: OrganizationDetailsProps) {
   const router = useRouter();
   const { data: organization, isLoading } = api.organizations.getById.useQuery({
     id: organizationId,
   });
 
-  const { data: members, isLoading: isLoadingMembers } = api.organizations.getMembers.useQuery({
-    organizationId,
-  });
+  const { data: members, isLoading: isLoadingMembers } =
+    api.organizations.getMembers.useQuery({
+      organizationId,
+    });
 
   if (isLoading) {
     return <OrganizationDetailsSkeleton />;
@@ -44,7 +46,8 @@ export function OrganizationDetails({ organizationId }: OrganizationDetailsProps
   };
 
   const formatOfficeHours = (day: string) => {
-    const hours = organization.officeHours?.[day as keyof typeof organization.officeHours];
+    const hours =
+      organization.officeHours?.[day as keyof typeof organization.officeHours];
     if (!hours) return "Closed";
     return `${hours.start} - ${hours.end}`;
   };
@@ -62,22 +65,30 @@ export function OrganizationDetails({ organizationId }: OrganizationDetailsProps
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 md:grid-cols-2 lg:grid-cols-3">
             <div>
-              <h3 className="text-sm font-medium text-muted-foreground">Name</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Name
+              </h3>
               <p className="mt-1">{organization.name}</p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-muted-foreground">Clerk ID</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Clerk ID
+              </h3>
               <p className="mt-1 font-mono text-sm">{organization.clerkId}</p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-muted-foreground">Phone</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Phone
+              </h3>
               <p className="mt-1 flex items-center gap-1">
                 <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                 {organization.phone || "Not set"}
               </p>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-muted-foreground">Timezone</h3>
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Timezone
+              </h3>
               <p className="mt-1">{organization.timezone || "Not set"}</p>
             </div>
             <div>
@@ -102,31 +113,45 @@ export function OrganizationDetails({ organizationId }: OrganizationDetailsProps
             <h3 className="text-sm font-medium">Office Hours</h3>
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Monday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Monday
+                </span>
                 <p className="text-sm">{formatOfficeHours("monday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Tuesday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Tuesday
+                </span>
                 <p className="text-sm">{formatOfficeHours("tuesday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Wednesday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Wednesday
+                </span>
                 <p className="text-sm">{formatOfficeHours("wednesday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Thursday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Thursday
+                </span>
                 <p className="text-sm">{formatOfficeHours("thursday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Friday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Friday
+                </span>
                 <p className="text-sm">{formatOfficeHours("friday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Saturday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Saturday
+                </span>
                 <p className="text-sm">{formatOfficeHours("saturday")}</p>
               </div>
               <div className="rounded-md border p-2">
-                <span className="text-xs font-medium text-muted-foreground">Sunday</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Sunday
+                </span>
                 <p className="text-sm">{formatOfficeHours("sunday")}</p>
               </div>
             </div>
@@ -160,8 +185,10 @@ export function OrganizationDetails({ organizationId }: OrganizationDetailsProps
                       <p className="font-medium">
                         {member.firstName} {member.lastName}
                       </p>
-                      <p className="text-sm text-muted-foreground">{member.email}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
+                      <p className="text-sm text-muted-foreground">
+                        {member.email}
+                      </p>
+                      <p className="text-xs capitalize text-muted-foreground">
                         {member.role}
                       </p>
                     </div>
@@ -175,7 +202,9 @@ export function OrganizationDetails({ organizationId }: OrganizationDetailsProps
               )}
             </div>
           ) : (
-            <p className="text-center text-muted-foreground">No members found.</p>
+            <p className="text-center text-muted-foreground">
+              No members found.
+            </p>
           )}
         </CardContent>
       </Card>

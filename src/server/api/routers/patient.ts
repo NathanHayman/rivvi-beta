@@ -2,7 +2,7 @@
 import { createTRPCRouter, orgProcedure } from "@/server/api/trpc";
 import { db } from "@/server/db";
 import { calls, organizationPatients, patients } from "@/server/db/schema";
-import { PatientService } from "@/services/patient";
+import { PatientService } from "@/services/out/patient";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";

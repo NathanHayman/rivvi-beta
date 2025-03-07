@@ -5,11 +5,14 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 
 import { SidebarInset } from "@/components/ui/sidebar";
 import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { Suspense } from "react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <SuperAdminWidget />
+      <Suspense fallback={null}>
+        <SuperAdminWidget />
+      </Suspense>
       <SidebarProvider>
         <AppSidebar>
           <UserButton />

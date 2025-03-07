@@ -11,7 +11,7 @@ import {
   patients,
   runs,
 } from "@/server/db/schema";
-import { CallAnalytics } from "@/services/call";
+import { CallAnalytics } from "@/services/out/call";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";

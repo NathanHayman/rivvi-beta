@@ -1,6 +1,5 @@
 "use client";
 
-import { api } from "@/trpc/react";
 import {
   BarChart3,
   Loader2,

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatPhoneDisplay } from "@/lib/format-utils";
-import { api } from "@/trpc/react";
 import { format } from "date-fns";
 import {
   CheckCircle2,

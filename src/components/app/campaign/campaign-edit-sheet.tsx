@@ -2,7 +2,6 @@
 
 import { CampaignEditForm } from "@/components/forms/campaign-edit-form";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
-import { api } from "@/trpc/react";
 import { TCampaign } from "@/types/db";
 import { Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";

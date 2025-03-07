@@ -138,7 +138,7 @@ async function handleUserCreated(data: any) {
         firstName: first_name,
         lastName: last_name,
         updatedAt: new Date(),
-      })
+      } as Partial<typeof users.$inferInsert>)
       .where(eq(users.clerkId, id));
     return;
   }
@@ -149,7 +149,7 @@ async function handleUserCreated(data: any) {
     email,
     firstName: first_name,
     lastName: last_name,
-  });
+  } as typeof users.$inferInsert);
 
   console.log(`User ${id} created`);
 }
@@ -181,7 +181,6 @@ async function handleUserUpdated(data: any) {
   if (email) updateData.email = email;
   if (first_name !== undefined) updateData.firstName = first_name;
   if (last_name !== undefined) updateData.lastName = last_name;
-
   // Only update if we have data to update
   if (Object.keys(updateData).length > 1) {
     await db.update(users).set(updateData).where(eq(users.clerkId, id));
@@ -225,7 +224,7 @@ async function handleOrganizationCreated(data: any) {
       .set({
         name,
         updatedAt: new Date(),
-      })
+      } as Partial<typeof organizations.$inferInsert>)
       .where(eq(organizations.clerkId, id));
     return;
   }
@@ -238,7 +237,7 @@ async function handleOrganizationCreated(data: any) {
     timezone: "America/New_York",
     concurrentCallLimit: 20,
     isSuperAdmin: false,
-  });
+  } as typeof organizations.$inferInsert);
 
   console.log(`Organization ${id} created`);
 }
@@ -316,7 +315,7 @@ async function handleOrganizationMembershipCreated(data: any) {
     .set({
       orgId: org.id,
       updatedAt: new Date(),
-    })
+    } as Partial<typeof users.$inferInsert>)
     .where(eq(users.id, user.id));
 
   console.log(`User ${clerkUserId} added to organization ${clerkOrgId}`);
@@ -350,7 +349,7 @@ async function handleOrganizationMembershipDeleted(data: any) {
     .set({
       orgId: null,
       updatedAt: new Date(),
-    })
+    } as Partial<typeof users.$inferInsert>)
     .where(eq(users.id, user.id));
 
   console.log(`User ${clerkUserId} removed from organization ${clerkOrgId}`);

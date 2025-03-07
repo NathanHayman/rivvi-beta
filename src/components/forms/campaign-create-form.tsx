@@ -34,7 +34,6 @@ import {
   convertPostCallToAnalysisFields,
   getAgentComplete,
 } from "@/lib/retell/retell-client-safe";
-import { api } from "@/trpc/react";
 import { Badge } from "../ui/badge";
 import { SheetFooter } from "../ui/sheet";
 

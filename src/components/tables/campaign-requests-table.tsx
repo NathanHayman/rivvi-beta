@@ -62,7 +62,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/trpc/react";
 import { TCampaignRequest } from "@/types/db";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";

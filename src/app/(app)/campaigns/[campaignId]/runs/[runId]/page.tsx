@@ -1,3 +1,4 @@
+// src/app/(app)/campaigns/[campaignId]/runs/[runId]/page.tsx
 import { RunDetails } from "@/components/app/run/run-details";
 import {
   AppBody,
@@ -5,25 +6,24 @@ import {
   AppContent,
   AppPage,
 } from "@/components/layout/shell";
-import { api } from "@/trpc/server";
-import { Metadata } from "next";
+import { getCampaign } from "@/server/actions/campaigns";
+import { getRun } from "@/server/actions/runs";
 
-export const metadata: Metadata = {
-  title: "Run Details - Rivvi",
-  description:
-    "Run details for Rivvi's human-like conversational AI for healthcare.",
-};
-
-type PageProps = {
-  params: Promise<{ campaignId: string; runId: string }>;
-};
+interface PageProps {
+  params: {
+    campaignId: string;
+    runId: string;
+  };
+}
 
 export default async function RunPage({ params }: PageProps) {
-  const { campaignId, runId } = await params;
+  const { campaignId, runId } = params;
 
-  // Fetch campaign and run data from the server
-  const campaign = await api.campaigns.getById({ id: campaignId });
-  const run = await api.runs.getById({ id: runId });
+  // Fetch campaign and run data in parallel
+  const [campaign, run] = await Promise.all([
+    getCampaign(campaignId),
+    getRun(runId),
+  ]);
 
   return (
     <AppPage>
@@ -43,25 +43,7 @@ export default async function RunPage({ params }: PageProps) {
       />
       <AppBody>
         <AppContent>
-          {run && campaign && (
-            <RunDetails
-              run={{
-                id: run.id,
-                name: run.name,
-                status: run.status,
-                customPrompt: run.customPrompt,
-                scheduledAt: run.scheduledAt || undefined,
-                metadata: run.metadata || {},
-                createdAt: run.createdAt,
-                updatedAt: run.updatedAt || run.createdAt,
-              }}
-              campaign={{
-                id: campaign.id,
-                name: campaign.name,
-                direction: campaign.direction,
-              }}
-            />
-          )}
+          {run && campaign && <RunDetails run={run} campaign={campaign} />}
         </AppContent>
       </AppBody>
     </AppPage>

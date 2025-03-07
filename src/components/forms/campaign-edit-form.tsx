@@ -23,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { env } from "@/env";
 import { updateCampaignWithWebhooks } from "@/lib/retell/retell-actions";
 import { updateAgentWebhooks } from "@/lib/retell/retell-client-safe";
-import { api } from "@/trpc/react";
 import type { TCampaign } from "@/types/db";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";

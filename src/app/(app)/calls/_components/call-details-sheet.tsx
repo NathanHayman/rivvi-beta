@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/trpc/react";
 import type { TCall } from "@/types/db";
 import { format } from "date-fns";
 import {

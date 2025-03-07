@@ -8,8 +8,8 @@ import {
   rows,
   runs,
 } from "@/server/db/schema";
-import { CallProcessor } from "@/services/call";
-import { parseFileContent, processExcelFile } from "@/services/file";
+import { CallProcessor } from "@/services/out/call";
+import { parseFileContent, processExcelFile } from "@/services/out/file";
 import { TCampaignTemplate } from "@/types/db";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, sql } from "drizzle-orm";

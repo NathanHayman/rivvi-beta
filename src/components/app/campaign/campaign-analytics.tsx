@@ -13,7 +13,6 @@ import {
 import { BarChart } from "@/components/ui/charts/bar-chart";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/trpc/react";
 import {
   CalendarDays,
   CheckCircle,

@@ -1,5 +1,5 @@
 {
-  "name": "t3",
+  "name": "rivvi",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -62,10 +62,6 @@
     "@tanstack/react-query-devtools": "^5.66.9",
     "@tanstack/react-query-next-experimental": "^5.66.9",
     "@tanstack/react-table": "^8.21.2",
-    "@trpc/client": "^11.0.0-rc.446",
-    "@trpc/react-query": "^11.0.0-rc.446",
-    "@trpc/server": "^11.0.0-rc.446",
-    "@uploadthing/react": "^7.3.0",
     "@wavesurfer/react": "^1.0.9",
     "ai": "^4.1.47",
     "canvas-confetti": "^1.9.3",

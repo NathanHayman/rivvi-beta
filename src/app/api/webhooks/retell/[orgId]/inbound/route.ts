@@ -1,5 +1,5 @@
 // src/app/api/webhooks/retell/[orgId]/inbound/route.ts
-import { handleInboundWebhook } from "@/services/call";
+import { handleInboundWebhook } from "@/services/out/call";
 
 export const maxDuration = 10; // 10 seconds timeout matching Retell's timeout
 

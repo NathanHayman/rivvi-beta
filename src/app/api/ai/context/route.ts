@@ -1,4 +1,4 @@
-import { generateContextInstructions } from "@/services/ai";
+import { generateContextInstructions } from "@/services/out/ai";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 

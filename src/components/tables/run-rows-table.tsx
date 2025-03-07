@@ -49,7 +49,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRun, useRunRows } from "@/hooks/use-runs";
-import { formatPhoneDisplay } from "@/services/file/utils";
+import { formatPhoneDisplay } from "@/services/out/file/utils";
 import Link from "next/link";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";

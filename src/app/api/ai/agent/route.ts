@@ -1,4 +1,4 @@
-import { generateAgentPrompt } from "@/services/ai";
+import { generateAgentPrompt } from "@/services/out/ai";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 

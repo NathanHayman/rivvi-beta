@@ -3,14 +3,12 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { api } from "@/trpc/react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import {
@@ -23,10 +21,8 @@ import {
   PhoneOutgoing,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { CallsTableFilters } from "./calls-table-filters";
 
+import { CallsTableFilters } from "./calls-table-filters";
 // Define the call type based on the schema
 type Call = {
   id: string;
@@ -80,41 +76,97 @@ type Call = {
   analysis?: Record<string, any>;
 };
 
-export function CallsTable() {
-  const searchParams = useSearchParams();
+import { DataTable } from "@/components/ui/data-table";
+import { useCalls } from "@/hooks/calls/use-calls";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useDebounce } from "use-debounce";
+
+interface CallsTableProps {
+  initialData: {
+    calls: any[];
+    totalCount: number;
+    hasMore: boolean;
+  };
+  callIdToView?: string;
+}
+
+export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const [page, setPage] = useState(0);
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(
+    callIdToView || null,
+  );
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 50,
+  });
+  const [filters, setFilters] = useState({
+    status: undefined,
+    direction: undefined,
+  });
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebounce(searchQuery, 500);
 
-  // Get filter values from the URL
-  const statusFilter =
-    (searchParams.get("status") as Call["status"] | "all") || "all";
-  const directionFilter =
-    (searchParams.get("direction") as Call["direction"] | "all") || "all";
-
-  // Reset pagination when filters change
-  useEffect(() => {
-    setPage(0);
-  }, [statusFilter, directionFilter]);
-
-  // Fetch calls data
-  const { data, isLoading } = api.calls.getAll.useQuery({
-    limit: 50,
-    offset: page * 50,
-    status: statusFilter !== "all" ? statusFilter : undefined,
-    direction: directionFilter !== "all" ? directionFilter : undefined,
+  // Client-side data fetching with React Query
+  const { data, isLoading } = useCalls({
+    limit: pagination.pageSize,
+    offset: pagination.pageIndex * pagination.pageSize,
+    ...filters,
+    search: debouncedSearch || undefined,
   });
 
-  // Handle call row click to open call details
-  const handleCallRowClick = (callId: string) => {
-    // Create new search params with current filters plus the callId
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("callId", callId);
+  // Handle row click to view call details
+  const handleRowClick = (callId: string) => {
+    // Update URL without triggering navigation
+    const url = new URL(window.location.href);
+    url.searchParams.set("callId", callId);
+    router.replace(url.pathname + url.search);
 
-    // Update URL to include callId which will open the sheet
-    router.push(`${pathname}?${params.toString()}`);
+    setSelectedCallId(callId);
   };
+
+  // Handle closing the details sheet
+  const handleSheetClose = () => {
+    setSelectedCallId(null);
+
+    // Remove callId from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete("callId");
+    router.replace(url.pathname + url.search);
+  };
+
+  // Update URL when pagination or filters change
+  useEffect(() => {
+    const url = new URL(window.location.href);
+
+    // Set pagination params
+    url.searchParams.set("limit", pagination.pageSize.toString());
+    url.searchParams.set(
+      "offset",
+      (pagination.pageIndex * pagination.pageSize).toString(),
+    );
+
+    // Set filter params
+    if (filters.status) {
+      url.searchParams.set("status", filters.status);
+    } else {
+      url.searchParams.delete("status");
+    }
+
+    if (filters.direction) {
+      url.searchParams.set("direction", filters.direction);
+    } else {
+      url.searchParams.delete("direction");
+    }
+
+    // Preserve callId if present
+    if (selectedCallId) {
+      url.searchParams.set("callId", selectedCallId);
+    }
+
+    router.replace(url.pathname + url.search);
+  }, [pagination, filters]);
 
   // Define columns for the data table
   const columns: ColumnDef<Call>[] = [
@@ -559,11 +611,15 @@ export function CallsTable() {
           isLoading={isLoading}
           pagination={{
             hasNextPage: data?.hasMore || false,
-            onNextPage: () => setPage(page + 1),
+            onNextPage: () =>
+              setPagination({
+                pageIndex: pagination.pageIndex + 1,
+                pageSize: pagination.pageSize,
+              }),
           }}
           searchable={true}
           onSearch={setSearchQuery}
-          onRowClick={(row) => handleCallRowClick(row.id)}
+          onRowClick={(row) => handleRowClick(row.id)}
         />
       </div>
 

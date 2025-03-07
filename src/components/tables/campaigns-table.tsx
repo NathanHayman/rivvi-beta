@@ -39,7 +39,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api } from "@/trpc/react";
 import { CreateRunModal } from "../app/run/create-run-modal";
 
 interface Campaign {

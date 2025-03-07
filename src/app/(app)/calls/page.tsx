@@ -5,7 +5,6 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { HydrateClient } from "@/trpc/server";
 import { Metadata } from "next";
 import { Suspense } from "react";
 import { CallDetailsSheet } from "./_components/call-details-sheet";
@@ -18,22 +17,26 @@ export const metadata: Metadata = {
 
 export default async function Calls() {
   return (
-    <HydrateClient>
-      <AppPage>
-        <AppBreadcrumbs breadcrumbs={[{ title: "Calls", href: "/calls" }]} />
-        <AppBody>
-          <AppHeader
-            title="Calls"
-            subtitle="View and manage all inbound and outbound calls"
-          />
-          <AppContent className="h-full space-y-4">
-            <Suspense fallback={<div>Loading...</div>}>
-              <CallsTable />
-            </Suspense>
-            <CallDetailsSheet />
-          </AppContent>
-        </AppBody>
-      </AppPage>
-    </HydrateClient>
+    <AppPage>
+      <AppBreadcrumbs breadcrumbs={[{ title: "Calls", href: "/calls" }]} />
+      <AppBody>
+        <AppHeader
+          title="Calls"
+          subtitle="View and manage all inbound and outbound calls"
+        />
+        <AppContent className="h-full space-y-4">
+          <Suspense fallback={<div>Loading...</div>}>
+            <CallsTable
+              initialData={{
+                calls: [],
+                totalCount: 0,
+                hasMore: false,
+              }}
+            />
+          </Suspense>
+          <CallDetailsSheet />
+        </AppContent>
+      </AppBody>
+    </AppPage>
   );
 }

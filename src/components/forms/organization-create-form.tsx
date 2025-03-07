@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/trpc/react";
 
 // Define timezone options
 export const TIMEZONES = [

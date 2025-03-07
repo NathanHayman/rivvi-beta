@@ -1,5 +1,4 @@
 import type { Config } from "tailwindcss";
-import { withUt } from "uploadthing/tw";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const svgToDataUri = require("mini-svg-data-uri");
@@ -385,4 +384,4 @@ function addVariablesForColors({ addBase, theme }: any) {
   });
 }
 
-export default withUt(config);
+export default config;
