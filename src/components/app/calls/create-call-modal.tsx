@@ -11,8 +11,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useOrg } from "@/hooks/use-org";
-import { createCall } from "@/server/actions/calls/create";
+import { useCurrentOrganization } from "@/hooks/organizations/use-organization";
+import { createManualCall } from "@/server/actions/calls";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ export function CreateCallModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const { org } = useOrg();
+  const { data: org } = useCurrentOrganization();
   const router = useRouter();
 
   const handlePatientSelect = (patient: any) => {
@@ -33,7 +33,7 @@ export function CreateCallModal() {
 
     try {
       setIsCreating(true);
-      const call = await createCall({
+      const call = await createManualCall({
         patientId: selectedPatient.id,
         agentId: "default", // Use default agent or provide a dropdown to select
       });

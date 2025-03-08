@@ -70,14 +70,3 @@ export default async function CampaignPage({ params }: PageProps) {
     </AppPage>
   );
 }
-
-/**
- *   
- * const runData: RunCreateFormProps = {
-    campaignId,
-    campaignBasePrompt: campaign?.template.basePrompt,
-    campaignVoicemailMessage: campaign?.template.voicemailMessage,
-    campaignName: campaign?.name,
-    campaignDescription: campaign?.template.description,
-  };
- */

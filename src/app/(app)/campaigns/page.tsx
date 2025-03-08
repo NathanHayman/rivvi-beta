@@ -8,6 +8,7 @@ import {
 } from "@/components/layout/shell";
 import { CampaignsTable } from "@/components/tables/campaigns-table";
 import { buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { isError } from "@/lib/service-result";
 import { cn } from "@/lib/utils";
 import { getAllCampaignsForOrg } from "@/server/actions/campaigns";
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   description: "Calls for Rivvi's human-like conversational AI for healthcare.",
 };
 
-export default async function Campaigns() {
+async function CampaignsData() {
   const campaignsResult = await getAllCampaignsForOrg();
 
   if (isError(campaignsResult)) {
@@ -35,6 +36,15 @@ export default async function Campaigns() {
     createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
   }));
 
+  return (
+    <CampaignsTable
+      initialCampaigns={formattedCampaigns}
+      totalCount={formattedCampaigns.length}
+    />
+  );
+}
+
+export default async function Campaigns() {
   return (
     <AppPage>
       <AppBreadcrumbs breadcrumbs={[{ title: "Campaigns", href: "/" }]} />
@@ -53,11 +63,12 @@ export default async function Campaigns() {
           ]}
         />
         <AppContent className="h-full">
-          <Suspense fallback={<div>Loading...</div>}>
-            <CampaignsTable
-              initialCampaigns={formattedCampaigns}
-              totalCount={formattedCampaigns.length}
-            />
+          <Suspense
+            fallback={
+              <Skeleton className="h-[25vh] w-full animate-pulse rounded-xl bg-muted" />
+            }
+          >
+            <CampaignsData />
           </Suspense>
         </AppContent>
       </AppBody>

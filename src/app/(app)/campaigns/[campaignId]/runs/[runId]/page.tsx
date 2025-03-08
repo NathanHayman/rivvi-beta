@@ -8,16 +8,32 @@ import {
 } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { getRun } from "@/server/actions/runs";
+import { Suspense } from "react";
 
 interface PageProps {
-  params: {
+  params: Promise<{
     campaignId: string;
     runId: string;
-  };
+  }>;
+}
+
+async function RunDetailsData({
+  campaignId,
+  runId,
+}: {
+  campaignId: string;
+  runId: string;
+}) {
+  const [campaign, run] = await Promise.all([
+    getCampaignById(campaignId),
+    getRun(runId),
+  ]);
+
+  return <RunDetails run={run as any} campaign={campaign as any} />;
 }
 
 export default async function RunPage({ params }: PageProps) {
-  const { campaignId, runId } = params;
+  const { campaignId, runId } = await params;
 
   // Fetch campaign and run data in parallel
   const [campaign, run] = await Promise.all([
@@ -43,9 +59,9 @@ export default async function RunPage({ params }: PageProps) {
       />
       <AppBody>
         <AppContent>
-          {run && campaign && (
-            <RunDetails run={run as any} campaign={campaign as any} />
-          )}
+          <Suspense fallback={<div>Loading...</div>}>
+            <RunDetailsData campaignId={campaignId} runId={runId} />
+          </Suspense>
         </AppContent>
       </AppBody>
     </AppPage>
