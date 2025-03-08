@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
@@ -30,6 +30,11 @@ import {
 } from "@/components/ui/select";
 import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  useAdminAgents,
+  useAdminOrganizations,
+  useCreateCampaign,
+} from "@/hooks/use-admin";
 import {
   convertPostCallToAnalysisFields,
   getAgentComplete,
@@ -128,9 +133,13 @@ export function CampaignCreateForm({
   const [webhooksConfigured, setWebhooksConfigured] = useState(false);
   const [isVerifyingAgent, setIsVerifyingAgent] = useState(false);
 
-  const { data: agents } = api.admin.getAgents.useQuery();
-  const { data: organizations } =
-    api.admin.getOrganizationsIdsAndNames.useQuery();
+  // Use the custom hooks for admin data
+  const { data: agents } = useAdminAgents();
+  const { data: organizations } = useAdminOrganizations();
+
+  // Use the createCampaign mutation
+  const { mutateAsync: createCampaign, isPending: isCreating } =
+    useCreateCampaign();
 
   // Setup form with default values
   const form = useForm<CampaignFormValues>({
@@ -335,75 +344,59 @@ export function CampaignCreateForm({
     remove: removeCampaignAnalysisField,
   } = useFieldArray({ control: form.control, name: "campaignAnalysisFields" });
 
-  // Create campaign mutation
-  const createCampaignMutation = api.admin.createCampaign.useMutation({
-    onSuccess: (data) => {
-      toast.success("Campaign created successfully");
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        router.refresh();
-      }
-    },
-    onError: (error) => {
-      // Check for specific database schema errors
-      if (
-        error.message.includes("llm_id") &&
-        error.message.includes("does not exist")
-      ) {
-        toast.error(
-          "Database schema issue: LLM ID column is missing. Please contact your administrator.",
-        );
-      } else {
-        toast.error(`Error creating campaign: ${error.message}`);
-      }
-    },
-  });
-
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
-    try {
-      // Create template configuration structure that matches the schema
-      const variablesConfig = {
-        patient: {
-          fields: values.patientFields,
-          validation: values.patientValidation,
+    // Convert the form values to the API format
+    const campaignData = {
+      name: values.name,
+      description: values.description,
+      orgId: values.orgId,
+      direction: values.direction,
+      config: {
+        agentId: values.agentId,
+        llmId: values.llmId,
+        basePrompt: values.basePrompt,
+        voicemailMessage: values.voicemailMessage,
+        variables: {
+          patient: {
+            fields: values.patientFields,
+          },
+          campaign: {
+            fields: values.campaignFields,
+          },
         },
-        campaign: {
-          fields: values.campaignFields,
+        validation: values.patientValidation,
+        analysis: {
+          standard: {
+            fields: values.standardAnalysisFields,
+          },
+          campaign: {
+            fields: values.campaignAnalysisFields,
+          },
         },
-      };
+        webhooks: values.configureWebhooks
+          ? {
+              inbound: values.webhookUrls?.inbound,
+              postCall: values.webhookUrls?.postCall,
+            }
+          : undefined,
+      },
+      requestId: values.requestId,
+    };
 
-      const analysisConfig = {
-        standard: {
-          fields: values.standardAnalysisFields,
-        },
-        campaign: {
-          fields: values.campaignAnalysisFields,
-        },
-      };
-
-      // Create payload for API call that follows new schema structure
-      const payload = {
-        name: values.name,
-        description: values.description || "",
-        orgId: values.orgId || "",
-        agentId: values.agentId || "",
-        llmId: values.llmId || "",
-        direction: values.direction as "inbound" | "outbound",
-        basePrompt: values.basePrompt || "",
-        voicemailMessage: values.voicemailMessage || "",
-        variablesConfig,
-        analysisConfig,
-        requestId: values.requestId,
-        configureWebhooks: values.configureWebhooks,
-      };
-
-      createCampaignMutation.mutate(payload);
-    } catch (error) {
-      console.error("Error submitting form:", error);
-      toast.error("An unexpected error occurred. Please try again.");
-    }
+    // Submit the campaign data
+    createCampaign(campaignData)
+      .then((response) => {
+        toast.success("Campaign created successfully");
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          router.push(`/admin/campaigns/${response.id}`);
+        }
+      })
+      .catch((error) => {
+        toast.error(`Failed to create campaign: ${error.message}`);
+      });
   };
 
   // Handle navigating between steps
@@ -1744,39 +1737,30 @@ export function CampaignCreateForm({
           </div>
         </ScrollArea>
 
-        <SheetFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={prevStep}
-            disabled={step === 0}
-          >
-            Previous
-          </Button>
-
-          <div className="flex items-center gap-2">
-            {step < steps.length - 1 ? (
-              <Button type="button" onClick={nextStep} className="bg-primary">
-                Next
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                disabled={createCampaignMutation.isPending}
-                className="bg-primary"
-              >
-                {createCampaignMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  "Create Campaign"
-                )}
-              </Button>
-            )}
-          </div>
+        <SheetFooter className="flex justify-between">
+          {step > 0 ? (
+            <Button type="button" variant="outline" onClick={prevStep}>
+              Previous
+            </Button>
+          ) : (
+            <div />
+          )}
+          {step < steps.length - 1 ? (
+            <Button type="button" onClick={nextStep}>
+              Next
+            </Button>
+          ) : (
+            <Button type="submit" disabled={isCreating}>
+              {isCreating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Campaign"
+              )}
+            </Button>
+          )}
         </SheetFooter>
       </form>
     </Form>

@@ -19,7 +19,7 @@ import {
   MoreHorizontal,
   RefreshCw,
 } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge, BadgeProps } from "@/components/ui/badge";
@@ -39,9 +39,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CreateRunModal } from "../app/run/create-run-modal";
+import { useCampaigns } from "@/hooks/campaigns/use-campaigns";
+// import { CreateRunModal } from "../app/run/create-run-modal";
 
-interface Campaign {
+export interface Campaign {
   id: string;
   name: string;
   direction: string;
@@ -51,13 +52,20 @@ interface Campaign {
   callCount?: number;
 }
 
+interface CampaignsTableProps {
+  initialCampaigns?: Campaign[];
+  totalCount?: number;
+}
+
 const removeInboundCampaigns = (campaigns: Campaign[]) => {
   return campaigns.filter((campaign) => campaign.direction !== "inbound");
 };
 
-export function CampaignsTable() {
+export function CampaignsTable({
+  initialCampaigns,
+  totalCount: initialTotalCount,
+}: CampaignsTableProps = {}) {
   const router = useRouter();
-  const pathname = usePathname();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     null,
@@ -69,34 +77,21 @@ export function CampaignsTable() {
     pageSize: 10,
   });
 
-  const isAdmin = pathname.includes("/admin");
-
-  // Get campaigns data
+  // Get campaigns data using the custom hook if no initialCampaigns provided
   const {
-    data: allData,
+    campaigns: hookCampaigns,
+    totalCount: hookTotalCount,
     isLoading,
     refetch,
-  } = api.campaigns.getAll.useQuery({
-    limit: pagination.pageSize,
-    offset: pagination.pageIndex * pagination.pageSize,
-  });
+  } = useCampaigns(pagination.pageSize);
 
-  // Map API response to Campaign interface first
-  const campaignsData: Campaign[] = (allData?.campaigns || []).map(
-    (campaign) => ({
-      id: campaign.id || "",
-      name: campaign.name || "",
-      direction: campaign.direction || "",
-      agentId: (campaign.config as any)?.agentId || campaign.templateId || "",
-      createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
-      // Use optional chaining for properties that might not exist in the API response
-      runCount: (campaign as any).runCount,
-      callCount: (campaign as any).callCount,
-    }),
-  );
+  // Use either the provided campaigns or the ones from the hook
+  const allCampaigns: Campaign[] = initialCampaigns || hookCampaigns || [];
+  const totalCount =
+    initialTotalCount !== undefined ? initialTotalCount : hookTotalCount;
 
   // Then filter out inbound campaigns
-  const data = removeInboundCampaigns(campaignsData);
+  const data = removeInboundCampaigns(allCampaigns);
 
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -254,9 +249,7 @@ export function CampaignsTable() {
       pagination,
     },
     manualPagination: true,
-    pageCount: allData
-      ? Math.ceil(allData.totalCount / pagination.pageSize)
-      : 0,
+    pageCount: totalCount ? Math.ceil(totalCount / pagination.pageSize) : 0,
   });
 
   return (
@@ -274,7 +267,7 @@ export function CampaignsTable() {
             size="sm"
             className="h-9 px-2"
             onClick={() => {
-              void refetch();
+              void refetch?.();
             }}
           >
             <RefreshCw className="h-4 w-4" />
@@ -302,7 +295,7 @@ export function CampaignsTable() {
             ))}
           </TableHeader>
           <TableBody>
-            {isLoading ? (
+            {isLoading && !initialCampaigns ? (
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
@@ -348,8 +341,8 @@ export function CampaignsTable() {
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of{" "}
-          {allData?.totalCount || 0} campaigns
+          Showing {table.getRowModel().rows.length} of {totalCount || 0}{" "}
+          campaigns
         </div>
         <div className="flex items-center space-x-2">
           <Button
@@ -377,13 +370,13 @@ export function CampaignsTable() {
         </div>
       </div>
 
-      {selectedCampaignId && (
+      {/* {selectedCampaignId && (
         <CreateRunModal
           campaignId={selectedCampaignId}
           open={isCreateRunModalOpen}
           onOpenChange={setIsCreateRunModalOpen}
         />
-      )}
+      )} */}
     </div>
   );
 }

@@ -517,63 +517,68 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
     ...outcomeAndActionsColumns,
   ];
 
-  // Create table
+  // Create a table instance
   const table = useReactTable({
-    data: rows || [],
-    columns: columns as any,
+    data: rows,
+    columns: baseColumns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    onPaginationChange: setPagination,
     state: {
-      pagination,
+      pagination: {
+        pageIndex: pagination.pageIndex,
+        pageSize: pagination.pageSize,
+      },
     },
+    onPaginationChange: setPagination,
     manualPagination: true,
     pageCount: paginationData?.totalPages || 0,
   });
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Input
-          placeholder="Search..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-xs"
-        />
-
-        <Select
-          value={filter || "all"}
-          onValueChange={(value) => setFilter(value as RowStatus | undefined)}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Filter status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="calling">Calling</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="skipped">Skipped</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void refetch()}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
+      <div className="flex items-center justify-between">
+        <div className="flex w-full max-w-sm items-center space-x-2">
+          <Input
+            placeholder="Search rows..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-9"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 px-2"
+            onClick={() => {
+              void refetch();
+            }}
+          >
             <RefreshCw className="h-4 w-4" />
-          )}
-          <span className="ml-1.5">Refresh</span>
-        </Button>
+            <span className="sr-only">Refresh</span>
+          </Button>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Select
+            value={filter || "all"}
+            onValueChange={(value) =>
+              setFilter(value === "all" ? undefined : value)
+            }
+          >
+            <SelectTrigger className="h-9 w-[180px]">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="calling">Calling</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="skipped">Skipped</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div className="">
+      <div className="rounded-md border">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -595,16 +600,25 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={baseColumns.length}
                   className="h-24 text-center"
                 >
                   <div className="flex items-center justify-center">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading rows...
+                    Loading...
                   </div>
                 </TableCell>
               </TableRow>
-            ) : table.getRowModel().rows?.length ? (
+            ) : rows.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={baseColumns.length}
+                  className="h-24 text-center"
+                >
+                  No rows found
+                </TableCell>
+              </TableRow>
+            ) : (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
@@ -620,52 +634,82 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
                   ))}
                 </TableRow>
               ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
-                  No rows found.
-                </TableCell>
-              </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          {counts && paginationData ? (
-            <>
-              Showing {table.getRowModel().rows.length} of{" "}
-              {paginationData.totalCount} rows • {counts.pending || 0} pending,{" "}
-              {counts.calling || 0} calling, {counts.completed || 0} completed,{" "}
-              {counts.failed || 0} failed
-            </>
-          ) : null}
+      {paginationData && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            Showing {rows.length} of {paginationData.totalItems} rows
+          </div>
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-2">
+              <p className="text-sm font-medium">Rows per page</p>
+              <Select
+                value={pagination.pageSize.toString()}
+                onValueChange={(value) => {
+                  setPagination({
+                    ...pagination,
+                    pageIndex: 0,
+                    pageSize: Number(value),
+                  });
+                }}
+              >
+                <SelectTrigger className="h-8 w-[70px]">
+                  <SelectValue placeholder={pagination.pageSize.toString()} />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 30, 40, 50].map((pageSize) => (
+                    <SelectItem key={pageSize} value={pageSize.toString()}>
+                      {pageSize}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPagination({
+                    ...pagination,
+                    pageIndex: Math.max(0, pagination.pageIndex - 1),
+                  });
+                }}
+                disabled={pagination.pageIndex === 0}
+              >
+                Previous
+              </Button>
+              <div className="text-sm font-medium">
+                Page {pagination.pageIndex + 1} of{" "}
+                {paginationData.totalPages || 1}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setPagination({
+                    ...pagination,
+                    pageIndex: Math.min(
+                      paginationData.totalPages - 1,
+                      pagination.pageIndex + 1,
+                    ),
+                  });
+                }}
+                disabled={
+                  pagination.pageIndex === paginationData.totalPages - 1 ||
+                  paginationData.totalPages === 0
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

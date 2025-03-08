@@ -4,46 +4,52 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { getPatients } from "@/server/actions/patients";
 import { formatPhoneDisplay } from "@/services/out/file/utils";
+import { PatientWithMetadata } from "@/types/api/patients";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // Define the patient type based on the database schema
-interface Patient {
-  id: string;
-  firstName: string;
-  lastName: string;
-  dob: string;
-  isMinor: boolean | null;
-  primaryPhone: string;
-  secondaryPhone: string | null;
-  patientHash: string;
-  emrIdInOrg?: string | null;
-  callCount?: number;
-  createdAt: string | Date;
-  updatedAt?: string | Date;
-  externalIds?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-}
+type Patient = PatientWithMetadata;
 
 export function PatientsTable() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const LIMIT = 20;
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
 
-  // Fetch patients using tRPC
-  const { data, isLoading, isFetching, refetch } = api.patients.getAll.useQuery(
-    {
-      limit: LIMIT,
-      offset: page * LIMIT,
-      search: search.length > 0 ? search : undefined,
-    },
-  );
+  // Fetch patients using server action
+  const fetchPatients = useCallback(async () => {
+    try {
+      setIsFetching(true);
+      const data = await getPatients({
+        limit: LIMIT,
+        offset: page * LIMIT,
+        search: search.length > 0 ? search : undefined,
+      });
 
-  // Calculate if there's a next page
-  const hasNextPage = data?.hasMore ?? false;
+      setPatients((prev) =>
+        page === 0 ? data.patients : [...prev, ...data.patients],
+      );
+      setHasMore(data.hasMore);
+    } catch (error) {
+      console.error("Error fetching patients:", error);
+    } finally {
+      setIsLoading(false);
+      setIsFetching(false);
+    }
+  }, [page, search, LIMIT]);
+
+  // Initial fetch and when dependencies change
+  useEffect(() => {
+    fetchPatients();
+  }, [fetchPatients]);
 
   // Load more handler
   const handleLoadMore = () => {
@@ -142,14 +148,14 @@ export function PatientsTable() {
   return (
     <DataTable
       columns={columns}
-      data={(data?.patients || []) as Patient[]}
+      data={patients}
       searchable
       onSearch={setSearch}
       isLoading={isLoading || isFetching}
       pagination={
-        hasNextPage
+        hasMore
           ? {
-              hasNextPage,
+              hasNextPage: hasMore,
               onNextPage: handleLoadMore,
             }
           : undefined

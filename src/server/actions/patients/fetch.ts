@@ -3,7 +3,10 @@
 
 import { requireOrg } from "@/lib/auth/auth-utils";
 import { isError } from "@/lib/service-result";
-import { getPatientsSchema } from "@/lib/validation/patients";
+import {
+  getPatientsSchema,
+  searchPatientsSchema,
+} from "@/lib/validation/patients";
 import { patientService } from "@/services/patients";
 
 export async function getPatients(params = {}) {
@@ -35,4 +38,25 @@ export async function getPatient(id: string) {
   }
 
   return result.data;
+}
+
+export async function searchPatients(params: unknown) {
+  const { orgId } = await requireOrg();
+  const validated = searchPatientsSchema.parse(params);
+
+  // Use the existing patientService.getAll method with search parameters
+  const result = await patientService.getAll({
+    ...validated,
+    orgId,
+    search: validated.query,
+  });
+
+  if (isError(result)) {
+    throw new Error(result.error.message);
+  }
+
+  return {
+    patients: result.data.patients,
+    total: result.data.totalCount,
+  };
 }

@@ -6,7 +6,7 @@ import {
   AppContent,
   AppPage,
 } from "@/components/layout/shell";
-import { getCampaign } from "@/server/actions/campaigns";
+import { getCampaignById } from "@/server/actions/campaigns";
 import { getRun } from "@/server/actions/runs";
 
 interface PageProps {
@@ -21,7 +21,7 @@ export default async function RunPage({ params }: PageProps) {
 
   // Fetch campaign and run data in parallel
   const [campaign, run] = await Promise.all([
-    getCampaign(campaignId),
+    getCampaignById(campaignId),
     getRun(runId),
   ]);
 
@@ -31,7 +31,7 @@ export default async function RunPage({ params }: PageProps) {
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
           {
-            title: campaign?.name || "Campaign",
+            title: campaign?.campaign?.name || "Campaign",
             href: `/campaigns/${campaignId}`,
           },
           { title: "Runs", href: `/campaigns/${campaignId}/runs` },
@@ -43,7 +43,9 @@ export default async function RunPage({ params }: PageProps) {
       />
       <AppBody>
         <AppContent>
-          {run && campaign && <RunDetails run={run} campaign={campaign} />}
+          {run && campaign && (
+            <RunDetails run={run as any} campaign={campaign as any} />
+          )}
         </AppContent>
       </AppBody>
     </AppPage>

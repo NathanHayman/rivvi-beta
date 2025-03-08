@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { TCampaign } from "@/types/db";
+import { ZCampaignWithTemplate } from "@/types/zod";
 import { format, formatDistance } from "date-fns";
 import {
   Activity,
@@ -26,47 +26,50 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CreateRunModal } from "../run/create-run-modal";
+// import { CreateRunModal } from "../run/create-run-modal";
+
+type RecentRun = {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  metadata?: {
+    calls?: {
+      total: number;
+      completed: number;
+      failed: number;
+    };
+  };
+};
 
 export function CampaignDetails({
   campaignId,
   initialData,
-  runData,
+  initialRecentRuns = [],
+  isSuperAdmin = false,
 }: {
   campaignId: string;
-  initialData: TCampaign;
-  runData: RunCreateFormProps;
+  initialData: ZCampaignWithTemplate;
+  initialRecentRuns?: RecentRun[];
+  isSuperAdmin?: boolean;
 }) {
   const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const router = useRouter();
+  const [fullCampaign] = useState<ZCampaignWithTemplate>(initialData);
+  const [recentRuns] = useState<RecentRun[]>(initialRecentRuns);
 
-  // Check if the user is a super admin
-  const { data: superAdminCheck } = api.organizations.isSuperAdmin.useQuery();
-  const isSuperAdmin = superAdminCheck === true;
-
-  const { data: campaign } = api.campaigns.getById.useQuery(
-    { id: campaignId },
-    {
-      initialData: initialData ? { ...initialData } : (undefined as any),
-      refetchOnWindowFocus: false,
-    },
-  );
-
-  const { data: recentRuns } = api.campaigns.getRecentRuns.useQuery(
-    { campaignId, limit: 5 },
-    { refetchOnWindowFocus: false },
-  );
-
-  if (!campaign) {
-    return (
-      <div className="flex h-40 w-full items-center justify-center">
-        <div className="text-muted-foreground">Loading campaign details...</div>
-      </div>
-    );
-  }
+  // Prepare run data for the create run form
+  const runData: RunCreateFormProps = {
+    campaignId,
+    campaignBasePrompt: fullCampaign?.template?.basePrompt,
+    campaignVoicemailMessage: fullCampaign?.template?.voicemailMessage,
+    campaignName: fullCampaign?.campaign?.name,
+    campaignDescription: fullCampaign?.template?.description,
+  };
 
   const campaignTypeColor =
-    campaign.direction === "inbound" || campaign.direction === "outbound"
+    fullCampaign?.campaign?.direction === "inbound" ||
+    fullCampaign?.campaign?.direction === "outbound"
       ? "violet_solid"
       : "yellow_solid";
 
@@ -75,9 +78,11 @@ export function CampaignDetails({
       <div className="flex flex-col space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold">{campaign.name}</h2>
-            <Badge variant={campaignTypeColor}>{campaign.direction}</Badge>
-            {!campaign.isActive && (
+            <h2 className="text-2xl font-bold">{fullCampaign.campaign.name}</h2>
+            <Badge variant={campaignTypeColor}>
+              {fullCampaign.campaign.direction}
+            </Badge>
+            {!fullCampaign.campaign.isActive && (
               <Badge variant="neutral_solid">Inactive</Badge>
             )}
           </div>
@@ -111,9 +116,13 @@ export function CampaignDetails({
         </div>
         <p className="text-sm text-muted-foreground">
           Created{" "}
-          {formatDistance(new Date(campaign.createdAt), new Date(), {
-            addSuffix: true,
-          })}
+          {formatDistance(
+            new Date(fullCampaign.campaign.createdAt),
+            new Date(),
+            {
+              addSuffix: true,
+            },
+          )}
         </p>
       </div>
 
@@ -193,32 +202,28 @@ export function CampaignDetails({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {(() => {
-                  const totalCalls =
-                    recentRuns?.reduce(
-                      (acc, run) => acc + (run.metadata?.calls?.total || 0),
-                      0,
-                    ) || 0;
-                  const connectedCalls =
-                    recentRuns?.reduce(
-                      (acc, run) => acc + (run.metadata?.calls?.connected || 0),
-                      0,
-                    ) || 0;
-                  const reachRate =
-                    totalCalls > 0
-                      ? Math.round((connectedCalls / totalCalls) * 100)
-                      : 0;
-
-                  return (
-                    <>
-                      <div className="text-2xl font-bold">{reachRate}%</div>
-                      <p className="text-xs text-muted-foreground">
-                        <Users className="mr-1 inline-block h-3 w-3" />
-                        {connectedCalls} of {totalCalls} patients reached
-                      </p>
-                    </>
-                  );
-                })()}
+                <div className="text-2xl font-bold">
+                  {recentRuns?.length &&
+                  recentRuns.some((run) => run.metadata?.calls?.total)
+                    ? Math.round(
+                        (recentRuns.reduce(
+                          (acc, run) =>
+                            acc + (run.metadata?.calls?.completed || 0),
+                          0,
+                        ) /
+                          recentRuns.reduce(
+                            (acc, run) =>
+                              acc + (run.metadata?.calls?.total || 0),
+                            0,
+                          )) *
+                          100,
+                      ) + "%"
+                    : "N/A"}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  <Users className="mr-1 inline-block h-3 w-3" />
+                  Successfully completed calls
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -259,7 +264,7 @@ export function CampaignDetails({
                             </span>
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {run.metadata?.calls?.connected || 0} connected
+                            {run.metadata?.calls?.completed || 0} completed
                           </div>
                         </div>
                         <Badge
@@ -324,7 +329,7 @@ export function CampaignDetails({
                     <div className="text-sm font-medium">Campaign Type</div>
                     <div className="mt-1">
                       <Badge variant="outline" className={campaignTypeColor}>
-                        {campaign.direction}
+                        {fullCampaign.campaign.direction}
                       </Badge>
                     </div>
                   </div>
@@ -332,7 +337,7 @@ export function CampaignDetails({
                   <div>
                     <div className="text-sm font-medium">Agent ID</div>
                     <div className="mt-1 truncate font-mono text-sm text-muted-foreground">
-                      {campaign.template.agentId}
+                      {fullCampaign.template?.agentId}
                     </div>
                   </div>
 
@@ -341,10 +346,12 @@ export function CampaignDetails({
                     <div className="mt-1">
                       <Badge
                         variant={
-                          campaign.isActive ? "success_solid" : "neutral_solid"
+                          fullCampaign.campaign.isActive
+                            ? "success_solid"
+                            : "neutral_solid"
                         }
                       >
-                        {campaign.isActive ? "Active" : "Inactive"}
+                        {fullCampaign.campaign.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </div>
                   </div>
@@ -352,7 +359,7 @@ export function CampaignDetails({
                   <div>
                     <div className="text-sm font-medium">Created</div>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      {format(new Date(campaign.createdAt), "PPP")}
+                      {format(new Date(fullCampaign.campaign.createdAt), "PPP")}
                     </div>
                   </div>
                 </div>
@@ -364,7 +371,7 @@ export function CampaignDetails({
               <Card>
                 <CardContent className="pt-6">
                   <div className="space-y-4">
-                    {campaign.template.variablesConfig.patient.fields.map(
+                    {fullCampaign.template?.variablesConfig.patient.fields.map(
                       (field) => (
                         <div
                           key={field.key}
@@ -414,13 +421,14 @@ export function CampaignDetails({
                 </CardContent>
               </Card>
 
-              {campaign.template.variablesConfig.campaign.fields.length > 0 && (
+              {fullCampaign.template?.variablesConfig.campaign.fields.length >
+                0 && (
                 <>
                   <h3 className="text-lg font-medium">Campaign Fields</h3>
                   <Card>
                     <CardContent className="pt-6">
                       <div className="space-y-4">
-                        {campaign.template.variablesConfig.campaign.fields.map(
+                        {fullCampaign.template?.variablesConfig.campaign.fields.map(
                           (field) => (
                             <div
                               key={field.key}
@@ -482,7 +490,7 @@ export function CampaignDetails({
                     <h4 className="text-md font-medium">Standard Fields</h4>
                   </div>
                   <div className="space-y-4">
-                    {campaign.template.analysisConfig.standard?.fields?.map(
+                    {fullCampaign.template?.analysisConfig.standard?.fields?.map(
                       (field) => (
                         <div
                           key={field.key}
@@ -530,8 +538,8 @@ export function CampaignDetails({
                     )}
                   </div>
 
-                  {campaign.template.analysisConfig.campaign?.fields?.length >
-                    0 && (
+                  {fullCampaign.template?.analysisConfig.campaign?.fields
+                    ?.length > 0 && (
                     <>
                       <div className="mb-4 mt-6">
                         <h4 className="text-md font-medium">
@@ -539,7 +547,7 @@ export function CampaignDetails({
                         </h4>
                       </div>
                       <div className="space-y-4">
-                        {campaign.template.analysisConfig.campaign?.fields?.map(
+                        {fullCampaign.template?.analysisConfig.campaign?.fields?.map(
                           (field) => (
                             <div
                               key={field.key}
@@ -610,7 +618,7 @@ export function CampaignDetails({
               </CardHeader>
               <CardContent>
                 <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 text-sm">
-                  {campaign.template.basePrompt || "No prompt configured."}
+                  {fullCampaign.template?.basePrompt || "No prompt configured."}
                 </pre>
               </CardContent>
             </Card>
@@ -618,11 +626,11 @@ export function CampaignDetails({
         )}
       </Tabs>
 
-      <CreateRunModal
+      {/* <CreateRunModal
         campaignId={campaignId}
         open={isCreateRunModalOpen}
         onOpenChange={setIsCreateRunModalOpen}
-      />
+      /> */}
     </div>
   );
 }

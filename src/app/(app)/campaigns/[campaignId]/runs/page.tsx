@@ -11,7 +11,7 @@ import {
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { RunsTable } from "@/components/tables/runs-table";
-import { api } from "@/trpc/server";
+import { getCampaignById } from "@/server/actions/campaigns";
 import { Calendar } from "lucide-react";
 import { Metadata } from "next";
 import { Suspense } from "react";
@@ -29,14 +29,14 @@ interface PageProps {
 export default async function CampaignRunsPage({ params }: PageProps) {
   const { campaignId } = await params;
 
-  const campaign = await api.campaigns.getById({ id: campaignId });
+  const fullCampaign = await getCampaignById(campaignId);
 
   const runData: RunCreateFormProps = {
     campaignId,
-    campaignBasePrompt: campaign?.template.basePrompt,
-    campaignVoicemailMessage: campaign?.template.voicemailMessage,
-    campaignName: campaign?.name,
-    campaignDescription: campaign?.template.description,
+    campaignBasePrompt: fullCampaign?.template.basePrompt,
+    campaignVoicemailMessage: fullCampaign?.template.voicemailMessage,
+    campaignName: fullCampaign?.campaign?.name,
+    campaignDescription: fullCampaign?.template.description,
   };
 
   return (
@@ -45,7 +45,7 @@ export default async function CampaignRunsPage({ params }: PageProps) {
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
           {
-            title: campaign?.name || "Campaign",
+            title: fullCampaign?.campaign?.name || "Campaign",
             href: `/campaigns/${campaignId}`,
           },
           { title: "Runs", href: `/campaigns/${campaignId}/runs` },
@@ -54,7 +54,7 @@ export default async function CampaignRunsPage({ params }: PageProps) {
       <AppBody>
         <AppHeader
           className=""
-          title={`${campaign?.name || "Campaign"} - Runs`}
+          title={`${fullCampaign?.campaign?.name || "Campaign"} - Runs`}
           buttons={
             <TriggerSheet
               buttonText="Create Run"

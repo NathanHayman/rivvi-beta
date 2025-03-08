@@ -19,7 +19,7 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,24 @@ import { toast } from "sonner";
 
 type CampaignRequestStatus = "pending" | "approved" | "rejected" | "completed";
 
-export function CampaignRequestsTable() {
+type CampaignRequestWithRelations = TCampaignRequest & {
+  organization: { name: string };
+  user: {
+    firstName: string | null;
+    lastName: string | null;
+    email: string;
+  };
+};
+
+type CampaignRequestsTableProps = {
+  initialRequests: CampaignRequestWithRelations[];
+  totalCount: number;
+};
+
+export function CampaignRequestsTable({
+  initialRequests,
+  totalCount,
+}: CampaignRequestsTableProps) {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [statusFilter, setStatusFilter] = useState<
@@ -89,36 +106,82 @@ export function CampaignRequestsTable() {
   const [selectedRequest, setSelectedRequest] =
     useState<TCampaignRequest | null>(null);
 
-  // Get campaign requests data
-  const { data, isLoading, refetch } =
-    api.admin.getAllCampaignRequests.useQuery({
-      status: statusFilter === "all" ? undefined : statusFilter,
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex * pagination.pageSize,
-    });
+  // State for filtered data
+  const [requests, setRequests] =
+    useState<CampaignRequestWithRelations[]>(initialRequests);
+  const [filteredTotalCount, setFilteredTotalCount] = useState(totalCount);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
 
-  // Process request mutations
-  const approveRequestMutation = api.admin.processCampaignRequest.useMutation({
-    onSuccess: () => {
+  // Initial data fetch on mount
+  useEffect(() => {
+    // No need to fetch data on mount as we're using initialData from props
+  }, []);
+
+  // Filter data client-side when statusFilter changes
+  useEffect(() => {
+    if (statusFilter === "all") {
+      setRequests(initialRequests);
+      setFilteredTotalCount(totalCount);
+      return;
+    }
+
+    const filtered = initialRequests.filter(
+      (request) => request.status === statusFilter,
+    );
+    setRequests(filtered);
+    setFilteredTotalCount(filtered.length);
+  }, [statusFilter, initialRequests, totalCount]);
+
+  // Process request functions (to be replaced with server actions)
+  const approveRequest = async () => {
+    if (!selectedRequestId) return;
+
+    setIsApproving(true);
+    try {
+      // TODO: Replace with actual server action
+      // await processCampaignRequest({
+      //   requestId: selectedRequestId,
+      //   status: "approved",
+      //   adminNotes: adminNotes || undefined,
+      // });
+
       toast.success("Request approved successfully");
       setIsApproveDialogOpen(false);
-      void refetch();
-    },
-    onError: (error) => {
-      toast.error(`Error approving request: ${error.message}`);
-    },
-  });
+      router.refresh(); // Refresh the page to get updated data from server
+    } catch (error) {
+      toast.error(
+        `Error approving request: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsApproving(false);
+    }
+  };
 
-  const rejectRequestMutation = api.admin.processCampaignRequest.useMutation({
-    onSuccess: () => {
+  const rejectRequest = async () => {
+    if (!selectedRequestId) return;
+
+    setIsRejecting(true);
+    try {
+      // TODO: Replace with actual server action
+      // await processCampaignRequest({
+      //   requestId: selectedRequestId,
+      //   status: "rejected",
+      //   adminNotes: adminNotes || undefined,
+      // });
+
       toast.success("Request rejected successfully");
       setIsRejectDialogOpen(false);
-      void refetch();
-    },
-    onError: (error) => {
-      toast.error(`Error rejecting request: ${error.message}`);
-    },
-  });
+      router.refresh(); // Refresh the page to get updated data from server
+    } catch (error) {
+      toast.error(
+        `Error rejecting request: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsRejecting(false);
+    }
+  };
 
   // Handlers
   const handleStatusFilterChange = (value: string) => {
@@ -139,23 +202,11 @@ export function CampaignRequestsTable() {
   };
 
   const confirmApprove = () => {
-    if (!selectedRequestId) return;
-
-    approveRequestMutation.mutate({
-      requestId: selectedRequestId,
-      status: "approved",
-      adminNotes: adminNotes || undefined,
-    });
+    void approveRequest();
   };
 
   const confirmReject = () => {
-    if (!selectedRequestId) return;
-
-    rejectRequestMutation.mutate({
-      requestId: selectedRequestId,
-      status: "rejected",
-      adminNotes: adminNotes || undefined,
-    });
+    void rejectRequest();
   };
 
   const handleCreateCampaign = (requestId: string, orgId: string) => {
@@ -168,16 +219,7 @@ export function CampaignRequestsTable() {
   };
 
   // Define columns
-  const columns: ColumnDef<
-    TCampaignRequest & {
-      organization: { name: string };
-      user: {
-        firstName: string | null;
-        lastName: string | null;
-        email: string;
-      };
-    }
-  >[] = [
+  const columns: ColumnDef<CampaignRequestWithRelations>[] = [
     {
       accessorKey: "organization.name",
       header: ({ column }) => (
@@ -371,7 +413,7 @@ export function CampaignRequestsTable() {
 
   // Create table
   const table = useReactTable({
-    data: data?.requests || [],
+    data: requests,
     columns: columns as any,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -383,7 +425,7 @@ export function CampaignRequestsTable() {
       sorting,
     },
     manualPagination: true,
-    pageCount: data ? Math.ceil(data.totalCount / pagination.pageSize) : 0,
+    pageCount: Math.ceil(filteredTotalCount / pagination.pageSize),
   });
 
   return (
@@ -407,14 +449,11 @@ export function CampaignRequestsTable() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void refetch()}
-            disabled={isLoading}
+            className="h-8 px-2 lg:px-3"
+            onClick={() => router.refresh()}
           >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Refresh"
-            )}
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            Refresh
           </Button>
         </div>
       </div>
@@ -483,7 +522,7 @@ export function CampaignRequestsTable() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {data?.totalCount || 0}{" "}
+          Showing {table.getRowModel().rows.length} of {filteredTotalCount}{" "}
           requests
         </div>
 
@@ -750,16 +789,16 @@ export function CampaignRequestsTable() {
             <Button
               variant="outline"
               onClick={() => setIsApproveDialogOpen(false)}
-              disabled={approveRequestMutation.isPending}
+              disabled={isApproving}
             >
               Cancel
             </Button>
             <Button
               onClick={confirmApprove}
-              disabled={approveRequestMutation.isPending}
+              disabled={isApproving}
               className="bg-green-600 hover:bg-green-700"
             >
-              {approveRequestMutation.isPending ? (
+              {isApproving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Approving...
@@ -804,16 +843,16 @@ export function CampaignRequestsTable() {
             <Button
               variant="outline"
               onClick={() => setIsRejectDialogOpen(false)}
-              disabled={rejectRequestMutation.isPending}
+              disabled={isRejecting}
             >
               Cancel
             </Button>
             <Button
               onClick={confirmReject}
-              disabled={rejectRequestMutation.isPending || !adminNotes.trim()}
+              disabled={isRejecting || !adminNotes.trim()}
               variant="destructive"
             >
-              {rejectRequestMutation.isPending ? (
+              {isRejecting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Rejecting...

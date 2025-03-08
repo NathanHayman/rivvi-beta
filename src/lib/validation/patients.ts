@@ -28,9 +28,22 @@ const getPatientsSchema = z.object({
 
 type TGetPatients = z.infer<typeof getPatientsSchema>;
 
+/**
+ * Search Patients
+ */
+const searchPatientsSchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().optional().default(10),
+  includeRecentCalls: z.boolean().optional().default(false),
+});
+
+type TSearchPatients = z.infer<typeof searchPatientsSchema>;
+
 export {
   createPatientSchema,
   getPatientsSchema,
+  searchPatientsSchema,
   type TCreatePatient,
   type TGetPatients,
+  type TSearchPatients,
 };

@@ -49,11 +49,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { toast } from "sonner";
-import { CreateRunModal } from "../app/run/create-run-modal";
+import { useAdminCampaigns } from "@/hooks/use-admin";
 import { RequestCampaignButton } from "../buttons/request-campaign-button";
-import { CampaignEditForm } from "../forms/campaign-edit-form";
-import { TriggerSheet } from "../modals/trigger-sheet";
 
 interface Campaign {
   id: string;
@@ -83,25 +80,18 @@ export function AdminCampaignsTable() {
 
   const isAdmin = pathname.includes("/admin");
 
-  // Get campaigns data
-  const { data, isLoading, refetch } = api.admin.getAllCampaigns.useQuery({
-    limit: pagination.pageSize,
-    offset: pagination.pageIndex * pagination.pageSize,
-  });
-
-  // Delete campaign mutation
-  const deleteCampaignMutation = api.admin.deleteCampaign.useMutation({
-    onSuccess: () => {
-      toast.success("Campaign deleted successfully");
-      void refetch();
-    },
-    onError: (error) => {
-      toast.error(`Failed to delete campaign: ${error.message}`);
-    },
-  });
+  // Get campaigns data using the custom hook
+  const {
+    campaigns: allCampaigns,
+    totalCount,
+    isLoading,
+    refetch,
+    deleteCampaign,
+    isDeleting,
+  } = useAdminCampaigns(pagination.pageSize);
 
   // Map API response to Campaign interface
-  const campaignsData: Campaign[] = (data?.campaigns || []).map((campaign) => ({
+  const campaignsData: Campaign[] = (allCampaigns || []).map((campaign) => ({
     id: campaign.id || "",
     name: campaign.name || "",
     direction: campaign.direction || "",
@@ -122,8 +112,8 @@ export function AdminCampaignsTable() {
     setIsDeleteDialogOpen(true);
   };
 
-  const deleteCampaign = (campaignId: string) => {
-    deleteCampaignMutation.mutate({ campaignId });
+  const deleteCampaignHandler = (campaignId: string) => {
+    deleteCampaign(campaignId);
     setIsDeleteDialogOpen(false);
     setCampaignToDelete(null);
   };
@@ -251,31 +241,26 @@ export function AdminCampaignsTable() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <TriggerSheet
-                    form={<CampaignEditForm campaign={campaign as any} />}
-                    title="Edit Campaign"
-                    buttonText="Edit Campaign"
-                    onTriggerClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                  />
-                </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteCampaign(campaign.id);
-                  }}
-                >
-                  Delete Campaign
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    router.push(`/campaigns/${campaign.id}`);
-                  }}
+                  onClick={() => router.push(`/admin/campaigns/${campaign.id}`)}
                 >
                   View Campaign
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    router.push(`/admin/campaigns/${campaign.id}/runs`)
+                  }
+                >
+                  View Runs
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCreateRun(campaign.id)}>
+                  Create Run
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleDeleteCampaign(campaign.id)}
+                  className="text-destructive"
+                >
+                  Delete Campaign
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -294,11 +279,11 @@ export function AdminCampaignsTable() {
     onPaginationChange: setPagination,
     onSortingChange: setSorting,
     state: {
-      pagination,
       sorting,
+      pagination,
     },
     manualPagination: true,
-    pageCount: data ? Math.ceil(data.totalCount / pagination.pageSize) : 0,
+    pageCount: totalCount ? Math.ceil(totalCount / pagination.pageSize) : 0,
   });
 
   return (
@@ -323,7 +308,9 @@ export function AdminCampaignsTable() {
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
-        {!isAdmin && <RequestCampaignButton />}
+        <div className="flex items-center space-x-2">
+          <RequestCampaignButton />
+        </div>
       </div>
 
       <div className="rounded-md">
@@ -362,18 +349,13 @@ export function AdminCampaignsTable() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="hover:bg-muted/50"
+                  className="cursor-pointer"
+                  onClick={() =>
+                    router.push(`/admin/campaigns/${row.original.id}`)
+                  }
                 >
-                  {row.getVisibleCells().map((cell, index) => (
-                    <TableCell
-                      key={cell.id}
-                      className={index === 0 ? "cursor-pointer" : ""}
-                      onClick={
-                        index === 0
-                          ? () => router.push(`/campaigns/${row.original.id}`)
-                          : undefined
-                      }
-                    >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -398,7 +380,7 @@ export function AdminCampaignsTable() {
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {data?.totalCount || 0}{" "}
+          Showing {table.getRowModel().rows.length} of {totalCount || 0}{" "}
           campaigns
         </div>
         <div className="flex items-center space-x-2">
@@ -427,35 +409,34 @@ export function AdminCampaignsTable() {
         </div>
       </div>
 
-      {selectedCampaignId && (
-        <CreateRunModal
-          campaignId={selectedCampaignId}
-          open={isCreateRunModalOpen}
-          onOpenChange={setIsCreateRunModalOpen}
-        />
-      )}
-
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              campaign and all associated data.
+              campaign and all associated runs and data.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() =>
-                campaignToDelete && deleteCampaign(campaignToDelete)
+                campaignToDelete && deleteCampaignHandler(campaignToDelete)
               }
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete
+              {isDeleting ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

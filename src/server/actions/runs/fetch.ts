@@ -1,18 +1,26 @@
-// src/actions/runs/fetch.ts
 "use server";
 
 import { requireOrg } from "@/lib/auth/auth-utils";
 import { isError } from "@/lib/service-result";
-import { getRunsSchema } from "@/lib/validation/runs";
 import { runService } from "@/services/runs";
+import { z } from "zod";
+
+// Client-side schema without orgId
+const clientRunsSchema = z.object({
+  campaignId: z.string().uuid(),
+  limit: z.number().optional().default(20),
+  offset: z.number().optional().default(0),
+});
 
 export async function getRuns(params: unknown) {
   const { orgId } = await requireOrg();
-  const validated = getRunsSchema.parse(params);
+
+  // Validate client params without requiring orgId
+  const validated = clientRunsSchema.parse(params);
 
   const result = await runService.getAll({
     ...validated,
-    orgId,
+    orgId, // Add orgId from requireOrg
   });
 
   if (isError(result)) {

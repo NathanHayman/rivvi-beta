@@ -1,10 +1,4 @@
 // src/lib/retell-client-safe.ts
-/**
- * Client-safe Retell integration that uses server-side API routes
- * This avoids exposing API keys in client-side code
- */
-
-import { TRPCError } from "@trpc/server";
 
 /**
  * Type definitions for Retell API responses
@@ -99,11 +93,7 @@ export const getAgent = async (
     }
   } catch (error) {
     console.error("Error fetching agent:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to fetch agent",
-      cause: error,
-    });
+    throw new Error("Failed to fetch agent");
   }
 };
 
@@ -154,11 +144,7 @@ export const getAgents = async (): Promise<
     }
   } catch (error) {
     console.error("Error fetching agents:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to fetch agents",
-      cause: error,
-    });
+    throw new Error("Failed to fetch agents");
   }
 };
 
@@ -208,11 +194,7 @@ export const getLlm = async (llmId: string): Promise<RetellLlmComplete> => {
     }
   } catch (error) {
     console.error("Error fetching LLM:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to fetch LLM",
-      cause: error,
-    });
+    throw new Error("Failed to fetch LLM");
   }
 };
 
@@ -345,11 +327,7 @@ export const updateAgentWebhooks = async (
     }
   } catch (error) {
     console.error("Error updating agent webhooks:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to update agent webhooks",
-      cause: error,
-    });
+    throw new Error("Failed to update agent webhooks");
   }
 };
 
@@ -406,11 +384,7 @@ export const updateLlmPrompt = async (llmId: string, prompt: string) => {
     }
   } catch (error) {
     console.error("Error updating LLM prompt:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to update LLM prompt",
-      cause: error,
-    });
+    throw new Error("Failed to update LLM prompt");
   }
 };
 
@@ -473,11 +447,7 @@ export const updateAgentVoicemail = async (
     }
   } catch (error) {
     console.error("Error updating agent voicemail:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to update agent voicemail",
-      cause: error,
-    });
+    throw new Error("Failed to update agent voicemail");
   }
 };
 
@@ -596,11 +566,7 @@ export const getAgentComplete = async (
     }
   } catch (error) {
     console.error("Error fetching complete agent info:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to fetch complete agent info",
-      cause: error,
-    });
+    throw new Error("Failed to fetch complete agent info");
   }
 };
 
@@ -655,10 +621,6 @@ export const getLlmFromAgent = async (agentId: string): Promise<string> => {
     }
   } catch (error) {
     console.error("Error getting LLM from agent:", error);
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to get LLM from agent",
-      cause: error,
-    });
+    throw new Error("Failed to get LLM from agent");
   }
 };

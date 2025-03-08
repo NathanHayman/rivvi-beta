@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCall, useCallTranscript } from "@/hooks/calls/use-calls";
 import type { TCall } from "@/types/db";
 import { format } from "date-fns";
 import {
@@ -108,7 +109,8 @@ export function CallDetailsSheet() {
 }
 
 function CallDetailsContent({ callId }: { callId: string }) {
-  const { data, isLoading, error } = api.calls.getById.useQuery({ id: callId });
+  // Use our custom hooks instead of direct tRPC queries
+  const { data, isLoading, error } = useCall(callId);
 
   if (isLoading) {
     return <CallDetailsSkeleton />;
@@ -483,23 +485,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
               </TabsContent>
 
               {/* Transcript Tab */}
-              <TabsContent
-                value="transcript"
-                className="h-full p-0 data-[state=active]:block"
-              >
-                <div className="p-6">
-                  {call.transcript ? (
-                    <CallTranscript transcript={call.transcript} />
-                  ) : (
-                    <div className="flex h-40 flex-col items-center justify-center text-center">
-                      <FileText className="mb-2 h-8 w-8 text-muted-foreground" />
-                      <p className="text-muted-foreground">
-                        No transcript available for this call
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
+              <TranscriptTab callId={callId} transcript={call.transcript} />
 
               {/* Details Tab */}
               <TabsContent
@@ -584,6 +570,66 @@ function CallDetailsContent({ callId }: { callId: string }) {
         </Tabs>
       </div>
     </div>
+  );
+}
+
+function TranscriptTab({
+  callId,
+  transcript: initialTranscript,
+}: {
+  callId: string;
+  transcript?: string;
+}) {
+  // Use the transcript hook if we don't already have the transcript
+  const { data: transcriptData, isLoading } = useCallTranscript(
+    initialTranscript ? null : callId,
+  );
+
+  // Use the initial transcript if available, otherwise use the fetched one
+  const transcript = initialTranscript || transcriptData?.transcript || "";
+
+  if (isLoading) {
+    return (
+      <TabsContent
+        value="transcript"
+        className="h-full p-0 data-[state=active]:block"
+      >
+        <div className="p-6">
+          <div className="flex h-40 items-center justify-center">
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+        </div>
+      </TabsContent>
+    );
+  }
+
+  if (!transcript) {
+    return (
+      <TabsContent
+        value="transcript"
+        className="h-full p-0 data-[state=active]:block"
+      >
+        <div className="p-6">
+          <div className="flex h-40 flex-col items-center justify-center text-center">
+            <FileText className="mb-2 h-8 w-8 text-muted-foreground" />
+            <p className="text-muted-foreground">
+              No transcript available for this call
+            </p>
+          </div>
+        </div>
+      </TabsContent>
+    );
+  }
+
+  return (
+    <TabsContent
+      value="transcript"
+      className="h-full p-0 data-[state=active]:block"
+    >
+      <div className="p-6">
+        <CallTranscript transcript={transcript} />
+      </div>
+    </TabsContent>
   );
 }
 

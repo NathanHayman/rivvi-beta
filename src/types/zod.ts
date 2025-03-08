@@ -21,7 +21,7 @@ const zOrganization = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-
+type ZOrganization = z.infer<typeof zOrganization>;
 /* User Schemas */
 const zUser = z.object({
   id: z.string(),
@@ -34,7 +34,7 @@ const zUser = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-
+type ZUser = z.infer<typeof zUser>;
 /* Patient Schemas */
 const zPatient = z.object({
   id: z.string(),
@@ -52,7 +52,7 @@ const zPatient = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-
+type ZPatient = z.infer<typeof zPatient>;
 /* Organization Patient Schemas */
 const zOrganizationPatient = z.object({
   orgId: z.string(),
@@ -62,7 +62,7 @@ const zOrganizationPatient = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-
+type ZOrganizationPatient = z.infer<typeof zOrganizationPatient>;
 /* Campaign Template Schemas */
 
 /* Call Schemas */
@@ -74,7 +74,9 @@ const zCallStatus = z.enum([
   "voicemail",
   "no-answer",
 ]);
+export type ZCallStatus = z.infer<typeof zCallStatus>;
 const zCallDirection = z.enum(["inbound", "outbound"]);
+export type ZCallDirection = z.infer<typeof zCallDirection>;
 const zCall = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -104,6 +106,7 @@ const zCall = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+type ZCall = z.infer<typeof zCall>;
 /* Row Schemas */
 const zRowStatus = z.enum([
   "pending",
@@ -112,6 +115,7 @@ const zRowStatus = z.enum([
   "failed",
   "skipped",
 ]);
+type ZRowStatus = z.infer<typeof zRowStatus>;
 const zRow = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -133,6 +137,7 @@ const zRow = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+type ZRow = z.infer<typeof zRow>;
 /* Run Schemas */
 const zRunStatus = z.enum([
   "draft",
@@ -144,6 +149,7 @@ const zRunStatus = z.enum([
   "failed",
   "scheduled",
 ]);
+type ZRunStatus = z.infer<typeof zRunStatus>;
 const zRunMetadata = z.object({
   rows: z.object({
     total: z.number(),
@@ -177,6 +183,7 @@ const zRunMetadata = z.object({
     lastCallTime: z.date(),
   }),
 });
+type ZRunMetadata = z.infer<typeof zRunMetadata>;
 const zRun = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -196,6 +203,7 @@ const zRun = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+type ZRun = z.infer<typeof zRun>;
 /* Campaign Request Schemas */
 const zCampaignRequestStatus = z.enum([
   "pending",
@@ -203,6 +211,7 @@ const zCampaignRequestStatus = z.enum([
   "rejected",
   "completed",
 ]);
+type ZCampaignRequestStatus = z.infer<typeof zCampaignRequestStatus>;
 const zCampaignRequest = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -225,6 +234,7 @@ const zCampaignRequest = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+type ZCampaignRequest = z.infer<typeof zCampaignRequest>;
 /* Agent Variation Schemas */
 const zAgentVariation = z.object({
   id: z.string(),
@@ -240,6 +250,7 @@ const zAgentVariation = z.object({
   userId: z.string(),
   createdAt: z.date(),
 });
+type ZAgentVariation = z.infer<typeof zAgentVariation>;
 /* Campaign Template Schemas */
 const zCampaignTemplate = z.object({
   id: z.string(),
@@ -333,6 +344,7 @@ const zCampaignTemplate = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+type ZCampaignTemplate = z.infer<typeof zCampaignTemplate>;
 /* Campaign Schemas */
 const zCampaignStatus = z.enum([
   "draft",
@@ -344,6 +356,7 @@ const zCampaignStatus = z.enum([
   "failed",
   "scheduled",
 ]);
+export type ZCampaignStatus = z.infer<typeof zCampaignStatus>;
 const zCampaign = z.object({
   id: z.string(),
   orgId: z.string(),
@@ -356,12 +369,13 @@ const zCampaign = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-
+type ZCampaign = z.infer<typeof zCampaign>;
 /* Campaign With Template Schemas */
 const zCampaignWithTemplate = z.object({
   campaign: zCampaign,
   template: zCampaignTemplate,
 });
+type ZCampaignWithTemplate = z.infer<typeof zCampaignWithTemplate>;
 
 export {
   zAgentVariation,
@@ -382,4 +396,19 @@ export {
   zRun,
   zRunMetadata,
   zUser,
+  type ZAgentVariation,
+  type ZCall,
+  type ZCampaign,
+  type ZCampaignRequest,
+  type ZCampaignRequestStatus,
+  type ZCampaignTemplate,
+  type ZCampaignWithTemplate,
+  type ZOrganization,
+  type ZOrganizationPatient,
+  type ZPatient,
+  type ZRow,
+  type ZRowStatus,
+  type ZRun,
+  type ZRunMetadata,
+  type ZUser,
 };

@@ -17,10 +17,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getRuns } from "@/server/actions/runs/fetch";
+import { pauseRun } from "@/server/actions/runs/index";
+import { startRun } from "@/server/actions/runs/start";
 import { formatDistance } from "date-fns";
 import { Eye, MoreHorizontal, Pause, Play } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface RunsTableProps {
@@ -31,218 +34,230 @@ interface RunsTableProps {
 export function RunsTable({ campaignId, limit = 10 }: RunsTableProps) {
   const router = useRouter();
   const [page, setPage] = useState(0);
-
-  const { data, isLoading, refetch } = api.runs.getAll.useQuery({
-    campaignId,
-    limit,
-    offset: page * limit,
+  const [data, setData] = useState<any>({
+    runs: [],
+    totalCount: 0,
+    hasMore: false,
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStartingRun, setIsStartingRun] = useState(false);
+  const [isPausingRun, setIsPausingRun] = useState(false);
 
-  const startRunMutation = api.runs.start.useMutation({
-    onSuccess: () => {
-      toast.success("Run started");
-      void refetch();
-    },
-    onError: (error) => {
-      toast.error("Error starting run", {
-        description: error.message,
+  const fetchRuns = async () => {
+    setIsLoading(true);
+    try {
+      const result = await getRuns({
+        campaignId,
+        limit,
+        offset: page * limit,
       });
-    },
-  });
+      setData(result);
+    } catch (error) {
+      toast.error("Failed to fetch runs");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const pauseRunMutation = api.runs.pause.useMutation({
-    onSuccess: () => {
-      toast.success("Run paused");
-      void refetch();
-    },
-    onError: (error) => {
-      toast.error("Error pausing run", {
-        description: error.message,
-      });
-    },
-  });
+  useEffect(() => {
+    fetchRuns();
+  }, [campaignId, limit, page]);
 
   const handleViewRun = (runId: string) => {
     router.push(`/campaigns/${campaignId}/runs/${runId}`);
   };
 
-  const handleStartRun = (runId: string) => {
-    startRunMutation.mutate({ runId });
+  const handleStartRun = async (runId: string) => {
+    setIsStartingRun(true);
+    try {
+      await startRun({ runId });
+      toast.success("Run started");
+      fetchRuns();
+    } catch (error) {
+      toast.error("Error starting run");
+      console.error(error);
+    } finally {
+      setIsStartingRun(false);
+    }
   };
 
-  const handlePauseRun = (runId: string) => {
-    pauseRunMutation.mutate({ runId });
+  const handlePauseRun = async (runId: string) => {
+    setIsPausingRun(true);
+    try {
+      await pauseRun({ runId });
+      toast.success("Run paused");
+      fetchRuns();
+    } catch (error) {
+      toast.error("Error pausing run");
+      console.error(error);
+    } finally {
+      setIsPausingRun(false);
+    }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
         return (
-          <Badge
-            variant="outline"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
-          >
+          <Badge variant="outline" className="bg-gray-100">
             Pending
           </Badge>
         );
-      case "active":
+      case "in-progress":
         return (
-          <Badge
-            variant="outline"
-            className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-          >
-            Active
-          </Badge>
-        );
-      case "paused":
-        return (
-          <Badge
-            variant="outline"
-            className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-          >
-            Paused
+          <Badge variant="outline" className="bg-blue-100 text-blue-800">
+            In Progress
           </Badge>
         );
       case "completed":
         return (
-          <Badge
-            variant="outline"
-            className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
-          >
+          <Badge variant="outline" className="bg-green-100 text-green-800">
             Completed
+          </Badge>
+        );
+      case "paused":
+        return (
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+            Paused
           </Badge>
         );
       case "failed":
         return (
-          <Badge
-            variant="outline"
-            className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-          >
+          <Badge variant="outline" className="bg-red-100 text-red-800">
             Failed
           </Badge>
         );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return (
+          <Badge variant="outline" className="bg-gray-100">
+            {status}
+          </Badge>
+        );
     }
   };
 
   if (isLoading) {
     return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center space-x-4 p-4">
-            <Skeleton className="h-4 w-1/4" />
-            <Skeleton className="h-4 w-1/6" />
-            <Skeleton className="h-4 w-1/6" />
-            <Skeleton className="ml-auto h-8 w-8 rounded-full" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (!data || data.runs.length === 0) {
-    return (
-      <div className="flex h-40 w-full items-center justify-center rounded-md border border-dashed p-8">
-        <div className="text-center text-muted-foreground">
-          <p>No runs found for this campaign</p>
-          <p className="text-sm">Create a new run to get started</p>
+      <div className="w-full">
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Calls</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <Skeleton className="h-4 w-[250px]" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-[100px]" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-[100px]" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-[100px]" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-[50px]" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Calls</TableHead>
-            <TableHead>Completion</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.runs.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell className="font-medium">{run.name}</TableCell>
-              <TableCell>{getStatusBadge(run.status)}</TableCell>
-              <TableCell className="text-muted-foreground">
-                {formatDistance(new Date(run.createdAt), new Date(), {
-                  addSuffix: true,
-                })}
-              </TableCell>
-              <TableCell>
-                {run.metadata?.calls?.total || 0} total
-                <br />
-                <span className="text-xs text-muted-foreground">
-                  {run.metadata?.calls?.connected || 0} connected
-                </span>
-              </TableCell>
-              <TableCell>
-                {(() => {
-                  const total = run.metadata?.calls?.total || 0;
-                  const completed = run.metadata?.calls?.completed || 0;
-                  const percentage =
-                    total > 0 ? Math.round((completed / total) * 100) : 0;
-                  return `${percentage}%`;
-                })()}
-              </TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Open menu</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => handleViewRun(run.id)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View Details
-                    </DropdownMenuItem>
-                    {run.status === "running" ? (
-                      <DropdownMenuItem onClick={() => handlePauseRun(run.id)}>
-                        <Pause className="mr-2 h-4 w-4" />
-                        Pause Run
-                      </DropdownMenuItem>
-                    ) : run.status === "draft" || run.status === "paused" ? (
-                      <DropdownMenuItem onClick={() => handleStartRun(run.id)}>
-                        <Play className="mr-2 h-4 w-4" />
-                        Start Run
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
+    <div className="w-full">
+      <div className="">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Calls</TableHead>
+              <TableHead></TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      {data.runs.length > 0 && (
-        <div className="flex items-center justify-end space-x-2 py-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={data.runs.length < limit}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+          </TableHeader>
+          <TableBody>
+            {data.runs.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  No runs found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              data.runs.map((run: any) => (
+                <TableRow key={run.id}>
+                  <TableCell className="font-medium">{run.name}</TableCell>
+                  <TableCell>{getStatusBadge(run.status)}</TableCell>
+                  <TableCell>
+                    {formatDistance(new Date(run.createdAt), new Date(), {
+                      addSuffix: true,
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    {run.metadata?.calls ? (
+                      <span>
+                        {run.metadata.calls.completed}/
+                        {run.metadata.calls.total}
+                      </span>
+                    ) : (
+                      "N/A"
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleViewRun(run.id)}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          View
+                        </DropdownMenuItem>
+                        {run.status === "pending" || run.status === "paused" ? (
+                          <DropdownMenuItem
+                            onClick={() => handleStartRun(run.id)}
+                            disabled={isStartingRun}
+                          >
+                            <Play className="mr-2 h-4 w-4" />
+                            Start
+                          </DropdownMenuItem>
+                        ) : null}
+                        {run.status === "in-progress" ? (
+                          <DropdownMenuItem
+                            onClick={() => handlePauseRun(run.id)}
+                            disabled={isPausingRun}
+                          >
+                            <Pause className="mr-2 h-4 w-4" />
+                            Pause
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

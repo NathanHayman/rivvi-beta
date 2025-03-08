@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation } from "@tanstack/react-query";
 import { ArrowUpIcon, Check, ChevronRight, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
@@ -23,8 +24,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useUploadFile } from "@/hooks/runs/use-files";
+import { useCreateRun } from "@/hooks/runs/use-runs";
 import { updatePromptAndVoicemail } from "@/lib/retell/retell-actions";
 import { cn } from "@/lib/utils";
+import { validateData } from "@/server/actions/runs";
 import { TGenerateAgentPrompt } from "@/services/out/ai";
 import { format } from "date-fns";
 import {
@@ -113,47 +117,29 @@ export function RunCreateForm({
   const customVoicemailMessage = form.watch("customVoicemailMessage");
   const naturalLanguageInput = form.watch("naturalLanguageInput");
 
-  // tRPC mutations
-  const validateDataMutation = api.runs.validateData.useMutation({
-    onSuccess: (data) => {
+  // React Query mutations
+  const createRunMutation = useCreateRun(campaignId);
+  const uploadFileMutation = useUploadFile();
+
+  // File validation function
+  const validateDataMutation = useMutation({
+    mutationFn: async (data: { fileContent: string; fileName: string }) => {
+      // Call the validateData server action
+      return validateData(data);
+    },
+    onSuccess: (data: any) => {
       setProcessedData(data);
       setIsProcessingFile(false);
-      // Use the explicit totalRows property
-      toast.success(
-        `File validated successfully. Found ${data.totalRows || data.parsedData?.rows?.length || 0} rows.`,
-      );
-    },
-    onError: (error) => {
-      toast.error(`Error validating file: ${error.message}`);
-      setIsProcessingFile(false);
-    },
-  });
 
-  const createRunMutation = api.runs.create.useMutation({
-    onSuccess: (data) => {
-      if (data?.id && file) {
-        uploadFileMutation.mutate({
-          runId: data.id,
-          fileContent: fileContentBase64,
-          fileName: file.name,
-        });
-      } else {
-        handleSuccess(data?.id);
+      // If we have data, proceed to the next step
+      if (data && (data.totalRows > 0 || data.parsedData?.rows?.length > 0)) {
+        nextStep();
       }
     },
     onError: (error) => {
-      toast.error(`Error creating run: ${error.message}`);
-      setIsProcessingFile(false);
-    },
-  });
-
-  const uploadFileMutation = api.runs.uploadFile.useMutation({
-    onSuccess: (data) => {
-      toast.success(`File uploaded successfully: ${data.rowsAdded} rows added`);
-      handleSuccess();
-    },
-    onError: (error) => {
-      toast.error(`Error uploading file: ${error.message}`);
+      toast.error(
+        `Error validating file: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
       setIsProcessingFile(false);
     },
   });
@@ -182,7 +168,6 @@ export function RunCreateForm({
 
           // Validate the file data
           await validateDataMutation.mutateAsync({
-            campaignId,
             fileContent: content,
             fileName: selectedFile.name,
           });
@@ -200,7 +185,7 @@ export function RunCreateForm({
         toast.error("Failed to process file");
       }
     },
-    [campaignId, validateDataMutation],
+    [validateDataMutation],
   );
 
   // Handle file removal
@@ -308,9 +293,8 @@ export function RunCreateForm({
         scheduledAt = date.toISOString();
       }
 
-      // Create the run
-      await createRunMutation.mutateAsync({
-        campaignId,
+      // Create the run using the server action via the hook
+      const result = await createRunMutation.mutateAsync({
         name: values.name,
         customPrompt: values.customPrompt || undefined,
         customVoicemailMessage: values.customVoicemailMessage || undefined,
@@ -319,7 +303,19 @@ export function RunCreateForm({
         promptVersion: values.promptVersion || undefined,
         aiGenerated: values.aiGenerated || undefined,
         ...(scheduledAt ? { scheduledAt } : {}),
-      } as any);
+      });
+
+      if (result?.id && file) {
+        // Upload the file using the server action
+        await uploadFileMutation.mutateAsync({
+          runId: result.id,
+          fileContent: fileContentBase64,
+          fileName: file.name,
+        });
+      }
+
+      // Handle success
+      handleSuccess(result?.id);
     } catch (error) {
       console.error("Error submitting form:", error);
       toast.error("Failed to create run");

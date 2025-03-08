@@ -18,6 +18,30 @@ import {
 import { CallWithRelations, GetCallsOptions } from "@/types/api/calls";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 
+// Helper function to convert database date fields to ISO strings
+const convertDatesToStrings = <T extends Record<string, any>>(
+  record: T,
+): Record<string, any> => {
+  const result = { ...record } as Record<string, any>;
+
+  // Convert Date objects to ISO strings for specific fields
+  const dateFields = [
+    "createdAt",
+    "updatedAt",
+    "nextRetryTime",
+    "startTime",
+    "endTime",
+  ];
+
+  for (const field of dateFields) {
+    if (result[field] instanceof Date) {
+      result[field] = result[field].toISOString();
+    }
+  }
+
+  return result as T;
+};
+
 export const callService = {
   async getAll(options: GetCallsOptions): Promise<
     ServiceResult<{
@@ -132,7 +156,7 @@ export const callService = {
       ]);
 
       return createSuccess({
-        ...call,
+        ...convertDatesToStrings(call),
         patient,
         campaign: campaign
           ? {
@@ -227,10 +251,18 @@ export const callService = {
     limit: number,
   ): Promise<ServiceResult<CallWithRelations[]>> {
     try {
+      // Handle case where patientId might be a comma-separated list
+      // Extract just the first UUID if it contains commas
+      const sanitizedPatientId = patientId.includes(",")
+        ? patientId.split(",")[0]
+        : patientId;
+
       const recentCalls = await db
         .select()
         .from(calls)
-        .where(and(eq(calls.patientId, patientId), eq(calls.orgId, orgId)))
+        .where(
+          and(eq(calls.patientId, sanitizedPatientId), eq(calls.orgId, orgId)),
+        )
         .limit(limit)
         .orderBy(desc(calls.createdAt));
 
@@ -288,7 +320,7 @@ export const callService = {
           status: "pending",
           isManualCall: true,
           variables,
-        } as typeof calls.$inferInsert)
+        })
         .returning();
 
       if (!call) {
@@ -390,36 +422,66 @@ export const callService = {
     ]);
 
     // Create maps for quick lookups
-    const patientMap = new Map(patientsData.map((p) => [p.id, p]));
+    const patientMap = new Map(patientsData.map((p) => [p.id, p] as const));
 
     const campaignMap = new Map(
-      campaignsData.map(({ campaign, template }) => [
-        campaign.id,
-        {
-          ...campaign,
-          template,
-          config: template
-            ? {
-                analysis: template.analysisConfig,
-                variables: template.variablesConfig,
-                basePrompt: template.basePrompt,
-                voicemailMessage: template.voicemailMessage,
-              }
-            : undefined,
-        },
-      ]),
+      campaignsData.map(
+        ({ campaign, template }) =>
+          [
+            campaign.id,
+            {
+              ...campaign,
+              template,
+              config: template
+                ? {
+                    analysis: template.analysisConfig,
+                    variables: template.variablesConfig,
+                    basePrompt: template.basePrompt,
+                    voicemailMessage: template.voicemailMessage,
+                  }
+                : undefined,
+            },
+          ] as const,
+      ),
     );
 
-    const runMap = new Map(runsData.map((r) => [r.id, r]));
+    const runMap = new Map(runsData.map((r) => [r.id, r] as const));
 
     // Combine data
-    return callsList.map((call) => ({
-      ...call,
-      patient: call.patientId ? patientMap.get(call.patientId) || null : null,
-      campaign: call.campaignId
-        ? campaignMap.get(call.campaignId) || null
-        : null,
-      run: call.runId ? runMap.get(call.runId) || null : null,
-    }));
+    return callsList.map((call) => {
+      // Create a new object with all properties from call
+      const callWithRelations: CallWithRelations = {
+        ...call,
+        // Convert Date objects to ISO strings
+        createdAt:
+          call.createdAt instanceof Date
+            ? call.createdAt.toISOString()
+            : (call.createdAt as string),
+        updatedAt:
+          call.updatedAt instanceof Date
+            ? call.updatedAt.toISOString()
+            : (call.updatedAt as string),
+        nextRetryTime:
+          call.nextRetryTime instanceof Date
+            ? call.nextRetryTime.toISOString()
+            : (call.nextRetryTime as string | undefined),
+        startTime:
+          call.startTime instanceof Date
+            ? call.startTime.toISOString()
+            : (call.startTime as string | undefined),
+        endTime:
+          call.endTime instanceof Date
+            ? call.endTime.toISOString()
+            : (call.endTime as string | undefined),
+        // Add related entities
+        patient: call.patientId ? patientMap.get(call.patientId) || null : null,
+        campaign: call.campaignId
+          ? campaignMap.get(call.campaignId) || null
+          : null,
+        run: call.runId ? runMap.get(call.runId) || null : null,
+      };
+
+      return callWithRelations;
+    });
   },
 };

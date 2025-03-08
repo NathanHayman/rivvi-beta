@@ -11,7 +11,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getPatient } from "@/server/actions/patients";
 import { calculateAge, formatPhoneDisplay } from "@/services/out/file/utils";
+import { PatientWithMetadata } from "@/types/api/patients";
 import { format } from "date-fns";
 import {
   CalendarIcon,
@@ -21,7 +23,7 @@ import {
   SparklesIcon,
   UserIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CallHistoryList } from "./call-history-list";
 
 interface PatientDetailProps {
@@ -30,14 +32,25 @@ interface PatientDetailProps {
 
 export function PatientDetail({ patientId }: PatientDetailProps) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [patient, setPatient] = useState<PatientWithMetadata | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch patient details
-  const { data: patient, isLoading } = api.patients.getById.useQuery(
-    { id: patientId },
-    {
-      refetchOnWindowFocus: false,
-    },
-  );
+  // Fetch patient details using server action
+  useEffect(() => {
+    const fetchPatient = async () => {
+      try {
+        setIsLoading(true);
+        const data = await getPatient(patientId);
+        setPatient(data);
+      } catch (error) {
+        console.error("Error fetching patient:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPatient();
+  }, [patientId]);
 
   if (isLoading) {
     return <PatientDetailSkeleton />;
@@ -160,8 +173,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                       <span>Last Contact</span>
                       <span className="text-sm text-muted-foreground">
                         {format(
-                          // @ts-expect-error - lastCall is a date
-                          new Date(patient.lastCall.createdAt as string),
+                          new Date(patient.lastCall.createdAt),
                           "MMM d, yyyy",
                         )}
                       </span>

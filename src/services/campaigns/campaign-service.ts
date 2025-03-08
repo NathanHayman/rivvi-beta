@@ -6,15 +6,14 @@ import {
 } from "@/lib/service-result";
 import { db } from "@/server/db";
 import { campaigns, campaignTemplates } from "@/server/db/schema";
-import { type zCampaignWithTemplate } from "@/types/zod";
+import { ZCampaign, ZCampaignWithTemplate } from "@/types/zod";
 import { and, eq } from "drizzle-orm";
-import { z } from "zod";
 
 export const campaignsService = {
   async getById(
     id: string,
     orgId: string,
-  ): Promise<ServiceResult<z.infer<typeof zCampaignWithTemplate>>> {
+  ): Promise<ServiceResult<ZCampaignWithTemplate>> {
     try {
       // Get campaign and check organization access
       const campaign = await db.query.campaigns.findFirst({
@@ -36,7 +35,7 @@ export const campaignsService = {
 
       // Return combined data
       return createSuccess({
-        ...campaign,
+        campaign,
         template: {
           ...template,
           config: {
@@ -53,5 +52,25 @@ export const campaignsService = {
     }
   },
 
-  // Additional methods...
+  async getAllByOrgId(orgId: string): Promise<ServiceResult<ZCampaign[]>> {
+    try {
+      const campaignsData = await db.query.campaigns.findMany({
+        where: eq(campaigns.orgId, orgId),
+      });
+
+      return createSuccess(campaignsData);
+    } catch (error) {
+      console.error("Error fetching campaigns:", error);
+      return createError("INTERNAL_ERROR", "Failed to fetch campaigns", error);
+    }
+  },
+  async getAllAdmin(): Promise<ServiceResult<ZCampaign[]>> {
+    try {
+      const campaignsData = await db.query.campaigns.findMany();
+      return createSuccess(campaignsData);
+    } catch (error) {
+      console.error("Error fetching campaigns:", error);
+      return createError("INTERNAL_ERROR", "Failed to fetch campaigns", error);
+    }
+  },
 };

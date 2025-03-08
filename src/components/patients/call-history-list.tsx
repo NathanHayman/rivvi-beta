@@ -3,9 +3,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TCall } from "@/types/db";
+import { getPatientCalls } from "@/server/actions/calls/fetch";
+import { CallWithRelations } from "@/types/api/calls";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 interface CallHistoryListProps {
   patientId: string;
@@ -15,16 +16,36 @@ interface CallHistoryListProps {
 export function CallHistoryList({ patientId, limit }: CallHistoryListProps) {
   const [page, setPage] = useState(0);
   const pageSize = limit || 10;
+  const [calls, setCalls] = useState<CallWithRelations[]>([]);
+  const [allCalls, setAllCalls] = useState<CallWithRelations[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
 
-  // Fetch call history using tRPC
-  const { data, isLoading, isFetching } = api.calls.getPatientCalls.useQuery({
-    patientId,
-    limit: pageSize,
-  });
+  // Fetch call history using server action
+  const fetchCalls = useCallback(async () => {
+    try {
+      setIsFetching(true);
+      const data = await getPatientCalls(patientId, pageSize);
+      setAllCalls(data);
+      setCalls(data.slice(0, (page + 1) * pageSize));
+    } catch (error) {
+      console.error("Error fetching call history:", error);
+    } finally {
+      setIsLoading(false);
+      setIsFetching(false);
+    }
+  }, [patientId, pageSize, page]);
 
-  // Use client-side pagination since API doesn't support offset
-  const allCalls = data || [];
-  const calls = allCalls.slice(0, (page + 1) * pageSize);
+  // Initial fetch
+  useEffect(() => {
+    fetchCalls();
+  }, [fetchCalls]);
+
+  // Update displayed calls when page changes
+  useEffect(() => {
+    setCalls(allCalls.slice(0, (page + 1) * pageSize));
+  }, [page, allCalls, pageSize]);
+
   const hasMore = allCalls.length > (page + 1) * pageSize;
 
   if (isLoading) {
@@ -42,7 +63,7 @@ export function CallHistoryList({ patientId, limit }: CallHistoryListProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        {calls.map((call: TCall) => (
+        {calls.map((call) => (
           <div
             key={call.id}
             className="flex items-start justify-between rounded-lg border p-4"

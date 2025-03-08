@@ -7,6 +7,8 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { AdminCampaignsTable } from "@/components/tables/admin-campaigns-table";
+import { isError } from "@/lib/service-result";
+import { getAllCampaignsAdmin } from "@/server/actions/campaigns";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -22,6 +24,12 @@ type PageProps = {
 
 export default async function AdminCampaignsPage({ params }: PageProps) {
   const { orgId } = await params;
+
+  const campaigns = await getAllCampaignsAdmin();
+
+  if (isError(campaigns)) {
+    return <div>Error: {campaigns.error.message}</div>;
+  }
 
   return (
     <AppPage>

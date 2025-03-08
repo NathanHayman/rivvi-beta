@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { formatPhoneDisplay } from "@/lib/format-utils";
+import { searchPatients } from "@/server/actions/patients";
+import { formatPhoneDisplay } from "@/services/out/file/utils";
 import { format } from "date-fns";
 import {
   CheckCircle2,
@@ -34,24 +35,41 @@ export function PatientSearch({
   const [debouncedQuery] = useDebounce(query, 300);
   const [isSearching, setIsSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchResults, setSearchResults] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  const {
-    data: searchResults,
-    isLoading,
-    error,
-    refetch,
-  } = api.patient.searchPatients.useQuery(
-    {
-      orgId,
-      query: debouncedQuery,
-      includeRecentCalls,
-      limit: 10,
-    },
-    {
-      enabled: debouncedQuery.length >= 3 || /^\d{10,}$/.test(debouncedQuery),
-      retry: false,
-    },
-  );
+  // Search patients using server action
+  const fetchSearchResults = useCallback(async () => {
+    if (debouncedQuery.length < 3 && !/^\d{10,}$/.test(debouncedQuery)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      const results = await searchPatients({
+        query: debouncedQuery,
+        includeRecentCalls,
+        limit: 10,
+      });
+      setSearchResults(results);
+    } catch (err) {
+      console.error("Error searching patients:", err);
+      setError(
+        err instanceof Error ? err : new Error("Failed to search patients"),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [debouncedQuery, includeRecentCalls]);
+
+  // Fetch search results when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery.length >= 3 || /^\d{10,}$/.test(debouncedQuery)) {
+      fetchSearchResults();
+    }
+  }, [debouncedQuery, fetchSearchResults]);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,7 +129,7 @@ export function PatientSearch({
             variant="ghost"
             size="icon"
             className="ml-2"
-            onClick={() => refetch()}
+            onClick={fetchSearchResults}
             disabled={isLoading || !isSearching}
           >
             {isLoading ? (
@@ -140,7 +158,11 @@ export function PatientSearch({
                 <p className="text-sm text-muted-foreground">
                   {error.message || "Error fetching patients"}
                 </p>
-                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchSearchResults}
+                >
                   Retry
                 </Button>
               </div>
@@ -254,97 +276,97 @@ export function PatientSearchInline({
 }: PatientSearchProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery] = useDebounce(query, 300);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchResults, setSearchResults] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  const {
-    data: searchResults,
-    isLoading,
-    error,
-  } = api.patients.searchPatients.useQuery(
-    {
-      orgId,
-      query: debouncedQuery,
-      limit: 5,
-    },
-    {
-      enabled: debouncedQuery.length >= 3 || /^\d{10,}$/.test(debouncedQuery),
-    },
-  );
+  // Search patients using server action
+  const fetchSearchResults = useCallback(async () => {
+    if (debouncedQuery.length < 3 && !/^\d{10,}$/.test(debouncedQuery)) {
+      return;
+    }
 
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setQuery(e.target.value);
-    },
-    [],
-  );
+    try {
+      setIsLoading(true);
+      setError(null);
+      const results = await searchPatients({
+        query: debouncedQuery,
+        limit: 10,
+      });
+      setSearchResults(results);
+    } catch (err) {
+      console.error("Error searching patients:", err);
+      setError(
+        err instanceof Error ? err : new Error("Failed to search patients"),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [debouncedQuery]);
 
-  const handlePatientSelect = useCallback(
-    (patient: any) => {
-      if (onPatientSelect) {
-        onPatientSelect(patient);
-      }
-      setQuery("");
-    },
-    [onPatientSelect],
-  );
+  // Fetch search results when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery.length >= 3 || /^\d{10,}$/.test(debouncedQuery)) {
+      fetchSearchResults();
+    }
+  }, [debouncedQuery, fetchSearchResults]);
 
   return (
-    <div className="relative">
+    <div className="space-y-2">
       <div className="relative">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
-          ref={searchInputRef}
           type="text"
           placeholder="Search patients..."
           className="pl-9"
           value={query}
-          onChange={handleSearchChange}
+          onChange={(e) => setQuery(e.target.value)}
         />
       </div>
 
-      {query &&
-        (debouncedQuery.length >= 3 || /^\d{10,}$/.test(debouncedQuery)) && (
-          <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
-            {isLoading ? (
-              <div className="flex h-20 items-center justify-center">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : error ? (
-              <div className="p-2 text-center text-sm text-muted-foreground">
-                {error.message || "Error searching patients"}
-              </div>
-            ) : searchResults?.patients.length === 0 ? (
-              <div className="p-2 text-center text-sm text-muted-foreground">
-                No patients found
-              </div>
-            ) : (
-              <div className="py-1">
-                {searchResults?.patients.map((patient: any) => (
-                  <div
-                    key={patient.id}
-                    className="flex cursor-pointer items-center justify-between px-3 py-2 hover:bg-muted"
-                    onClick={() => handlePatientSelect(patient)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-xs font-medium uppercase">
-                        {patient.firstName?.[0] || ""}
-                        {patient.lastName?.[0] || ""}
-                      </div>
-                      <div>
-                        <div className="font-medium">
-                          {patient.firstName} {patient.lastName}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {patient.primaryPhone}
-                        </div>
-                      </div>
-                    </div>
+      {isLoading ? (
+        <div className="flex h-20 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <div className="flex h-20 flex-col items-center justify-center gap-2">
+          <p className="text-sm text-muted-foreground">
+            {error.message || "Error searching patients"}
+          </p>
+          <Button variant="outline" size="sm" onClick={fetchSearchResults}>
+            Retry
+          </Button>
+        </div>
+      ) : searchResults?.patients.length === 0 ? (
+        <div className="flex h-20 flex-col items-center justify-center">
+          <p className="text-sm text-muted-foreground">No patients found</p>
+        </div>
+      ) : (
+        <div className="space-y-1 py-1">
+          {searchResults?.patients.map((patient: any) => (
+            <div
+              key={patient.id}
+              className="flex cursor-pointer items-center justify-between rounded-md p-2 hover:bg-muted"
+              onClick={() => onPatientSelect?.(patient)}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-medium uppercase">
+                  {patient.firstName?.[0] || ""}
+                  {patient.lastName?.[0] || ""}
+                </div>
+                <div>
+                  <div className="font-medium">
+                    {patient.firstName} {patient.lastName}
                   </div>
-                ))}
+                  <div className="text-xs text-muted-foreground">
+                    {formatPhoneDisplay(patient.primaryPhone)}
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
