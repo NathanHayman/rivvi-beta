@@ -65,7 +65,11 @@ export async function POST(
     }
 
     // Process the webhook using the handler
-    const result = await handlePostCallWebhook(orgId, campaignId, callData);
+    const result = await handlePostCallWebhook(
+      orgId,
+      campaignId,
+      callData as any,
+    );
 
     return NextResponse.json(result);
   } catch (error) {

@@ -4,7 +4,13 @@ import type React from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import { Check, ChevronRight, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle,
+  ChevronRight,
+  Loader2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -28,7 +34,7 @@ import { useUploadFile } from "@/hooks/runs/use-files";
 import { useCreateRun } from "@/hooks/runs/use-runs";
 import { cn } from "@/lib/utils";
 import { validateData } from "@/server/actions/runs";
-import { ProcessedFileData } from "@/types/api";
+import { ZCampaignTemplate } from "@/types/zod";
 import { experimental_useObject as useObject } from "@ai-sdk/react";
 import { format } from "date-fns";
 import IterateAgentStep, { StreamedMetadata } from "./iterate-agent-step";
@@ -60,6 +66,7 @@ export interface RunCreateFormProps {
   campaignVoicemailMessage?: string;
   campaignName?: string;
   campaignDescription?: string;
+  campaignConfig?: ZCampaignTemplate["variablesConfig"];
   onFormSuccess?: () => void;
 }
 
@@ -72,12 +79,23 @@ export function RunCreateForm({
   campaignVoicemailMessage = "",
   campaignName = "",
   campaignDescription = "",
+  campaignConfig,
   onFormSuccess,
 }: RunCreateFormProps) {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [file, setFile] = useState<File | null>(null);
-  const [processedFile, setProcessedFile] = useState<ProcessedFileData>({});
+  const [processedFile, setProcessedFile] = useState<{
+    parsedData?: {
+      rows?: any[];
+      headers?: string[];
+    };
+    stats?: {
+      totalRows: number;
+      validRows: number;
+      invalidRows: number;
+    };
+  }>({});
   const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
@@ -184,54 +202,132 @@ export function RunCreateForm({
   };
 
   const validateDataMutation = useMutation({
-    mutationFn: async (data: { fileContent: string; fileName: string }) => {
+    mutationFn: async (data: {
+      fileContent: string;
+      fileName: string;
+      variablesConfig: ZCampaignTemplate["variablesConfig"];
+    }) => {
       return validateData(data);
     },
     onSuccess: (data: any) => {
-      console.log("File validation successful:", data);
+      console.log("File validation successful - raw response:", data);
 
       // Ensure the data is in the correct format and log it for debugging
+      // Handle both data and data.data structures (server might nest response)
+      const responseData = data.data || data;
+
       const formattedData = {
-        ...data,
-        parsedData: data.parsedData
+        ...responseData,
+        parsedData: responseData.parsedData
           ? {
-              rows: Array.isArray(data.parsedData.rows)
-                ? data.parsedData.rows.map((row) => ({
+              rows: Array.isArray(responseData.parsedData.rows)
+                ? responseData.parsedData.rows.map((row) => ({
                     // Each row from validation needs to be in the expected format for uploadFile
                     ...row,
                   }))
                 : [],
+              headers: responseData.parsedData.headers || [],
             }
           : undefined,
+        stats: responseData.stats || {
+          totalRows: 0,
+          validRows: 0,
+          invalidRows: 0,
+        },
+        // Ensure these properties are properly extracted from response
+        matchedColumns: responseData.matchedColumns || [],
+        columnMappings: responseData.columnMappings || {},
       };
 
-      console.log("Storing processed file data:", {
-        totalRows: formattedData.totalRows,
-        validCount:
-          formattedData.validRows ||
-          (formattedData.totalRows || 0) - (formattedData.invalidRows || 0),
+      // Detailed logging to help diagnose issues
+      console.log("Structured processed file data:", {
+        totalRows: formattedData.stats?.totalRows || 0,
+        validCount: formattedData.stats?.validRows || 0,
+        invalidCount: formattedData.stats?.invalidRows || 0,
         hasRows: !!formattedData.parsedData?.rows,
         rowCount: formattedData.parsedData?.rows?.length || 0,
+        matchedColumnsCount: (formattedData.matchedColumns || []).length,
         firstRowSample: formattedData.parsedData?.rows?.[0]
           ? JSON.stringify(formattedData.parsedData.rows[0]).substring(0, 100) +
             "..."
           : "No rows",
+        parsedDataComplete: formattedData.parsedData
+          ? JSON.stringify(formattedData.parsedData).substring(0, 200) + "..."
+          : "No parsedData",
+        statsComplete: formattedData.stats
+          ? JSON.stringify(formattedData.stats)
+          : "No stats",
+        fullData: JSON.stringify(data).substring(0, 500) + "...",
+        errorsReported: responseData.errors || [],
       });
 
       // Store the processed data for use during the actual upload
       setProcessedFile(formattedData);
       setIsValidating(false);
 
-      if (data && (data.totalRows > 0 || data.parsedData?.rows?.length > 0)) {
-        const validCount = data.totalRows - (data.invalidRows || 0);
+      // More robust check for valid rows - check stats, parsedData.rows, and consider data.success
+      const statsHasValidRows = formattedData.stats?.validRows > 0;
+      const parsedDataHasRows = formattedData.parsedData?.rows?.length > 0;
+      const dataHasTotalRows = formattedData.stats?.totalRows > 0;
+      const isSuccessResponse =
+        data.success !== false && responseData.success !== false;
+
+      // Check if we have matched columns - this is critical for the process to work
+      const matchedColumns = formattedData.matchedColumns || [];
+      const hasMatchedColumns =
+        Array.isArray(matchedColumns) && matchedColumns.length > 0;
+
+      console.log("Row validation checks:", {
+        statsHasValidRows,
+        parsedDataHasRows,
+        dataHasTotalRows,
+        isSuccessResponse,
+        hasMatchedColumns,
+        matchedColumns: matchedColumns?.length || 0,
+      });
+
+      // Proceed if ANY of these conditions is true:
+      // 1. We have valid rows in stats
+      // 2. We have rows in the parsedData
+      // 3. We have total rows in stats AND a success response
+      // 4. We have matched columns and a success response
+      const hasProcessableData =
+        statsHasValidRows ||
+        parsedDataHasRows ||
+        (dataHasTotalRows && isSuccessResponse) ||
+        (hasMatchedColumns && isSuccessResponse);
+
+      if (hasProcessableData) {
+        const validCount =
+          formattedData.stats?.validRows ||
+          formattedData.parsedData?.rows?.length ||
+          formattedData.stats?.totalRows ||
+          0;
         toast.success(
-          `File validated successfully: ${validCount} valid rows found`,
+          `File validated successfully: ${validCount} ${validCount === 1 ? "row" : "rows"} found`,
         );
         nextStep();
       } else {
-        toast.error(
-          "No valid rows found in the file. Please check your file format.",
-        );
+        // More descriptive error message based on the actual issue
+        let errorMsg =
+          "No valid rows found in the file. Please check your file format.";
+
+        if (!hasMatchedColumns && formattedData.stats?.totalRows > 0) {
+          errorMsg =
+            "Your file has data but no matching columns were found. Please ensure your column headers match the expected format.";
+        } else if (formattedData.stats?.totalRows === 0) {
+          errorMsg =
+            "No rows found in the file. Please check that your file contains data.";
+        } else if (formattedData.stats?.invalidRows > 0) {
+          errorMsg = `All ${formattedData.stats.invalidRows} rows were invalid. Please check the file format.`;
+        }
+
+        // Include any reported errors
+        if (data.errors?.length > 0) {
+          errorMsg += ` Server reported: ${data.errors[0]}`;
+        }
+
+        toast.error(errorMsg);
       }
     },
     onError: (error) => {
@@ -256,28 +352,163 @@ export function RunCreateForm({
       try {
         setIsValidating(true);
 
+        // Validate file size and type
+        if (selectedFile.size > 10 * 1024 * 1024) {
+          // 10MB limit
+          toast.error("File is too large. Maximum size is 10MB.");
+          setIsValidating(false);
+          return;
+        }
+
+        const validTypes = [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "text/csv",
+        ];
+        if (
+          !validTypes.includes(selectedFile.type) &&
+          !selectedFile.name.endsWith(".xlsx") &&
+          !selectedFile.name.endsWith(".xls") &&
+          !selectedFile.name.endsWith(".csv")
+        ) {
+          toast.error("Invalid file type. Please upload an Excel or CSV file.");
+          setIsValidating(false);
+          return;
+        }
+
+        // Ensure we have valid campaign config
+        if (!campaignConfig || !campaignConfig.patient) {
+          toast.error(
+            "Missing campaign configuration. Please contact support.",
+          );
+          console.error("Missing campaign configuration:", campaignConfig);
+          setIsValidating(false);
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = async (e) => {
-          const content = e.target?.result as string;
-          await validateDataMutation.mutateAsync({
-            fileContent: content,
-            fileName: selectedFile.name,
-          });
+          try {
+            const content = e.target?.result as string;
+            if (!content) {
+              throw new Error("Could not read file content");
+            }
+
+            // Convert to a consistent structure if needed - ensure it matches the expected type
+            const safeConfig = campaignConfig
+              ? {
+                  patient: {
+                    fields: (campaignConfig.patient?.fields || []).map(
+                      (field) => {
+                        // Create a safe copy of the field without assuming properties
+                        const safeField = { ...field };
+
+                        // Explicitly set undefined for referencedTable if not present
+                        if (
+                          !Object.prototype.hasOwnProperty.call(
+                            safeField,
+                            "referencedTable",
+                          )
+                        ) {
+                          (safeField as any).referencedTable = undefined;
+                        }
+
+                        return safeField;
+                      },
+                    ),
+                    validation: campaignConfig.patient?.validation || {
+                      requireValidPhone: false,
+                      requireValidDOB: false,
+                      requireName: false,
+                    },
+                  },
+                  campaign: {
+                    fields: (campaignConfig.campaign?.fields || []).map(
+                      (field) => {
+                        // Create a safe copy of the field without assuming properties
+                        const safeField = { ...field };
+
+                        // Explicitly set undefined for referencedTable if not present
+                        if (
+                          !Object.prototype.hasOwnProperty.call(
+                            safeField,
+                            "referencedTable",
+                          )
+                        ) {
+                          (safeField as any).referencedTable = undefined;
+                        }
+
+                        return safeField;
+                      },
+                    ),
+                  },
+                }
+              : { patient: { fields: [] }, campaign: { fields: [] } };
+
+            // Log the sanitized config to aid debugging column matching
+            console.log(
+              "Sanitized processConfig:",
+              JSON.stringify(safeConfig, null, 2),
+            );
+
+            // For consistent logging, we'll create this structure for the logs
+            const patientFields = safeConfig.patient?.fields || [];
+            const campaignFields = safeConfig.campaign?.fields || [];
+
+            // Log the possible columns for matching
+            const allPossibleColumns = [
+              ...patientFields.flatMap((f: any) => f.possibleColumns || []),
+              ...campaignFields.flatMap((f: any) => f.possibleColumns || []),
+            ].map((col) => col.toLowerCase());
+
+            console.log(
+              "All possible columns from config:",
+              allPossibleColumns,
+            );
+
+            // Log allowed field keys for clarity
+            console.log("Allowed field keys:", [
+              ...patientFields.map((f: any) => f.key),
+              ...campaignFields.map((f: any) => f.key),
+            ]);
+
+            await validateDataMutation.mutateAsync({
+              fileContent: content,
+              fileName: selectedFile.name,
+              variablesConfig: safeConfig,
+            });
+          } catch (error) {
+            console.error("Error processing file:", error);
+            if (
+              error instanceof Error &&
+              error.message.includes("referencedTable")
+            ) {
+              toast.error(
+                "File upload failed due to configuration error. Please contact support.",
+              );
+            } else {
+              toast.error(
+                "Failed to process file. Please try again or contact support.",
+              );
+            }
+            setIsValidating(false);
+          }
         };
 
-        reader.onerror = () => {
+        reader.onerror = (error) => {
+          console.error("Reader error:", error);
           setIsValidating(false);
-          toast.error("Failed to read file");
+          toast.error("Failed to read file. Please try again.");
         };
 
         reader.readAsDataURL(selectedFile);
       } catch (error) {
+        console.error("Error in processSelectedFile:", error);
+        toast.error("An error occurred while processing the file");
         setIsValidating(false);
-        console.error("Error processing file:", error);
-        toast.error("Failed to process file");
       }
     },
-    [validateDataMutation],
+    [campaignConfig, validateDataMutation],
   );
 
   const handleFileRemove = () => {
@@ -286,16 +517,12 @@ export function RunCreateForm({
   };
 
   const onSubmit = async (values: RunFormValues) => {
-    console.log("Form submission triggered, current step:", currentStep);
-    console.log("Form values:", values);
-
     if (currentStep !== 2) {
       nextStep();
       return;
     }
 
     try {
-      console.log("Final step submission - creating run");
       setIsSubmitting(true);
 
       // Process scheduling
@@ -309,85 +536,9 @@ export function RunCreateForm({
         const date = new Date(values.scheduledDate);
         date.setHours(hours || 0, minutes || 0, 0, 0);
         scheduledAt = date.toISOString();
-        console.log("Scheduled for:", scheduledAt);
       }
 
-      console.log("Creating run with payload:", {
-        campaignId,
-        name: values.name,
-        customPrompt: values.customPrompt || campaignBasePrompt,
-        customVoicemailMessage:
-          values.customVoicemailMessage || campaignVoicemailMessage,
-        aiGenerated: values.aiGenerated,
-        variationNotes: values.variationNotes,
-        scheduledAt,
-        naturalLanguageInput: values.naturalLanguageInput,
-      });
-
-      // Ensure metadata is properly formatted before submission
-      const formattedMetadata = streamedMetadata?.metadata
-        ? {
-            categories: streamedMetadata.metadata.categories,
-            tags: streamedMetadata.metadata.tags,
-            keyChanges: streamedMetadata.metadata.keyChanges,
-            toneShift: streamedMetadata.metadata.toneShift,
-            focusArea: streamedMetadata.metadata.focusArea,
-            promptLength: streamedMetadata.metadata.promptLength
-              ? {
-                  before: streamedMetadata.metadata.promptLength.before || 0,
-                  after: streamedMetadata.metadata.promptLength.after || 0,
-                  difference:
-                    streamedMetadata.metadata.promptLength.difference || 0,
-                }
-              : undefined,
-            changeIntent: streamedMetadata.metadata.changeIntent,
-            sentimentShift: streamedMetadata.metadata.sentimentShift,
-            formalityLevel: streamedMetadata.metadata.formalityLevel,
-            complexityScore: streamedMetadata.metadata.complexityScore,
-          }
-        : undefined;
-
-      // Get comparison data if available
-      const comparisonData = streamedMetadata?.comparison
-        ? {
-            ...streamedMetadata.comparison,
-            // Ensure keyPhrases.modified is properly formatted as an array
-            keyPhrases: streamedMetadata.comparison.keyPhrases
-              ? {
-                  ...streamedMetadata.comparison.keyPhrases,
-                  // Ensure modified is an array of objects with before/after properties
-                  modified: streamedMetadata.comparison.keyPhrases.modified
-                    ? Array.isArray(
-                        streamedMetadata.comparison.keyPhrases.modified,
-                      )
-                      ? streamedMetadata.comparison.keyPhrases.modified.map(
-                          (item) => {
-                            // If item is a string, convert it to an object with after property
-                            if (typeof item === "string") {
-                              return { after: item };
-                            }
-                            return item;
-                          },
-                        )
-                      : Object.values(
-                          streamedMetadata.comparison.keyPhrases.modified,
-                        ).map((item) => {
-                          // If item is a string, convert it to an object with after property
-                          if (typeof item === "string") {
-                            return { after: item };
-                          }
-                          return item;
-                        })
-                    : undefined,
-                }
-              : undefined,
-          }
-        : undefined;
-
-      // Get diff data if available
-      const diffData = streamedMetadata?.diffData || undefined;
-
-      // Prepare the payload for better error logging
+      // Create the run
       const runPayload = {
         campaignId,
         name: values.name,
@@ -397,29 +548,19 @@ export function RunCreateForm({
         aiGenerated: values.aiGenerated,
         variationNotes: values.variationNotes,
         scheduledAt,
-        metadata: formattedMetadata,
-        comparison: comparisonData,
-        diffData: diffData,
+        metadata: streamedMetadata?.metadata,
+        comparison: streamedMetadata?.comparison,
+        diffData: streamedMetadata?.diffData,
         summary: streamedMetadata?.summary,
         naturalLanguageInput: values.naturalLanguageInput,
       };
 
-      // Create the run
-      const createRunResult = await createRunMutation.mutateAsync(runPayload);
-
-      console.log("Run created successfully:", createRunResult);
-      toast.success(`Run "${values.name}" created successfully`);
+      const createRunResult = await createRunMutation.mutateAsync(
+        runPayload as any,
+      );
 
       // If we have a file, upload it for the run
       if (createRunResult?.id && file) {
-        console.log("Uploading file for run:", createRunResult.id);
-        console.log("Using processed file data:", {
-          total: processedFile?.totalRows || 0,
-          invalid: processedFile?.invalidRows || 0,
-          hasRowsData: !!processedFile?.parsedData?.rows,
-          rowCount: processedFile?.parsedData?.rows?.length || 0,
-        });
-
         try {
           // Read the file as a base64 string
           const fileContent = await new Promise<string>((resolve, reject) => {
@@ -435,32 +576,64 @@ export function RunCreateForm({
             reader.readAsDataURL(file);
           });
 
-          // Ensure the processed data is correctly formatted
-          const uploadData = {
+          // Ensure the processed data includes the proper structure and transformations
+          interface ProcessedDataType {
+            headers?: string[];
+            rows?: any[];
+          }
+
+          const uploadData: {
+            runId: string;
+            fileContent: string;
+            fileName: string;
+            processedData?: ProcessedDataType;
+          } = {
             runId: createRunResult.id,
             fileContent,
             fileName: file.name,
-            // Important: Make sure we pass all validated data properly
             processedData: processedFile?.parsedData
               ? {
+                  headers: processedFile.parsedData.headers || [],
                   rows: Array.isArray(processedFile.parsedData.rows)
-                    ? processedFile.parsedData.rows
+                    ? processedFile.parsedData.rows.map((row) => {
+                        // Ensure variables structure is maintained during upload
+                        const rowData = { ...row };
+
+                        // If row already has a variables property, use it directly
+                        if (
+                          rowData.variables &&
+                          typeof rowData.variables === "object"
+                        ) {
+                          return {
+                            patientId: rowData.patientId || null,
+                            patientHash: rowData.patientHash || null,
+                            variables: rowData.variables,
+                          };
+                        }
+
+                        // Otherwise, extract all properties except patientId as variables
+                        const { patientId, patientHash, ...variables } =
+                          rowData;
+                        return {
+                          patientId: patientId || null,
+                          patientHash: patientHash || null,
+                          variables,
+                        };
+                      })
                     : [],
                 }
               : undefined,
           };
 
-          console.log("Uploading with data:", {
+          console.log("Uploading file with processed data:", {
             runId: uploadData.runId,
             fileName: uploadData.fileName,
             hasProcessedData: !!uploadData.processedData,
-            processedRowCount: uploadData.processedData?.rows?.length || 0,
+            rowCount: uploadData.processedData?.rows?.length || 0,
           });
 
-          // Use the mutation hook instead of direct fetch
+          // Upload the file with processed data
           await uploadFileMutation.mutateAsync(uploadData);
-
-          // Toast notification is handled by the mutation hook
         } catch (error) {
           console.error("Error uploading file:", error);
           toast.error("File upload failed, but run was created successfully");
@@ -468,16 +641,12 @@ export function RunCreateForm({
       }
 
       if (onFormSuccess) {
-        console.log("Calling onFormSuccess callback");
         onFormSuccess();
       }
 
-      console.log("Calling handleSuccess with runId:", createRunResult?.id);
       handleSuccess(createRunResult?.id);
     } catch (error) {
       console.error("Error creating run:", error);
-      // Log the streaming metadata to help diagnose issues
-      console.error("Streamed metadata:", streamedMetadata);
       toast.error("Failed to create run");
       setIsSubmitting(false);
     }
@@ -512,7 +681,7 @@ export function RunCreateForm({
       case 0:
         return (
           !!processedFile &&
-          (processedFile.totalRows > 0 ||
+          (processedFile.stats?.totalRows > 0 ||
             processedFile.parsedData?.rows?.length > 0)
         );
 
@@ -709,24 +878,24 @@ export function RunCreateForm({
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total Rows:</span>
                     <span className="font-medium">
-                      {processedFile.totalRows || 0}
+                      {processedFile.stats?.totalRows || 0}
                     </span>
                   </div>
-                  {processedFile.invalidRows > 0 && (
+                  {processedFile.stats?.invalidRows > 0 && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Invalid Rows:
                       </span>
                       <span className="font-medium text-amber-600">
-                        {processedFile.invalidRows}
+                        {processedFile.stats?.invalidRows}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Valid Calls:</span>
                     <span className="font-medium text-green-600">
-                      {(processedFile.totalRows || 0) -
-                        (processedFile.invalidRows || 0)}
+                      {(processedFile.stats?.totalRows || 0) -
+                        (processedFile.stats?.invalidRows || 0)}
                     </span>
                   </div>
                 </div>
@@ -801,6 +970,31 @@ export function RunCreateForm({
                           </div>
                         )}
                       </div>
+                    </div>
+                  )}
+
+                {/* If we have a file with valid rows, show the count */}
+                {processedFile?.stats?.totalRows &&
+                  processedFile.stats.totalRows > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-5 w-5 text-green-500" />
+                        <span className="text-sm font-medium">
+                          {processedFile.stats.validRows ||
+                            processedFile.stats.totalRows -
+                              (processedFile.stats.invalidRows || 0)}
+                          valid rows found
+                        </span>
+                      </div>
+                      {processedFile.stats.invalidRows > 0 && (
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-5 w-5 text-amber-500" />
+                          <span className="text-sm font-medium">
+                            {processedFile.stats.invalidRows} invalid rows will
+                            be skipped
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
               </div>

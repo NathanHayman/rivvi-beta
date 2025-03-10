@@ -250,14 +250,63 @@ export const campaignsService = {
   },
   async update(
     id: string,
-    campaign: ZCampaign,
+    campaign: ZCampaign & {
+      basePrompt?: string;
+      voicemailMessage?: string;
+      variablesConfig?: any;
+      analysisConfig?: any;
+    },
   ): Promise<ServiceResult<ZCampaign>> {
     try {
+      // First, get the existing campaign to find its template ID
+      const existingCampaign = await db.query.campaigns.findFirst({
+        where: eq(campaigns.id, id),
+      });
+
+      if (!existingCampaign) {
+        return createError("NOT_FOUND", "Campaign not found");
+      }
+
+      // Extract template-related fields from the request
+      const {
+        basePrompt,
+        voicemailMessage,
+        variablesConfig,
+        analysisConfig,
+        ...campaignData
+      } = campaign;
+
+      // Update the campaign record
       const [updatedCampaign] = await db
         .update(campaigns)
-        .set(campaign)
+        .set(campaignData)
         .where(eq(campaigns.id, id))
         .returning();
+
+      // Update the template if any template-related fields provided
+      if (basePrompt || voicemailMessage || variablesConfig || analysisConfig) {
+        // Build update data object with only the fields that were provided
+        const templateUpdateData: Record<string, unknown> = {};
+
+        if (basePrompt) templateUpdateData.basePrompt = basePrompt;
+        if (voicemailMessage)
+          templateUpdateData.voicemailMessage = voicemailMessage;
+        if (variablesConfig)
+          templateUpdateData.variablesConfig = variablesConfig;
+        if (analysisConfig) templateUpdateData.analysisConfig = analysisConfig;
+
+        // Only update if we have template fields to update
+        if (Object.keys(templateUpdateData).length > 0) {
+          await db
+            .update(campaignTemplates)
+            .set(templateUpdateData)
+            .where(eq(campaignTemplates.id, existingCampaign.templateId));
+        }
+      }
+
+      // Refresh the campaign page
+      revalidatePath(`/admin/campaigns`, "page");
+
       return createSuccess(updatedCampaign);
     } catch (error) {
       console.error("Error updating campaign:", error);

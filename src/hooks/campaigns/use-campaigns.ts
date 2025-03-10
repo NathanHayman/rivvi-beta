@@ -1,10 +1,12 @@
 // src/hooks/campaigns/use-campaigns.ts
 import { isError } from "@/lib/service-result";
+import { updateCampaignAdmin } from "@/server/actions/admin";
 import {
   getAllCampaignsForOrg,
   getCampaignById,
 } from "@/server/actions/campaigns/fetch";
 import { requestCampaign } from "@/server/actions/campaigns/request";
+import { ZCampaignTemplate } from "@/types/zod";
 import { useCallback, useEffect, useState } from "react";
 
 // Define types
@@ -33,6 +35,24 @@ type RequestCampaignInput = {
     fileType: string;
   }>;
   direction?: "inbound" | "outbound";
+};
+
+type UpdateCampaignInput = {
+  id: string;
+  name: string;
+  description: string;
+  direction: "inbound" | "outbound";
+  basePrompt: string;
+  voicemailMessage: string;
+  variablesConfig: ZCampaignTemplate["variablesConfig"];
+  analysisConfig: ZCampaignTemplate["analysisConfig"];
+  isActive: boolean;
+};
+
+type UpdateCampaignHookReturn = {
+  mutateAsync: (data: UpdateCampaignInput) => Promise<any>;
+  isPending: boolean;
+  error: Error | null;
 };
 
 type RequestCampaignHookReturn = {
@@ -141,6 +161,37 @@ export function useRequestCampaign(): RequestCampaignHookReturn {
     } catch (err) {
       const thrownError =
         err instanceof Error ? err : new Error("Failed to request campaign");
+      setError(thrownError);
+      throw thrownError;
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  return {
+    mutateAsync,
+    isPending,
+    error,
+  };
+}
+
+/**
+ * Hook to update a campaign
+ */
+export function useUpdateCampaign(): UpdateCampaignHookReturn {
+  const [isPending, setIsPending] = useState<boolean>(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const mutateAsync = async (data: UpdateCampaignInput): Promise<any> => {
+    setIsPending(true);
+    setError(null);
+
+    try {
+      const result = await updateCampaignAdmin(data.id, data);
+      return result;
+    } catch (err) {
+      const thrownError =
+        err instanceof Error ? err : new Error("Failed to update campaign");
       setError(thrownError);
       throw thrownError;
     } finally {

@@ -565,8 +565,16 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
 
   // Determine if run is actionable (can be started or paused)
   const canStart =
-    status === "ready" || status === "paused" || status === "scheduled";
+    status === "ready" ||
+    status === "paused" ||
+    status === "scheduled" ||
+    status === "draft";
   const canPause = status === "running";
+
+  // Log the current status and button visibility conditions
+  console.log("Run status:", status);
+  console.log("Can start:", canStart);
+  console.log("Can pause:", canPause);
 
   // Handle start run
   const handleStartRun = async () => {
@@ -660,37 +668,34 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
             {status.charAt(0).toUpperCase() + status.slice(1)}
           </Badge>
 
-          {canStart && (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleStartRun}
-              disabled={isLoading}
-            >
-              {isLoading && isStartingRun ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <PlayCircle className="mr-1.5 h-4 w-4" />
-              )}
-              Start Run
-            </Button>
-          )}
+          {/* Always show buttons for debugging */}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleStartRun}
+            disabled={isLoading || (!canStart && status !== "draft")}
+          >
+            {isLoading && isStartingRun ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <PlayCircle className="mr-1.5 h-4 w-4" />
+            )}
+            Start Run
+          </Button>
 
-          {canPause && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePauseRun}
-              disabled={isLoading}
-            >
-              {isLoading && isPausingRun ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <PauseCircle className="mr-1.5 h-4 w-4" />
-              )}
-              Pause Run
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePauseRun}
+            disabled={isLoading || !canPause}
+          >
+            {isLoading && isPausingRun ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <PauseCircle className="mr-1.5 h-4 w-4" />
+            )}
+            Pause Run
+          </Button>
 
           <Button variant="outline" size="sm">
             <Download className="mr-1.5 h-4 w-4" />

@@ -581,6 +581,75 @@ export const getLlmFromAgent = async (agentId: string): Promise<string> => {
   }
 };
 
+export const createRetellCall = async (params: {
+  toNumber: string;
+  fromNumber: string;
+  agentId: string;
+  variables?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}) => {
+  try {
+    // Check if we're in a browser environment
+    const isBrowser = typeof window !== "undefined";
+
+    if (isBrowser) {
+      // Client-side: Use relative URL
+      const response = await fetch(`/api/retell/call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          toNumber: params.toNumber,
+          fromNumber: params.fromNumber,
+          agentId: params.agentId,
+          variables: params.variables,
+          metadata: params.metadata,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create Retell call: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } else {
+      // Server-side: Directly use the Retell API
+      const RETELL_BASE_URL = "https://api.retellai.com/v2";
+      const { RETELL_API_KEY } = process.env;
+
+      if (!RETELL_API_KEY) {
+        throw new Error("RETELL_API_KEY is not defined");
+      }
+
+      const response = await fetch(`${RETELL_BASE_URL}/create-phone-call`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RETELL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to_number: params.toNumber,
+          from_number: params.fromNumber,
+          override_agent_id: params.agentId,
+          retell_llm_dynamic_variables: params.variables,
+          metadata: params.metadata,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      }
+
+      return await response.json();
+    }
+  } catch (error) {
+    console.error("Error creating Retell call:", error);
+    throw new Error("Failed to create Retell call");
+  }
+};
+
 /**
  * Convert Retell post-call analysis data to campaign analysis fields
  */

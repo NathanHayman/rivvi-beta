@@ -16,7 +16,7 @@ import {
 } from "@/server/db/schema";
 import { RunResponse, RunWithCampaign } from "@/types/api/runs";
 import { and, count, desc, eq, like, or } from "drizzle-orm";
-import { RunsProcessor } from "./runs-processor";
+import { RunProcessor } from "./runs-processor";
 
 // Define the type for getRunRows options
 type GetRunRowsOptions = {
@@ -306,7 +306,8 @@ export const runService = {
       if (
         run.status !== "ready" &&
         run.status !== "paused" &&
-        run.status !== "scheduled"
+        run.status !== "scheduled" &&
+        run.status !== "draft"
       ) {
         return createError(
           "BAD_REQUEST",
@@ -340,8 +341,8 @@ export const runService = {
       });
 
       // Start call processing (asynchronously)
-      const runsProcessor = new RunsProcessor(db);
-      void runsProcessor.processRun(runId, orgId);
+      const runProcessor = new RunProcessor(db);
+      void runProcessor.processRun(runId, orgId);
 
       return createSuccess({ success: true, status: "running" });
     } catch (error) {

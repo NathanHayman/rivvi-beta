@@ -191,6 +191,14 @@ export type ProcessedFileData = {
   totalRows?: number;
   parsedData?: {
     rows?: any[];
+    headers?: string[];
   };
   invalidRows?: number;
+  stats?: {
+    totalRows?: number;
+    validRows?: number;
+    invalidRows?: number;
+    uniquePatients?: number;
+    duplicatePatients?: number;
+  };
 };

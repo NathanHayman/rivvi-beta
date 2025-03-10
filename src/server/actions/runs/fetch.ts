@@ -62,6 +62,10 @@ export async function getRunRows(params: unknown) {
   const result = await runService.getRunRows({
     ...validated,
     orgId, // Add orgId from requireOrg
+    runId: validated.runId,
+    limit: validated.limit,
+    offset: validated.offset,
+    filter: validated.filter,
   });
 
   if (isError(result)) {

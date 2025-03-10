@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { SheetBody, SheetFooter } from "../ui/sheet";
 // Import server actions
+import { useUpdateCampaign } from "@/hooks/campaigns/use-campaigns";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { ZCampaignWithTemplate } from "@/types/zod";
 import { AccessibleTagInput } from "./utils/accessible-tag-input";
@@ -188,6 +189,9 @@ export function CampaignEditForm({
   // Get agent ID from template
   const agentId = campaign.template?.agentId || templateData?.agentId;
 
+  const { mutateAsync: updateCampaign, isPending: isUpdatingCampaign } =
+    useUpdateCampaign();
+
   // Fetch template data if not provided
   useEffect(() => {
     async function fetchCampaignData() {
@@ -330,20 +334,31 @@ export function CampaignEditForm({
       });
 
       // Update other campaign data using a separate API call or server action
-      await fetch(`/api/campaigns/${campaign.campaign?.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: data.name,
-          direction: data.direction,
-          isActive: data.isActive,
-          basePrompt: data.basePrompt,
-          voicemailMessage: data.voicemailMessage,
-          variablesConfig: data.variablesConfig,
-          analysisConfig: data.analysisConfig,
-        }),
+      // await fetch(`/api/campaigns/${campaign.campaign?.id}`, {
+      //   method: "PATCH",
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //   },
+      //   body: JSON.stringify({
+      //     name: data.name,
+      //     direction: data.direction,
+      //     isActive: data.isActive,
+      //     basePrompt: data.basePrompt,
+      //     voicemailMessage: data.voicemailMessage,
+      //     variablesConfig: data.variablesConfig,
+      //     analysisConfig: data.analysisConfig,
+      //   }),
+      // });
+      await updateCampaign({
+        id: campaign.campaign?.id,
+        name: data.name,
+        description: "",
+        direction: data.direction as "inbound" | "outbound",
+        isActive: data.isActive,
+        basePrompt: data.basePrompt,
+        voicemailMessage: data.voicemailMessage,
+        variablesConfig: data.variablesConfig as any,
+        analysisConfig: data.analysisConfig as any,
       });
 
       toast.success("Campaign updated successfully");
@@ -723,6 +738,29 @@ export function CampaignEditForm({
                             )}
                           />
 
+                          {/* Add UI for possibleColumns */}
+                          <FormField
+                            control={form.control}
+                            name={`variablesConfig.patient.fields.${index}.possibleColumns`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Possible Columns</FormLabel>
+                                <FormControl>
+                                  <AccessibleTagInput
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    placeholder="Add a column name..."
+                                    label="Possible columns for mapping"
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Enter possible column names from import files
+                                  that map to this field
+                                </FormDescription>
+                              </FormItem>
+                            )}
+                          />
+
                           <Button
                             type="button"
                             variant="destructive"
@@ -864,6 +902,29 @@ export function CampaignEditForm({
                                 <FormControl>
                                   <Input {...field} />
                                 </FormControl>
+                              </FormItem>
+                            )}
+                          />
+
+                          {/* Add UI for possibleColumns */}
+                          <FormField
+                            control={form.control}
+                            name={`variablesConfig.campaign.fields.${index}.possibleColumns`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Possible Columns</FormLabel>
+                                <FormControl>
+                                  <AccessibleTagInput
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    placeholder="Add a column name..."
+                                    label="Possible columns for mapping"
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  Enter possible column names from import files
+                                  that map to this field
+                                </FormDescription>
                               </FormItem>
                             )}
                           />

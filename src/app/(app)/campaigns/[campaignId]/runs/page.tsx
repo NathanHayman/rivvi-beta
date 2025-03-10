@@ -37,6 +37,7 @@ export default async function CampaignRunsPage({ params }: PageProps) {
     campaignVoicemailMessage: fullCampaign?.template.voicemailMessage,
     campaignName: fullCampaign?.campaign?.name,
     campaignDescription: fullCampaign?.template.description,
+    campaignConfig: fullCampaign?.template.variablesConfig,
   };
 
   return (

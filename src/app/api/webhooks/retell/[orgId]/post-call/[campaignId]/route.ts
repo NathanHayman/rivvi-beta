@@ -1,5 +1,8 @@
 // src/app/api/webhooks/retell/[orgId]/post-call/[campaignId]/route.ts
-import { handlePostCallWebhook } from "@/lib/retell/webhook-handlers";
+import {
+  handlePostCallWebhook,
+  RetellPostCallObjectRaw,
+} from "@/lib/retell/webhook-handlers";
 import { RetellPostCallWebhookRaw } from "@/types/retell";
 import { NextResponse } from "next/server";
 
@@ -70,7 +73,7 @@ export async function POST(
     const result = await handlePostCallWebhook(
       orgId,
       effectiveCampaignId,
-      callData,
+      callData as unknown as RetellPostCallObjectRaw,
     );
 
     return NextResponse.json(result);

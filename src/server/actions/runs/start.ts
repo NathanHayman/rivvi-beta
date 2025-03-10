@@ -8,33 +8,55 @@ import { runService } from "@/services/runs";
 import { revalidatePath } from "next/cache";
 
 export async function startRun(data: unknown) {
-  const { orgId } = await requireOrg();
-  const { runId } = startRunSchema.parse(data);
+  try {
+    console.log("Starting run with data:", data);
+    const { orgId } = await requireOrg();
+    console.log("Organization ID:", orgId);
 
-  const result = await runService.start(runId, orgId);
+    const { runId } = startRunSchema.parse(data);
+    console.log("Run ID after validation:", runId);
 
-  if (isError(result)) {
-    throw new Error(result.error.message);
+    const result = await runService.start(runId, orgId);
+    console.log("Run start result:", result);
+
+    if (isError(result)) {
+      console.error("Error starting run:", result.error);
+      throw new Error(result.error.message);
+    }
+
+    // Revalidate run page
+    revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
+
+    return result.data;
+  } catch (error) {
+    console.error("Exception in startRun server action:", error);
+    throw error;
   }
-
-  // Revalidate run page
-  revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
-
-  return result.data;
 }
 
 export async function pauseRun(data: unknown) {
-  const { orgId } = await requireOrg();
-  const { runId } = startRunSchema.parse(data);
+  try {
+    console.log("Pausing run with data:", data);
+    const { orgId } = await requireOrg();
+    console.log("Organization ID:", orgId);
 
-  const result = await runService.pause(runId, orgId);
+    const { runId } = startRunSchema.parse(data);
+    console.log("Run ID after validation:", runId);
 
-  if (isError(result)) {
-    throw new Error(result.error.message);
+    const result = await runService.pause(runId, orgId);
+    console.log("Run pause result:", result);
+
+    if (isError(result)) {
+      console.error("Error pausing run:", result.error);
+      throw new Error(result.error.message);
+    }
+
+    // Revalidate run page
+    revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
+
+    return result.data;
+  } catch (error) {
+    console.error("Exception in pauseRun server action:", error);
+    throw error;
   }
-
-  // Revalidate run page
-  revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
-
-  return result.data;
 }

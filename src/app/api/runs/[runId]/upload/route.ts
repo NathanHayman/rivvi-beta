@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(
   req: Request,
-  { params }: { params: { runId: string } },
+  { params }: { params: Promise<{ runId: string }> },
 ) {
   try {
     // Get runId from URL params
@@ -11,7 +11,8 @@ export async function POST(
 
     // Parse request body
     const body = await req.json();
-    const { fileContent, fileName } = body;
+    console.log("body", body);
+    const { fileContent, fileName, processedData } = body;
 
     if (!fileContent || !fileName) {
       return NextResponse.json(
@@ -21,11 +22,18 @@ export async function POST(
     }
 
     // Call the server action with the data
-    const result = await uploadFile({
+    const payload = {
       runId,
       fileContent,
       fileName,
-    });
+    };
+
+    // Add processedData if available
+    if (processedData) {
+      Object.assign(payload, { processedData });
+    }
+
+    const result = await uploadFile(payload);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

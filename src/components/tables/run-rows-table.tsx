@@ -276,21 +276,36 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       header: "Campaign Data",
       cell: ({ row }) => {
         const variables = row.original.variables || {};
+        const campaignFields =
+          runData?.campaign?.config?.variables?.campaign?.fields || [];
 
-        // Filter out patient-related variables
-        const patientKeys = [
-          "firstName",
-          "lastName",
-          "phoneNumber",
-          "primaryPhone",
-          "emrId",
-          "phone",
-          "dob",
-          "email",
-        ];
-        const campaignVars = Object.entries(variables).filter(
-          ([key]) => !patientKeys.includes(key),
-        );
+        // Get campaign variable keys from campaign configuration
+        const campaignKeys = campaignFields.map((field) => field.key);
+
+        // Filter variables to only include campaign variables using the campaign configuration
+        let campaignVars = [];
+
+        // If we have campaign keys from the configuration, use them to filter
+        if (campaignKeys.length > 0) {
+          campaignVars = Object.entries(variables).filter(([key]) =>
+            campaignKeys.includes(key),
+          );
+        } else {
+          // Fallback: filter out known patient-related keys
+          const patientKeys = [
+            "firstName",
+            "lastName",
+            "phoneNumber",
+            "primaryPhone",
+            "emrId",
+            "phone",
+            "dob",
+            "email",
+          ];
+          campaignVars = Object.entries(variables).filter(
+            ([key]) => !patientKeys.includes(key),
+          );
+        }
 
         if (campaignVars.length === 0) {
           return <span className="text-muted-foreground">No data</span>;
@@ -307,7 +322,9 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
                 <div>
                   {previewVars.map(([key, value]) => {
                     // Find the variable definition to get the label
-                    const varDef = campaignVariables.find((v) => v.key === key);
+                    const varDef =
+                      campaignFields.find((v) => v.key === key) ||
+                      campaignVariables.find((v) => v.key === key);
                     const label = varDef?.label || key;
 
                     return (
@@ -337,7 +354,9 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
                 <div className="grid gap-2">
                   {campaignVars.map(([key, value]) => {
                     // Find the variable definition to get the label
-                    const varDef = campaignVariables.find((v) => v.key === key);
+                    const varDef =
+                      campaignFields.find((v) => v.key === key) ||
+                      campaignVariables.find((v) => v.key === key);
                     const label = varDef?.label || key;
 
                     return (

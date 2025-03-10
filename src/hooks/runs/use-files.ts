@@ -17,62 +17,106 @@ export function useUploadFile() {
         rows?: any[];
       };
     }) => {
-      // Enhanced logging to debug processed data
-      console.log("Uploading file with processedData:", {
+      console.log("Uploading file:", {
+        fileName: data.fileName,
+        fileSize: data.fileContent.length,
         hasProcessedData: !!data.processedData,
         rowCount: data.processedData?.rows?.length || 0,
-        firstRowSample: data.processedData?.rows?.[0]
-          ? JSON.stringify(data.processedData.rows[0]).substring(0, 200) + "..."
-          : "No rows",
       });
 
-      // Ensure processedData has the right format for the server action
+      // Ensure processedData is correctly structured for server processing
       if (data.processedData?.rows) {
-        // Make sure each row is ready for database insertion
+        // Keep the original structure but ensure variables are properly formatted
         data.processedData.rows = data.processedData.rows.map((row) => {
-          if (typeof row === "object") {
-            return {
-              variables: row.variables || row, // Handle both formats: {variables: {...}} or direct object
-              patientId: row.patientId || null,
-            };
+          if (!row)
+            return { patientId: null, patientHash: null, variables: {} };
+
+          // Ensure patientId is preserved in both top level and variables
+          const patientId = row.patientId || null;
+          let variables =
+            typeof row.variables === "object" ? row.variables : {};
+
+          // If patientId exists, ensure it's also in the variables
+          if (patientId) {
+            variables = { ...variables, patientId };
           }
-          return { variables: row };
+
+          return {
+            patientId,
+            patientHash: row.patientHash || null,
+            variables,
+          };
         });
       }
 
-      return uploadFile(data);
+      // Validate that the data is well-formed before sending
+      if (!data.runId) {
+        throw new Error("Missing runId for file upload");
+      }
+
+      if (!data.fileContent) {
+        throw new Error("Missing file content for upload");
+      }
+
+      const result = await uploadFile(data);
+
+      // Check for success or error based on the server response format
+      if (!result) {
+        console.error(
+          "File upload failed: Received null or undefined response",
+        );
+        throw new Error("File upload failed: Server returned no response");
+      }
+
+      if (!result.success) {
+        // Enhanced error logging with detailed inspection
+        console.error("File upload failed:", {
+          error: result.error,
+          errorMessage: result.error?.message || "No error message",
+          errorDetails: result.error?.details || "No error details",
+          rawResult: JSON.stringify(result).substring(0, 200) + "...",
+        });
+
+        // Construct a helpful error message based on available information
+        let errorMessage = "File upload failed";
+
+        if (result.error && typeof result.error === "object") {
+          if (result.error.message) {
+            errorMessage = result.error.message;
+          }
+
+          // Add details if available
+          if (
+            result.error.details &&
+            typeof result.error.details === "object"
+          ) {
+            const detailsStr = Object.entries(result.error.details)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ");
+            if (detailsStr) {
+              errorMessage += ` (${detailsStr})`;
+            }
+          }
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      return result.data;
     },
-    onSuccess: (data, variables) => {
-      const rowsMessage = data.rowsAdded
-        ? `${data.rowsAdded} rows added successfully`
-        : "File uploaded successfully";
-
-      toast.success(`${rowsMessage}`);
-
-      // Log successful upload
-      console.log("File upload succeeded:", {
-        runId: variables.runId,
-        rowsAdded: data.rowsAdded,
-        invalidRows: data.invalidRows || 0,
+    onSuccess: (data) => {
+      toast.success("File uploaded successfully", {
+        description: `Processed ${data.totalRows || 0} rows`,
       });
 
-      // Invalidate multiple queries to ensure UI is updated
-      queryClient.invalidateQueries({ queryKey: ["run", variables.runId] });
-      queryClient.invalidateQueries({
-        queryKey: ["run-rows", variables.runId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["run-details", variables.runId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["runs"],
-      });
+      // Invalidate relevant queries
+      queryClient.invalidateQueries({ queryKey: ["run"] });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error("File upload error:", error);
-      toast.error(
-        `Error uploading file: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      toast.error("File upload failed", {
+        description: error?.message || "Please try again or contact support",
+      });
     },
   });
 }

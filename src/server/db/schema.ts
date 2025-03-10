@@ -254,6 +254,7 @@ export const campaignTemplates = createTable(
               | "provider";
             required: boolean;
             description?: string;
+            referencedTable?: string;
           }>;
           validation: {
             requireValidPhone: boolean;
@@ -275,6 +276,7 @@ export const campaignTemplates = createTable(
               | "provider";
             required: boolean;
             description?: string;
+            referencedTable?: string;
           }>;
         };
       }>()

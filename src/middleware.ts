@@ -11,6 +11,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/ai-stream(.*)",
   "/api/ai(.*)",
   "/api/ai/playground(.*)",
+  "/api/runs(.*)",
   "/api/runs/[runId]/upload(.*)",
 ]);
 
