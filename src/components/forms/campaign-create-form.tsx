@@ -357,6 +357,67 @@ export function CampaignCreateForm({
     remove: removeCampaignAnalysisField,
   } = useFieldArray({ control: form.control, name: "campaignAnalysisFields" });
 
+  // Watch for field type changes to properly initialize options
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      // Check if the changed field is a type field and was set to enum
+      if (
+        name &&
+        typeof name === "string" &&
+        name.endsWith(".type") &&
+        value[name as keyof typeof value] === "enum"
+      ) {
+        // Need to handle the path safely for TypeScript
+        const basePath = name.replace(".type", "");
+
+        // Handle both types of analysis fields
+        if (name.includes("standardAnalysisFields")) {
+          const index = parseInt(name.split(".")[1], 10);
+          if (!isNaN(index)) {
+            const currentOptions = form.getValues(
+              `standardAnalysisFields.${index}.options` as const,
+            );
+            if (
+              !currentOptions ||
+              !Array.isArray(currentOptions) ||
+              currentOptions.length === 0
+            ) {
+              console.log(
+                `Initializing options array for standardAnalysisFields.${index}.options`,
+              );
+              form.setValue(
+                `standardAnalysisFields.${index}.options` as const,
+                [],
+              );
+            }
+          }
+        } else if (name.includes("campaignAnalysisFields")) {
+          const index = parseInt(name.split(".")[1], 10);
+          if (!isNaN(index)) {
+            const currentOptions = form.getValues(
+              `campaignAnalysisFields.${index}.options` as const,
+            );
+            if (
+              !currentOptions ||
+              !Array.isArray(currentOptions) ||
+              currentOptions.length === 0
+            ) {
+              console.log(
+                `Initializing options array for campaignAnalysisFields.${index}.options`,
+              );
+              form.setValue(
+                `campaignAnalysisFields.${index}.options` as const,
+                [],
+              );
+            }
+          }
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form]);
+
   // Handle form submission
   const onSubmit = (values: CampaignFormValues) => {
     // Ensure agent ID and LLM ID are properly formatted
@@ -503,35 +564,62 @@ export function CampaignCreateForm({
       required: false,
     };
 
+    console.log(`Adding new field of type: ${type}`);
+
     switch (type) {
       case "patient":
-        appendPatientField({
+        const patientField = {
           ...baseField,
           possibleColumns: [],
-          transform: "text",
-        });
+          transform: "text" as const,
+        };
+        console.log("Adding patient field:", patientField);
+        appendPatientField(patientField);
+        console.log("Patient fields after append:", patientFields);
         break;
       case "campaign":
-        appendCampaignField({
+        const campaignField = {
           ...baseField,
           possibleColumns: [],
-          transform: "text",
-        });
+          transform: "text" as const,
+        };
+        console.log("Adding campaign field:", campaignField);
+        appendCampaignField(campaignField);
+        console.log("Campaign fields after append:", campaignFields);
         break;
       case "standardAnalysis":
-        appendStandardAnalysisField({
+        const standardField = {
           ...baseField,
-          type: "boolean",
-        });
+          type: "boolean" as const,
+          options: [] as string[], // Explicitly define as string array
+        };
+        console.log("Adding standard analysis field:", standardField);
+        appendStandardAnalysisField(standardField);
+        console.log(
+          "Standard analysis fields after append:",
+          standardAnalysisFields,
+        );
         break;
       case "campaignAnalysis":
-        appendCampaignAnalysisField({
+        const campaignAnalysisField = {
           ...baseField,
-          type: "boolean",
+          type: "boolean" as const,
+          options: [] as string[], // Explicitly define as string array
           isMainKPI: false,
-        });
+        };
+        console.log("Adding campaign analysis field:", campaignAnalysisField);
+        appendCampaignAnalysisField(campaignAnalysisField);
+        console.log(
+          "Campaign analysis fields after append:",
+          campaignAnalysisFields,
+        );
         break;
     }
+
+    // Delay the trigger slightly to ensure the field is fully added
+    setTimeout(() => {
+      form.trigger();
+    }, 0);
   };
 
   return (
@@ -1033,8 +1121,173 @@ export function CampaignCreateForm({
                       </div>
                     ) : (
                       <div className="space-y-6">
-                        {/* Same structure as patientFields but for campaignFields */}
-                        {/* Similar rendering logic for campaign fields */}
+                        {campaignFields.map((field, index) => (
+                          <div
+                            key={field.id}
+                            className="relative rounded-lg border bg-card p-4"
+                          >
+                            <div className="grid gap-5 md:grid-cols-2">
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.key`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="font-medium text-foreground">
+                                      Field Key
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder="key"
+                                        className="bg-background"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      Variable name in the system
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.label`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="font-medium text-foreground">
+                                      Display Label
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        placeholder="label"
+                                        className="bg-background"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      Human-readable field name
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.transform`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="font-medium text-foreground">
+                                      Transform Type
+                                    </FormLabel>
+                                    <Select
+                                      onValueChange={field.onChange}
+                                      defaultValue={field.value}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger className="bg-background">
+                                          <SelectValue placeholder="Text" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        <SelectItem value="text">
+                                          Text
+                                        </SelectItem>
+                                        <SelectItem value="short_date">
+                                          Short Date
+                                        </SelectItem>
+                                        <SelectItem value="long_date">
+                                          Long Date
+                                        </SelectItem>
+                                        <SelectItem value="time">
+                                          Time
+                                        </SelectItem>
+                                        <SelectItem value="phone">
+                                          Phone
+                                        </SelectItem>
+                                        <SelectItem value="provider">
+                                          Provider
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                      How to transform the input data
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.possibleColumns`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="font-medium text-foreground">
+                                      Possible Column Names
+                                    </FormLabel>
+                                    <FormControl>
+                                      <AccessibleTagInput
+                                        placeholder="Add column names..."
+                                        value={field.value}
+                                        onChange={(newTags) =>
+                                          form.setValue(
+                                            `campaignFields.${index}.possibleColumns`,
+                                            newTags,
+                                          )
+                                        }
+                                        label={`Possible column names for ${form.watch(`campaignFields.${index}.label`) || "field"}`}
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      Column names that might match this field
+                                      in uploaded data
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            <div className="mt-4">
+                              <FormField
+                                control={form.control}
+                                name={`campaignFields.${index}.required`}
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                    <div className="space-y-1 leading-none">
+                                      <FormLabel className="font-medium text-foreground">
+                                        Required Field
+                                      </FormLabel>
+                                      <FormDescription>
+                                        Is this field required for valid data?
+                                      </FormDescription>
+                                    </div>
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
+                            {campaignFields.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute right-2 top-2 h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeCampaignField(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1042,7 +1295,6 @@ export function CampaignCreateForm({
               )}
 
               {/* Step 3: Analysis */}
-              {/* Similar rendering logic as in Step 2 but for analysis fields */}
               {step === 2 && (
                 <div className="space-y-8">
                   <div className="space-y-4">
@@ -1067,9 +1319,7 @@ export function CampaignCreateForm({
                       </Button>
                     </div>
 
-                    {/* Similar rendering logic as in Step 2 but for analysis fields */}
                     <div className="space-y-6">
-                      {/* Standard Analysis Fields section */}
                       {standardAnalysisFields.map((field, index) => (
                         <div key={field.id} className="rounded-md border p-4">
                           <div className="mb-4 grid grid-cols-2 gap-4">
@@ -1108,7 +1358,16 @@ export function CampaignCreateForm({
                                 <FormItem>
                                   <FormLabel>Field Type</FormLabel>
                                   <Select
-                                    onValueChange={formField.onChange}
+                                    onValueChange={(value) => {
+                                      formField.onChange(value);
+                                      // Initialize options array if type is enum
+                                      if (value === "enum") {
+                                        form.setValue(
+                                          `standardAnalysisFields.${index}.options` as const,
+                                          [],
+                                        );
+                                      }
+                                    }}
                                     defaultValue={formField.value}
                                     value={formField.value}
                                   >
@@ -1151,7 +1410,9 @@ export function CampaignCreateForm({
                             />
                           </div>
 
-                          {field.type === "enum" && (
+                          {form.watch(
+                            `standardAnalysisFields.${index}.type`,
+                          ) === "enum" && (
                             <div className="mb-4">
                               <FormField
                                 control={form.control}
@@ -1233,8 +1494,6 @@ export function CampaignCreateForm({
                     </div>
 
                     <div className="space-y-6">
-                      {/* Similar rendering logic as in Step 2 but for campaign analysis fields */}
-                      {/* TODO: Add the fields here */}
                       {campaignAnalysisFields.map((field, index) => (
                         <div key={field.id} className="rounded-md border p-4">
                           <div className="mb-4 grid grid-cols-2 gap-4">
@@ -1273,7 +1532,16 @@ export function CampaignCreateForm({
                                 <FormItem>
                                   <FormLabel>Field Type</FormLabel>
                                   <Select
-                                    onValueChange={formField.onChange}
+                                    onValueChange={(value) => {
+                                      formField.onChange(value);
+                                      // Initialize options array if type is enum
+                                      if (value === "enum") {
+                                        form.setValue(
+                                          `campaignAnalysisFields.${index}.options` as const,
+                                          [],
+                                        );
+                                      }
+                                    }}
                                     defaultValue={formField.value}
                                     value={formField.value}
                                   >
@@ -1333,7 +1601,9 @@ export function CampaignCreateForm({
                             </div>
                           </div>
 
-                          {field.type === "enum" && (
+                          {form.watch(
+                            `campaignAnalysisFields.${index}.type`,
+                          ) === "enum" && (
                             <div className="mb-4">
                               <FormField
                                 control={form.control}

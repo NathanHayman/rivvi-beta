@@ -15,7 +15,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </Suspense>
       <SidebarProvider>
         <AppSidebar>
-          <UserButton />
+          <UserButton
+            appearance={{
+              elements: {
+                rootBox: "w-8 h-8",
+                avatarBox: "w-8 h-8",
+              },
+            }}
+          />
           <OrganizationSwitcher
             fallback={
               <Button variant="outline">
