@@ -61,7 +61,7 @@ function sanitizeFieldStructure(config: any): any {
 
   try {
     // Create a deep copy to avoid modifying the original
-    let safeConfig: any = JSON.parse(JSON.stringify(config));
+    const safeConfig: any = JSON.parse(JSON.stringify(config));
 
     // Check if the config has patient/campaign at top level instead of inside variables
     // This handles the case where the structure is {patient: {...}, campaign: {...}}

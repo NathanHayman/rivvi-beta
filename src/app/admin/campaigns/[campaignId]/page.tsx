@@ -2,6 +2,7 @@ import {
   CampaignDetails,
   CampaignDetailsSkeleton,
 } from "@/components/app/campaign/campaign-details";
+import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -30,8 +31,21 @@ async function CampaignDetailsContent({ campaignId }: { campaignId: string }) {
     notFound();
   }
 
+  const config: RunCreateFormProps = {
+    campaignId,
+    campaignBasePrompt: campaign.data.template.basePrompt,
+    campaignVoicemailMessage: campaign.data.template.voicemailMessage,
+    campaignName: campaign.data.campaign?.name,
+    campaignDescription: campaign.data.template.description,
+    campaignConfig: campaign.data.template.variablesConfig,
+  };
+
   return (
-    <CampaignDetails campaignId={campaignId} initialData={campaign.data} />
+    <CampaignDetails
+      campaignId={campaignId}
+      initialData={campaign.data}
+      initialConfig={config}
+    />
   );
 }
 

@@ -274,7 +274,7 @@ export function EditOrganizationForm({
                   </SelectContent>
                 </Select>
                 <FormDescription>
-                  The organization's primary timezone for scheduling
+                  The organization&apos;s primary timezone for scheduling
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -78,20 +78,13 @@ export function CampaignsTable({
   });
 
   // Get campaigns data using the custom hook if no initialCampaigns provided
-  const {
-    campaigns: hookCampaigns,
-    totalCount: hookTotalCount,
-    isLoading,
-    refetch,
-  } = useCampaigns(pagination.pageSize);
+  const { data, isLoading, refetch } = useCampaigns();
 
   // Use either the provided campaigns or the ones from the hook
-  const allCampaigns: Campaign[] = initialCampaigns || hookCampaigns || [];
-  const totalCount =
-    initialTotalCount !== undefined ? initialTotalCount : hookTotalCount;
+  const allCampaigns: Campaign[] = initialCampaigns || data || [];
 
   // Then filter out inbound campaigns
-  const data = removeInboundCampaigns(allCampaigns);
+  const filteredCampaigns = removeInboundCampaigns(allCampaigns);
 
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -249,7 +242,9 @@ export function CampaignsTable({
       pagination,
     },
     manualPagination: true,
-    pageCount: totalCount ? Math.ceil(totalCount / pagination.pageSize) : 0,
+    pageCount: filteredCampaigns.length
+      ? Math.ceil(filteredCampaigns.length / pagination.pageSize)
+      : 0,
   });
 
   return (
@@ -341,8 +336,8 @@ export function CampaignsTable({
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {totalCount || 0}{" "}
-          campaigns
+          Showing {table.getRowModel().rows.length} of{" "}
+          {filteredCampaigns.length} campaigns
         </div>
         <div className="flex items-center space-x-2">
           <Button

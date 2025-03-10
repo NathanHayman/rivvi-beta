@@ -104,11 +104,14 @@ export function CallsTableFilters() {
   );
 
   // Handle form submission
-  function onSubmit(values: FilterValues) {
-    // Update URL with new query params
-    const queryString = createQueryString(values);
-    router.push(`${pathname}${queryString ? `?${queryString}` : ""}`);
-  }
+  const onSubmit = useCallback(
+    function onSubmit(values: FilterValues) {
+      // Update URL with new query params
+      const queryString = createQueryString(values);
+      router.push(`${pathname}${queryString ? `?${queryString}` : ""}`);
+    },
+    [router, pathname, createQueryString],
+  );
 
   // Reset filters
   function resetFilters() {
@@ -136,7 +139,7 @@ export function CallsTableFilters() {
     });
 
     return () => subscription.unsubscribe();
-  }, [form, form.watch]);
+  }, [form, form.watch, onSubmit]);
 
   return (
     <div className="rounded-md border bg-card p-4 shadow-sm">

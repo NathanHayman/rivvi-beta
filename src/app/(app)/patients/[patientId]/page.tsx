@@ -1,3 +1,4 @@
+import { PatientDetail } from "@/components/app/patient/patient-detail";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -5,7 +6,6 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { PatientDetail } from "@/components/patients/patient-detail";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Metadata } from "next";

@@ -1,5 +1,6 @@
 // src/services/runs/run-processor.ts
 
+import { isProduction } from "@/lib/enviroment";
 import {
   triggerEvent,
   triggerRowStatusUpdate,
@@ -13,6 +14,7 @@ import {
   campaignTemplates,
   campaigns,
   organizations,
+  outreachEfforts,
   rows,
   runs,
 } from "@/server/db/schema";
@@ -244,10 +246,9 @@ export class RunProcessor {
         const agentData = await getAgentComplete(template.agentId);
 
         // Get base URL for webhooks
-        const baseUrl =
-          process.env.NEXT_PUBLIC_APP_URL ||
-          process.env.VERCEL_URL ||
-          "http://localhost:3000";
+        const baseUrl = isProduction
+          ? "https://app.rivvi.ai"
+          : "https://pleasing-actually-wahoo.ngrok-free.app";
 
         // Check if webhooks are configured correctly
         const needsUpdate =
@@ -1231,6 +1232,48 @@ export class RunProcessor {
                 updatedAt: new Date(),
               })
               .returning();
+
+            // Create outreach effort record at the time of call dispatch
+            try {
+              const [newOutreachEffort] = await this.db
+                .insert(outreachEfforts)
+                .values({
+                  orgId,
+                  patientId,
+                  campaignId: campaign.id,
+                  runId,
+                  rowId: row.id,
+                  originalCallId: newCall.id,
+                  lastCallId: newCall.id,
+                  resolutionStatus: "open",
+                  direction: "outbound",
+                  agentId: template.agentId,
+                  variables: callVariables,
+                  metadata: {
+                    firstCallTime: new Date().toISOString(),
+                    callStatus: "pending",
+                  },
+                })
+                .returning();
+
+              // Update the call with the outreach effort ID
+              await this.db
+                .update(calls)
+                .set({
+                  outreachEffortId: newOutreachEffort.id,
+                })
+                .where(eq(calls.id, newCall.id));
+
+              console.log(
+                `Created outreach effort ${newOutreachEffort.id} for call ${newCall.id}`,
+              );
+            } catch (outreachError) {
+              console.error(
+                `Error creating outreach effort for call ${newCall.id}:`,
+                outreachError,
+              );
+              // Continue processing even if outreach effort creation fails
+            }
 
             // Update run metrics
             await this.incrementMetric(runId, "calls.calling");

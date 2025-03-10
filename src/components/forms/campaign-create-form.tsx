@@ -28,6 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useAdminAgents,
@@ -1040,11 +1042,355 @@ export function CampaignCreateForm({
               )}
 
               {/* Step 3: Analysis */}
+              {/* Similar rendering logic as in Step 2 but for analysis fields */}
               {step === 2 && (
                 <div className="space-y-8">
-                  {/* Similar rendering logic as in Step 2 but for analysis fields */}
-                  {/* Standard Analysis Fields section */}
-                  {/* Campaign Analysis Fields section */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium leading-6">
+                          Analysis Fields
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Define the analysis fields required for this campaign
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={() => addNewField("standardAnalysis")}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add Field
+                      </Button>
+                    </div>
+
+                    {/* Similar rendering logic as in Step 2 but for analysis fields */}
+                    <div className="space-y-6">
+                      {/* Standard Analysis Fields section */}
+                      {standardAnalysisFields.map((field, index) => (
+                        <div key={field.id} className="rounded-md border p-4">
+                          <div className="mb-4 grid grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.key`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Field Key</FormLabel>
+                                  <FormControl>
+                                    <Input {...formField} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.label`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Display Label</FormLabel>
+                                  <FormControl>
+                                    <Input {...formField} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                          <div className="mb-4 grid grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.type`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Field Type</FormLabel>
+                                  <Select
+                                    onValueChange={formField.onChange}
+                                    defaultValue={formField.value}
+                                    value={formField.value}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select field type" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="string">
+                                        Text
+                                      </SelectItem>
+                                      <SelectItem value="boolean">
+                                        Boolean
+                                      </SelectItem>
+                                      <SelectItem value="date">Date</SelectItem>
+                                      <SelectItem value="enum">
+                                        Enum (Options)
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`standardAnalysisFields.${index}.required`}
+                              render={({ field: formField }) => (
+                                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                                  <FormLabel>Required</FormLabel>
+                                  <FormControl>
+                                    <Switch
+                                      checked={formField.value}
+                                      onCheckedChange={formField.onChange}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          {field.type === "enum" && (
+                            <div className="mb-4">
+                              <FormField
+                                control={form.control}
+                                name={`standardAnalysisFields.${index}.options`}
+                                render={({ field: formField }) => (
+                                  <FormItem>
+                                    <FormLabel>Options</FormLabel>
+                                    <FormControl>
+                                      <TagInput
+                                        placeholder="Add option and press Enter"
+                                        initialTags={formField.value || []}
+                                        onTagsChange={(tags) =>
+                                          formField.onChange(tags)
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      Add options for the enum field. Press
+                                      Enter after each option.
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          )}
+
+                          <FormField
+                            control={form.control}
+                            name={`standardAnalysisFields.${index}.description`}
+                            render={({ field: formField }) => (
+                              <FormItem>
+                                <FormLabel>Description</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Enter field description..."
+                                    {...formField}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="mt-4"
+                            onClick={() => removeStandardAnalysisField(index)}
+                          >
+                            Remove Field
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-medium leading-6">
+                          Campaign Analysis Fields
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Define the campaign-specific analysis fields
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={() => addNewField("campaignAnalysis")}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add Field
+                      </Button>
+                    </div>
+
+                    <div className="space-y-6">
+                      {/* Similar rendering logic as in Step 2 but for campaign analysis fields */}
+                      {/* TODO: Add the fields here */}
+                      {campaignAnalysisFields.map((field, index) => (
+                        <div key={field.id} className="rounded-md border p-4">
+                          <div className="mb-4 grid grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`campaignAnalysisFields.${index}.key`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Field Key</FormLabel>
+                                  <FormControl>
+                                    <Input {...formField} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`campaignAnalysisFields.${index}.label`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Display Label</FormLabel>
+                                  <FormControl>
+                                    <Input {...formField} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                          <div className="mb-4 grid grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`campaignAnalysisFields.${index}.type`}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>Field Type</FormLabel>
+                                  <Select
+                                    onValueChange={formField.onChange}
+                                    defaultValue={formField.value}
+                                    value={formField.value}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select field type" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="string">
+                                        Text
+                                      </SelectItem>
+                                      <SelectItem value="boolean">
+                                        Boolean
+                                      </SelectItem>
+                                      <SelectItem value="date">Date</SelectItem>
+                                      <SelectItem value="enum">
+                                        Enum (Options)
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <div className="space-y-4">
+                              <FormField
+                                control={form.control}
+                                name={`campaignAnalysisFields.${index}.required`}
+                                render={({ field: formField }) => (
+                                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                                    <FormLabel>Required</FormLabel>
+                                    <FormControl>
+                                      <Switch
+                                        checked={formField.value}
+                                        onCheckedChange={formField.onChange}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={form.control}
+                                name={`campaignAnalysisFields.${index}.isMainKPI`}
+                                render={({ field: formField }) => (
+                                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                                    <FormLabel>Main KPI</FormLabel>
+                                    <FormControl>
+                                      <Switch
+                                        checked={formField.value}
+                                        onCheckedChange={formField.onChange}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </div>
+
+                          {field.type === "enum" && (
+                            <div className="mb-4">
+                              <FormField
+                                control={form.control}
+                                name={`campaignAnalysisFields.${index}.options`}
+                                render={({ field: formField }) => (
+                                  <FormItem>
+                                    <FormLabel>Options</FormLabel>
+                                    <FormControl>
+                                      <TagInput
+                                        placeholder="Add option and press Enter"
+                                        initialTags={formField.value || []}
+                                        onTagsChange={(tags) =>
+                                          formField.onChange(tags)
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      Add options for the enum field. Press
+                                      Enter after each option.
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          )}
+
+                          <FormField
+                            control={form.control}
+                            name={`campaignAnalysisFields.${index}.description`}
+                            render={({ field: formField }) => (
+                              <FormItem>
+                                <FormLabel>Description</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    placeholder="Enter field description..."
+                                    {...formField}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="mt-4"
+                            onClick={() => removeCampaignAnalysisField(index)}
+                          >
+                            Remove Field
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 

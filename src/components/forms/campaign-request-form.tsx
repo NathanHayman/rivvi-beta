@@ -339,8 +339,8 @@ export function CampaignRequestForm({
                           />
                         </FormControl>
                         <FormDescription>
-                          Provide details about the campaign's context, target
-                          audience, and general purpose
+                          Provide details about the campaign&apos;s context,
+                          target audience, and general purpose
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -382,9 +382,9 @@ export function CampaignRequestForm({
                           </div>
                         </FormControl>
                         <FormDescription>
-                          Select whether this is an outbound campaign (system
-                          calls patients) or inbound campaign (patients call the
-                          system)
+                          Determine if this is an outbound or inbound campaign.
+                          Outbound campaigns call patients, while inbound
+                          campaigns handle patient&apos;s incoming calls.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -456,7 +456,7 @@ export function CampaignRequestForm({
                       </h3>
                       <p className="max-w-md text-sm text-muted-foreground">
                         Upload example Excel or CSV files that represent the
-                        data you'll use for this campaign. This helps us
+                        data you&apos;ll use for this campaign. This helps us
                         understand your data structure.
                       </p>
                       <label htmlFor="file-upload" className="cursor-pointer">

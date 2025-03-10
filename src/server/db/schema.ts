@@ -59,6 +59,19 @@ export const campaignRequestStatusEnum = pgEnum("campaign_request_status", [
   "completed",
 ]);
 
+// New enum for outreach resolution status
+export const outreachResolutionStatusEnum = pgEnum(
+  "outreach_resolution_status",
+  [
+    "open", // Outreach attempt made but no meaningful interaction yet
+    "resolved", // Issue resolved (e.g., appointment confirmed)
+    "callback", // Patient called back and was connected
+    "no_contact", // Couldn't reach the patient at all
+    "voicemail", // Left voicemail, waiting for response
+    "follow_up", // Need to follow up later
+  ],
+);
+
 // Type definitions - unchanged
 export type RunStatus =
   | "draft"
@@ -93,6 +106,15 @@ export type CampaignRequestStatus =
   | "in_progress"
   | "rejected"
   | "completed";
+
+// New type for outreach resolution status
+export type OutreachResolutionStatus =
+  | "open"
+  | "resolved"
+  | "callback"
+  | "no_contact"
+  | "voicemail"
+  | "follow_up";
 
 // Table Definitions - Updated with new columns
 
@@ -622,7 +644,68 @@ export const rows = createTable(
   }),
 );
 
-// Calls - updated with new columns
+// Patient Outreach Efforts - new table to track outreach attempts and their status
+export const outreachEfforts = createTable(
+  "outreach_effort",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    orgId: uuid("org_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    patientId: uuid("patient_id")
+      .references(() => patients.id, { onDelete: "cascade" })
+      .notNull(),
+    campaignId: uuid("campaign_id").references(() => campaigns.id, {
+      onDelete: "set null",
+    }),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    rowId: uuid("row_id").references(() => rows.id, { onDelete: "set null" }),
+    originalCallId: uuid("original_call_id").references(() => calls.id, {
+      onDelete: "set null",
+    }),
+    lastCallId: uuid("last_call_id").references(() => calls.id, {
+      onDelete: "set null",
+    }),
+    resolutionStatus: outreachResolutionStatusEnum("resolution_status")
+      .default("open")
+      .notNull(),
+    direction: callDirectionEnum("direction").default("outbound").notNull(),
+    agentId: varchar("agent_id", { length: 256 }),
+    followUpAt: timestamp("follow_up_at", { withTimezone: true }),
+    callCount: integer("call_count").default(1),
+    callbackCount: integer("callback_count").default(0),
+    variables: json("variables").$type<Record<string, unknown>>(),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgIdIdx: index("outreach_effort_org_id_idx").on(table.orgId),
+    patientIdIdx: index("outreach_effort_patient_id_idx").on(table.patientId),
+    campaignIdIdx: index("outreach_effort_campaign_id_idx").on(
+      table.campaignId,
+    ),
+    runIdIdx: index("outreach_effort_run_id_idx").on(table.runId),
+    rowIdIdx: index("outreach_effort_row_id_idx").on(table.rowId),
+    originalCallIdIdx: index("outreach_effort_original_call_id_idx").on(
+      table.originalCallId,
+    ),
+    resolutionStatusIdx: index("outreach_effort_resolution_status_idx").on(
+      table.resolutionStatus,
+    ),
+    directionIdx: index("outreach_effort_direction_idx").on(table.direction),
+  }),
+);
+
+// Calls - update with reference to outreach effort
 export const calls = createTable(
   "call",
   {
@@ -640,6 +723,13 @@ export const calls = createTable(
     patientId: uuid("patient_id").references(() => patients.id, {
       onDelete: "set null",
     }),
+    // Reference to the outreach effort this call belongs to
+    outreachEffortId: uuid("outreach_effort_id").references(
+      () => outreachEfforts.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     agentId: varchar("agent_id", { length: 256 }).notNull(),
     direction: callDirectionEnum("direction").notNull(),
     status: callStatusEnum("status").default("pending").notNull(),
@@ -676,6 +766,9 @@ export const calls = createTable(
     campaignIdIdx: index("call_campaign_id_idx").on(table.campaignId),
     rowIdIdx: index("call_row_id_idx").on(table.rowId),
     patientIdIdx: index("call_patient_id_idx").on(table.patientId),
+    outreachEffortIdIdx: index("call_outreach_effort_id_idx").on(
+      table.outreachEffortId,
+    ),
     agentIdIdx: index("call_agent_id_idx").on(table.agentId),
     retellCallIdIdx: index("call_retell_call_id_idx").on(table.retellCallId),
     statusIdx: index("call_status_idx").on(table.status),

@@ -40,7 +40,7 @@ import {
 import { useRun } from "@/hooks/runs/use-runs";
 import { useRunEvents } from "@/hooks/use-run-events";
 import { cn } from "@/lib/utils";
-import { fetchRunRows } from "@/server/actions/rows";
+import { fetchRunRows } from "@/server/actions/runs/rows";
 import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -137,56 +137,6 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
     }
 
     return String(value);
-  }
-
-  // Helper function to get the main campaign variable to display
-  function getCampaignMainVariable(variables: Record<string, unknown>) {
-    // Priority list of variables to check
-    const priorityKeys = [
-      "appointmentType",
-      "appointment_type",
-      "appointmentDateTime",
-      "appointment_date_time",
-      "appointmentDate",
-      "appointment_date",
-      "procedure",
-      "procedureType",
-      "procedure_type",
-      "reason",
-      "reasonForVisit",
-      "reason_for_visit",
-    ];
-
-    // Check if any priority keys exist
-    for (const key of priorityKeys) {
-      if (
-        key in variables &&
-        variables[key] !== undefined &&
-        variables[key] !== null &&
-        variables[key] !== ""
-      ) {
-        return {
-          key,
-          value: `${formatVariableLabel(key)}: ${formatVariableValue(variables[key])}`,
-        };
-      }
-    }
-
-    // If no priority keys found, return the first non-empty field
-    for (const [key, value] of Object.entries(variables)) {
-      if (value !== undefined && value !== null && value !== "") {
-        return {
-          key,
-          value: `${formatVariableLabel(key)}: ${formatVariableValue(value)}`,
-        };
-      }
-    }
-
-    // If no fields found, return default
-    return {
-      key: "",
-      value: "No data",
-    };
   }
 
   // Fetch row data from the server - memoize to prevent infinite renders
@@ -350,6 +300,56 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
   // Define columns with memoization to prevent re-renders
   const columns = useMemo(() => {
+    // Helper function to get the main campaign variable to display
+    function getCampaignMainVariable(variables: Record<string, unknown>) {
+      // Priority list of variables to check
+      const priorityKeys = [
+        "appointmentType",
+        "appointment_type",
+        "appointmentDateTime",
+        "appointment_date_time",
+        "appointmentDate",
+        "appointment_date",
+        "procedure",
+        "procedureType",
+        "procedure_type",
+        "reason",
+        "reasonForVisit",
+        "reason_for_visit",
+      ];
+
+      // Check if any priority keys exist
+      for (const key of priorityKeys) {
+        if (
+          key in variables &&
+          variables[key] !== undefined &&
+          variables[key] !== null &&
+          variables[key] !== ""
+        ) {
+          return {
+            key,
+            value: `${formatVariableLabel(key)}: ${formatVariableValue(variables[key])}`,
+          };
+        }
+      }
+
+      // If no priority keys found, return the first non-empty field
+      for (const [key, value] of Object.entries(variables)) {
+        if (value !== undefined && value !== null && value !== "") {
+          return {
+            key,
+            value: `${formatVariableLabel(key)}: ${formatVariableValue(value)}`,
+          };
+        }
+      }
+
+      // If no fields found, return default
+      return {
+        key: "",
+        value: "No data",
+      };
+    }
+
     const cols: ColumnDef<Row>[] = [
       {
         accessorKey: "patient",
@@ -452,7 +452,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       {
         accessorKey: "campaignData",
         header: "Campaign Data",
-        size: 250,
+        size: 200,
         cell: ({ row }) => {
           const variables = row.original.variables || {};
           const processedVariables = row.original.processedVariables || {};
@@ -460,14 +460,13 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           // Combine all variables for display
           const allVariables = { ...variables, ...processedVariables };
 
-          // Find the main campaign variable to display
-          // For example, look for appointment type or other important variable
+          // Find the main campaign variable to display using the function in this scope
           const mainVar = getCampaignMainVariable(allVariables);
 
           return (
             <Popover>
               <PopoverTrigger asChild>
-                <div className="flex max-w-full cursor-pointer items-center">
+                <div className="flex max-w-56 cursor-pointer items-center">
                   <div className="truncate text-sm">{mainVar.value}</div>
                   <InfoIcon className="ml-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </div>
@@ -481,9 +480,9 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
                 </div>
                 <div className="max-h-[400px] overflow-y-auto p-4">
                   {Object.entries(allVariables).length > 0 ? (
-                    <div className="grid gap-2">
+                    <div className="grid w-full gap-2">
                       {Object.entries(allVariables).map(([key, value]) => (
-                        <div key={key} className="grid grid-cols-3 gap-2 py-1">
+                        <div key={key} className="grid grid-cols-3 gap-32 py-1">
                           <span className="text-sm font-medium">{key}</span>
                           <span className="col-span-2 break-words text-sm">
                             {formatVariableValue(value)}
@@ -670,24 +669,16 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             <div className="flex items-center gap-2">
               {patientId && (
                 <Link href={`/patients/${patientId}`}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
-                  >
-                    <User className="mr-1.5 h-3.5 w-3.5" />
+                  <Button variant="secondary" size="sm" className="text-xs">
+                    <User className="h-3 w-3" />
                     Patient
                   </Button>
                 </Link>
               )}
               {callDetailsUrl && (
                 <Link href={callDetailsUrl}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
-                  >
-                    <Phone className="mr-1.5 h-3.5 w-3.5" />
+                  <Button variant="outline" size="sm" className="text-xs">
+                    <Phone className="h-3 w-3" />
                     Details
                   </Button>
                 </Link>
@@ -783,7 +774,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       </div>
 
       {/* Table container with overflow handling */}
-      <div className="overflow-hidden rounded-md border border-border">
+      <div className="overflow-hidden rounded-md">
         <div className="relative">
           {/* Table wrapper with controlled overflow */}
           <div className="w-full overflow-x-auto">
@@ -903,7 +894,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
         {/* Pagination footer */}
         {totalRows > 0 && (
-          <div className="flex items-center justify-between border-t border-border p-4">
+          <div className="flex items-center justify-between border-border p-4">
             <div className="text-xs text-muted-foreground">
               Showing{" "}
               {Math.min(

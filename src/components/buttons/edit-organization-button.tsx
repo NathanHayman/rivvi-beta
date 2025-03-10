@@ -1,14 +1,15 @@
+import { TOrg } from "@/types/db";
 import { Plus } from "lucide-react";
 import { EditOrganizationForm } from "../forms/organization-edit-form";
 import { TriggerSheet } from "../modals/trigger-sheet";
 
-export function EditOrganizationButton({ orgId }: { orgId: string }) {
+export function EditOrganizationButton({ org }: { org: TOrg }) {
   return (
     <TriggerSheet
       buttonIcon={<Plus />}
-      buttonText="Create Campaign"
-      form={<EditOrganizationForm organizationId={orgId} />}
-      title="Create Campaign"
+      buttonText="Edit Organization"
+      form={<EditOrganizationForm organization={org} />}
+      title="Edit Organization"
     />
   );
 }

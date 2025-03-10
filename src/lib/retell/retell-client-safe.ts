@@ -1,5 +1,7 @@
 // src/lib/retell-client-safe.ts
 
+import { isProduction } from "../enviroment";
+
 /**
  * Type definitions for Retell API responses
  */
@@ -227,7 +229,9 @@ export const generateWebhookUrls = (
   campaignId?: string,
 ) => {
   // Base URL fallback
-  const apiBaseUrl = baseUrl;
+  const apiBaseUrl = isProduction
+    ? "https://app.rivvi.ai"
+    : "https://pleasing-actually-wahoo.ngrok-free.app";
 
   // Generate inbound and post-call webhook URLs
   const inboundUrl = `${apiBaseUrl}/api/webhooks/retell/${orgId}/inbound`;
@@ -257,14 +261,13 @@ export const updateAgentWebhooks = async (
   try {
     // Check if we're in a browser environment
     const isBrowser = typeof window !== "undefined";
+    const baseUrl = isProduction
+      ? "https://app.rivvi.ai"
+      : "https://pleasing-actually-wahoo.ngrok-free.app";
 
     if (isBrowser) {
       // Client-side implementation
-      const {
-        baseUrl = window.location.origin,
-        setInbound = true,
-        setPostCall = true,
-      } = options || {};
+      const { setInbound = true, setPostCall = true } = options || {};
 
       // Generate webhook URLs
       const { inboundUrl, postCallUrl } = generateWebhookUrls(

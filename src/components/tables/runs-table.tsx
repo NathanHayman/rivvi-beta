@@ -1,13 +1,37 @@
 "use client";
 
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
+import {
+  Calendar,
+  CheckCircle,
+  ChevronRight,
+  HelpCircle,
+  PauseCircle,
+  Phone,
+  PlayCircle,
+  RefreshCw,
+  XCircle,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -17,245 +41,392 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { getRuns } from "@/server/actions/runs/fetch";
-import { pauseRun } from "@/server/actions/runs/index";
-import { startRun } from "@/server/actions/runs/start";
+import { pauseRun, startRun } from "@/server/actions/runs/start";
 import { formatDistance } from "date-fns";
-import { Eye, MoreHorizontal, Pause, Play } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-interface RunsTableProps {
+// Import types
+import { CampaignAnalytics } from "@/services/analytics/types";
+
+export type RunsTableProps = {
   campaignId: string;
+  campaignName?: string;
   limit?: number;
-}
+  runs?: any[];
+  analytics?: CampaignAnalytics;
+};
 
-export function RunsTable({ campaignId, limit = 10 }: RunsTableProps) {
+export function RunsTable({
+  campaignId,
+  campaignName = "Campaign",
+  limit = 10,
+  runs: initialRuns,
+  analytics,
+}: RunsTableProps) {
   const router = useRouter();
-  const [page, setPage] = useState(0);
-  const [data, setData] = useState<any>({
-    runs: [],
-    totalCount: 0,
-    hasMore: false,
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStartingRun, setIsStartingRun] = useState(false);
-  const [isPausingRun, setIsPausingRun] = useState(false);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const fetchRuns = async () => {
-    setIsLoading(true);
-    try {
-      const result = await getRuns({
-        campaignId,
-        limit,
-        offset: page * limit,
-      });
-      setData(result);
-    } catch (error) {
-      toast.error("Failed to fetch runs");
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [runs, setRuns] = useState<any[]>(initialRuns || []);
+  const [isLoading, setIsLoading] = useState(!initialRuns);
+  const [sorting, setSorting] = useState<SortingState>([
+    {
+      id: "createdAt",
+      desc: true,
+    },
+  ]);
 
-  useEffect(() => {
-    fetchRuns();
-  }, [campaignId, limit, page]);
-
-  const handleViewRun = (runId: string) => {
-    router.push(`/campaigns/${campaignId}/runs/${runId}`);
-  };
-
+  // Handles for run control actions
   const handleStartRun = async (runId: string) => {
-    setIsStartingRun(true);
     try {
       await startRun({ runId });
-      toast.success("Run started");
-      fetchRuns();
+      toast.success("Run started successfully");
+      // Update the run status locally
+      setRuns((prev) =>
+        prev.map((run) =>
+          run.id === runId ? { ...run, status: "running" } : run,
+        ),
+      );
     } catch (error) {
-      toast.error("Error starting run");
+      toast.error("Failed to start run");
       console.error(error);
-    } finally {
-      setIsStartingRun(false);
     }
   };
 
   const handlePauseRun = async (runId: string) => {
-    setIsPausingRun(true);
     try {
       await pauseRun({ runId });
-      toast.success("Run paused");
-      fetchRuns();
+      toast.success("Run paused successfully");
+      // Update the run status locally
+      setRuns((prev) =>
+        prev.map((run) =>
+          run.id === runId ? { ...run, status: "paused" } : run,
+        ),
+      );
     } catch (error) {
-      toast.error("Error pausing run");
+      toast.error("Failed to pause run");
       console.error(error);
-    } finally {
-      setIsPausingRun(false);
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return (
-          <Badge variant="outline" className="bg-gray-100">
-            Pending
-          </Badge>
-        );
-      case "in-progress":
-        return (
-          <Badge variant="outline" className="bg-blue-100 text-blue-800">
-            In Progress
-          </Badge>
-        );
-      case "completed":
-        return (
-          <Badge variant="outline" className="bg-green-100 text-green-800">
-            Completed
-          </Badge>
-        );
-      case "paused":
-        return (
-          <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-            Paused
-          </Badge>
-        );
-      case "failed":
-        return (
-          <Badge variant="outline" className="bg-red-100 text-red-800">
-            Failed
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="outline" className="bg-gray-100">
-            {status}
-          </Badge>
-        );
-    }
-  };
+  // If no initial runs were provided, fetch them
+  useEffect(() => {
+    if (!initialRuns) {
+      const fetchRuns = async () => {
+        try {
+          const result = await getRuns({ campaignId, limit });
+          setRuns(result?.runs || []);
+        } catch (error) {
+          console.error("Error fetching runs:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
-  if (isLoading) {
-    return (
-      <div className="w-full">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Calls</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell>
-                  <Skeleton className="h-4 w-[250px]" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-[100px]" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-[100px]" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-[100px]" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-[50px]" />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    );
-  }
+      fetchRuns();
+    }
+  }, [campaignId, initialRuns, limit]);
+
+  // Table columns definition with memoization
+  const columns = useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Name",
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1">
+            <div className="font-medium">{row.getValue("name")}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatDistance(new Date(row.original.createdAt), new Date(), {
+                addSuffix: true,
+              })}
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const status = row.getValue("status") as string;
+
+          const statusMap: Record<
+            string,
+            { label: string; variant: string; icon: React.ReactNode }
+          > = {
+            draft: {
+              label: "Draft",
+              variant: "outline",
+              icon: <HelpCircle className="h-3.5 w-3.5" />,
+            },
+            ready: {
+              label: "Ready",
+              variant: "outline",
+              icon: <CheckCircle className="h-3.5 w-3.5" />,
+            },
+            scheduled: {
+              label: "Scheduled",
+              variant: "outline",
+              icon: <Calendar className="h-3.5 w-3.5" />,
+            },
+            running: {
+              label: "Running",
+              variant: "default",
+              icon: <PlayCircle className="h-3.5 w-3.5" />,
+            },
+            paused: {
+              label: "Paused",
+              variant: "secondary",
+              icon: <PauseCircle className="h-3.5 w-3.5" />,
+            },
+            completed: {
+              label: "Completed",
+              variant: "success_solid",
+              icon: <CheckCircle className="h-3.5 w-3.5" />,
+            },
+            failed: {
+              label: "Failed",
+              variant: "destructive",
+              icon: <XCircle className="h-3.5 w-3.5" />,
+            },
+          };
+
+          const statusInfo = statusMap[status] || statusMap.draft;
+
+          return (
+            <Badge
+              variant={statusInfo.variant as any}
+              className="flex w-28 items-center justify-center gap-1.5"
+            >
+              {statusInfo.icon}
+              {statusInfo.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        accessorKey: "calls",
+        header: "Calls",
+        cell: ({ row }) => {
+          // Get analytics for this run
+          const runId = row.original.id;
+          const runMetrics = analytics?.runMetrics?.find((r) => r.id === runId);
+
+          // Get call stats from either analytics or run metadata
+          const completed =
+            runMetrics?.completedCalls ||
+            row.original.metadata?.calls?.completed ||
+            0;
+          const total =
+            runMetrics?.totalCalls || row.original.metadata?.calls?.total || 0;
+
+          return (
+            <div className="flex items-center gap-2">
+              <Phone className="h-4 w-4 text-muted-foreground" />
+              <span>
+                {completed} of {total}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "actions",
+        header: "",
+        cell: ({ row }) => {
+          const status = row.getValue("status") as string;
+          const canStart = ["ready", "paused", "scheduled", "draft"].includes(
+            status,
+          );
+          const canPause = status === "running";
+
+          return (
+            <div className="flex justify-end gap-2">
+              {canStart && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStartRun(row.original.id);
+                  }}
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  <span className="sr-only">Start</span>
+                </Button>
+              )}
+              {canPause && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePauseRun(row.original.id);
+                  }}
+                >
+                  <PauseCircle className="h-4 w-4" />
+                  <span className="sr-only">Pause</span>
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() =>
+                  router.push(
+                    `/campaigns/${campaignId}/runs/${row.original.id}`,
+                  )
+                }
+              >
+                <ChevronRight className="h-4 w-4" />
+                <span className="sr-only">View</span>
+              </Button>
+            </div>
+          );
+        },
+      },
+    ],
+    [campaignId, router, analytics],
+  );
+
+  const table = useReactTable({
+    data: runs,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  });
 
   return (
-    <div className="w-full">
-      <div className="">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Calls</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.runs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  No runs found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              data.runs.map((run: any) => (
-                <TableRow key={run.id}>
-                  <TableCell className="font-medium">{run.name}</TableCell>
-                  <TableCell>{getStatusBadge(run.status)}</TableCell>
-                  <TableCell>
-                    {formatDistance(new Date(run.createdAt), new Date(), {
-                      addSuffix: true,
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    {run.metadata?.calls ? (
-                      <span>
-                        {run.metadata.calls.completed}/
-                        {run.metadata.calls.total}
-                      </span>
-                    ) : (
-                      "N/A"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Open menu</span>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewRun(run.id)}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          View
-                        </DropdownMenuItem>
-                        {run.status === "pending" || run.status === "paused" ? (
-                          <DropdownMenuItem
-                            onClick={() => handleStartRun(run.id)}
-                            disabled={isStartingRun}
-                          >
-                            <Play className="mr-2 h-4 w-4" />
-                            Start
-                          </DropdownMenuItem>
-                        ) : null}
-                        {run.status === "in-progress" ? (
-                          <DropdownMenuItem
-                            onClick={() => handlePauseRun(run.id)}
-                            disabled={isPausingRun}
-                          >
-                            <Pause className="mr-2 h-4 w-4" />
-                            Pause
-                          </DropdownMenuItem>
-                        ) : null}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.refresh()}
+            disabled={isLoading}
+          >
+            <RefreshCw
+              className={cn("mr-1.5 h-4 w-4", isLoading && "animate-spin")}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      <Card>
+        <CardHeader className="p-4">
+          <CardTitle>All Runs</CardTitle>
+          <CardDescription>
+            View all runs for this campaign, latest first
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <>
+              {[...Array(3)].map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center space-x-4 border-b border-border p-4"
+                >
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="ml-auto h-8 w-20" />
+                </div>
+              ))}
+            </>
+          ) : runs.length === 0 ? (
+            <div className="flex h-32 flex-col items-center justify-center">
+              <p className="mb-2 text-sm text-muted-foreground">
+                No runs created yet
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  router.push(`/campaigns/${campaignId}/create-run`)
+                }
+              >
+                <Calendar className="mr-1.5 h-4 w-4" />
+                Create Run
+              </Button>
+            </div>
+          ) : (
+            <div className="border-0">
+              <Table>
+                <TableHeader>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() =>
+                        router.push(
+                          `/campaigns/${campaignId}/runs/${row.original.id}`,
+                        )
+                      }
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+        <CardFooter className="flex items-center justify-between p-4">
+          <div className="text-sm text-muted-foreground">
+            {runs.length} runs total
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              Next
+            </Button>
+          </div>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

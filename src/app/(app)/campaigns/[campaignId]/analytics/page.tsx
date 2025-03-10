@@ -1,5 +1,5 @@
 import { CampaignAnalytics } from "@/components/app/campaign/campaign-analytics";
-import { RunCreateFormProps } from "@/components/forms/run-create-form";
+import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import { AppBreadcrumbs, AppPage } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { Metadata } from "next";

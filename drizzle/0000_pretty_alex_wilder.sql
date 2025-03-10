@@ -17,6 +17,12 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
+ CREATE TYPE "public"."outreach_resolution_status" AS ENUM('open', 'resolved', 'callback', 'no_contact', 'voicemail', 'follow_up');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
  CREATE TYPE "public"."row_status" AS ENUM('pending', 'calling', 'completed', 'failed', 'skipped');
 EXCEPTION
  WHEN duplicate_object THEN null;
@@ -52,6 +58,7 @@ CREATE TABLE IF NOT EXISTS "rivvi_call" (
 	"campaign_id" uuid,
 	"row_id" uuid,
 	"patient_id" uuid,
+	"outreach_effort_id" uuid,
 	"agent_id" varchar(256) NOT NULL,
 	"direction" "call_direction" NOT NULL,
 	"status" "call_status" DEFAULT 'pending' NOT NULL,
@@ -144,6 +151,29 @@ CREATE TABLE IF NOT EXISTS "rivvi_organization" (
 	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp with time zone,
 	CONSTRAINT "rivvi_organization_clerk_id_unique" UNIQUE("clerk_id")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "rivvi_outreach_effort" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"patient_id" uuid NOT NULL,
+	"campaign_id" uuid,
+	"run_id" uuid,
+	"row_id" uuid,
+	"original_call_id" uuid,
+	"last_call_id" uuid,
+	"resolution_status" "outreach_resolution_status" DEFAULT 'open' NOT NULL,
+	"direction" "call_direction" DEFAULT 'outbound' NOT NULL,
+	"agent_id" varchar(256),
+	"follow_up_at" timestamp with time zone,
+	"call_count" integer DEFAULT 1,
+	"callback_count" integer DEFAULT 0,
+	"variables" json,
+	"metadata" json,
+	"notes" text,
+	"created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp with time zone,
+	"resolved_at" timestamp with time zone
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "rivvi_patient" (
@@ -261,6 +291,12 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
+ ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_outreach_effort_id_rivvi_outreach_effort_id_fk" FOREIGN KEY ("outreach_effort_id") REFERENCES "public"."rivvi_outreach_effort"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
  ALTER TABLE "rivvi_call" ADD CONSTRAINT "rivvi_call_related_outbound_call_id_rivvi_call_id_fk" FOREIGN KEY ("related_outbound_call_id") REFERENCES "public"."rivvi_call"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
@@ -315,6 +351,48 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_org_id_rivvi_organization_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."rivvi_organization"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_patient_id_rivvi_patient_id_fk" FOREIGN KEY ("patient_id") REFERENCES "public"."rivvi_patient"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_campaign_id_rivvi_campaign_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."rivvi_campaign"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_run_id_rivvi_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."rivvi_run"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_row_id_rivvi_row_id_fk" FOREIGN KEY ("row_id") REFERENCES "public"."rivvi_row"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_original_call_id_rivvi_call_id_fk" FOREIGN KEY ("original_call_id") REFERENCES "public"."rivvi_call"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "rivvi_outreach_effort" ADD CONSTRAINT "rivvi_outreach_effort_last_call_id_rivvi_call_id_fk" FOREIGN KEY ("last_call_id") REFERENCES "public"."rivvi_call"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
  ALTER TABLE "rivvi_row" ADD CONSTRAINT "rivvi_row_run_id_rivvi_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."rivvi_run"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
@@ -357,6 +435,7 @@ CREATE INDEX IF NOT EXISTS "call_run_id_idx" ON "rivvi_call" USING btree ("run_i
 CREATE INDEX IF NOT EXISTS "call_campaign_id_idx" ON "rivvi_call" USING btree ("campaign_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_row_id_idx" ON "rivvi_call" USING btree ("row_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_patient_id_idx" ON "rivvi_call" USING btree ("patient_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "call_outreach_effort_id_idx" ON "rivvi_call" USING btree ("outreach_effort_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_agent_id_idx" ON "rivvi_call" USING btree ("agent_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_retell_call_id_idx" ON "rivvi_call" USING btree ("retell_call_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "call_status_idx" ON "rivvi_call" USING btree ("status");--> statement-breakpoint
@@ -372,6 +451,14 @@ CREATE INDEX IF NOT EXISTS "campaign_template_id_idx" ON "rivvi_campaign" USING 
 CREATE INDEX IF NOT EXISTS "org_patient_org_id_idx" ON "rivvi_organization_patient" USING btree ("org_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "org_patient_patient_id_idx" ON "rivvi_organization_patient" USING btree ("patient_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "organization_clerk_id_idx" ON "rivvi_organization" USING btree ("clerk_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_org_id_idx" ON "rivvi_outreach_effort" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_patient_id_idx" ON "rivvi_outreach_effort" USING btree ("patient_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_campaign_id_idx" ON "rivvi_outreach_effort" USING btree ("campaign_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_run_id_idx" ON "rivvi_outreach_effort" USING btree ("run_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_row_id_idx" ON "rivvi_outreach_effort" USING btree ("row_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_original_call_id_idx" ON "rivvi_outreach_effort" USING btree ("original_call_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_resolution_status_idx" ON "rivvi_outreach_effort" USING btree ("resolution_status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "outreach_effort_direction_idx" ON "rivvi_outreach_effort" USING btree ("direction");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_hash_idx" ON "rivvi_patient" USING btree ("patient_hash");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_phone_idx" ON "rivvi_patient" USING btree ("primary_phone");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "patient_secondary_hash_idx" ON "rivvi_patient" USING btree ("secondary_hash");--> statement-breakpoint

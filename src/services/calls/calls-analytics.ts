@@ -275,10 +275,25 @@ export class CallAnalytics {
       for (const field of analysisFields) {
         if (field.type === "boolean") {
           // For boolean fields, get true/false counts
+          const fieldKey = field.key;
+
+          // More robust boolean handling - check if value is 'true'/'false' strings or actual boolean
           const [metrics] = await this.db
             .select({
-              trueCount: sql`SUM(CASE WHEN (${calls.analysis}->>'${field.key}')::boolean = true THEN 1 ELSE 0 END)`,
-              falseCount: sql`SUM(CASE WHEN (${calls.analysis}->>'${field.key}')::boolean = false THEN 1 ELSE 0 END)`,
+              trueCount: sql`SUM(CASE 
+                WHEN ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'true' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = '1' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 't' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'yes' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'y' 
+                THEN 1 ELSE 0 END)`,
+              falseCount: sql`SUM(CASE 
+                WHEN ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'false' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = '0' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'f' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'no' 
+                OR ${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} = 'n' 
+                THEN 1 ELSE 0 END)`,
               total: count(),
             })
             .from(calls)
@@ -306,6 +321,7 @@ export class CallAnalytics {
         } else if (field.type === "enum" && field.options) {
           // For enum fields, get counts for each option
           const values: Record<string, number> = {};
+          const fieldKey = field.key;
 
           // Initialize with all options
           field.options.forEach((option) => {
@@ -315,7 +331,7 @@ export class CallAnalytics {
           // Get actual counts
           const optionCounts = await this.db
             .select({
-              option: sql`${calls.analysis}->>'${field.key}'`,
+              option: sql`${calls.analysis}->>${sql.raw(`'${fieldKey}'`)}`,
               count: count(),
             })
             .from(calls)
@@ -323,10 +339,10 @@ export class CallAnalytics {
               and(
                 eq(calls.campaignId, campaignId),
                 eq(calls.status, "completed"),
-                sql`${calls.analysis}->>'${field.key}' IS NOT NULL`,
+                sql`${calls.analysis}->>${sql.raw(`'${fieldKey}'`)} IS NOT NULL`,
               ),
             )
-            .groupBy(sql`${calls.analysis}->>'${field.key}'`);
+            .groupBy(sql`${calls.analysis}->>${sql.raw(`'${fieldKey}'`)}`);
 
           // Fill in actual counts
           optionCounts.forEach((result) => {

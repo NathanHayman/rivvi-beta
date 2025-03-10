@@ -345,7 +345,7 @@ const StreamingGenerationUI = ({
                   <ul className="list-disc space-y-0.5 pl-5 text-xs">
                     {comparison.keyPhrases.modified.map((mod, i) => (
                       <li key={i}>
-                        "{mod.before}" → "{mod.after}"
+                        &quot;{mod.before}&quot; → &quot;{mod.after}&quot;
                       </li>
                     ))}
                   </ul>

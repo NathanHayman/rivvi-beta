@@ -801,7 +801,7 @@ export const patientService = {
       for (const patient of patientsWithHashes) {
         try {
           // Look for existing patient by hash or secondary hash
-          let existingPatient =
+          const existingPatient =
             existingByHash.get(patient.patientHash) ||
             existingBySecondaryHash.get(patient.secondaryHash) ||
             null;

@@ -103,7 +103,7 @@ async function GetDashboardStats({ orgId }: { orgId: string }) {
                 Error loading dashboard
               </h3>
               <p className="mt-2 text-sm text-red-700">
-                We're having trouble loading your dashboard. Please try
+                We&apos;re having trouble loading your dashboard. Please try
                 refreshing the page or contact support if the issue persists.
               </p>
               <div className="mt-4">

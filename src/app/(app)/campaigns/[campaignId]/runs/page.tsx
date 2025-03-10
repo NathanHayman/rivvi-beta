@@ -12,9 +12,10 @@ import {
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { RunsTable } from "@/components/tables/runs-table";
 import { getCampaignById } from "@/server/actions/campaigns";
+import { getCampaignAnalytics } from "@/server/actions/runs/analytics";
+import { getRuns } from "@/server/actions/runs/fetch";
 import { Calendar } from "lucide-react";
 import { Metadata } from "next";
-import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Campaign Runs - Rivvi",
@@ -29,15 +30,47 @@ interface PageProps {
 export default async function CampaignRunsPage({ params }: PageProps) {
   const { campaignId } = await params;
 
-  const fullCampaign = await getCampaignById(campaignId);
+  // Fetch campaign data first
+  const campaign = await getCampaignById(campaignId);
+
+  // Fetch runs
+  const runs = await getRuns({ campaignId, includeCompleted: true });
+
+  // Try to fetch analytics but handle errors gracefully
+  let analytics = null;
+  try {
+    analytics = await getCampaignAnalytics(campaignId);
+  } catch (error) {
+    console.error("Error fetching campaign analytics:", error);
+    // Create empty analytics structure to avoid UI errors
+    analytics = {
+      campaign: {
+        id: campaignId,
+        name: campaign?.campaign?.name || "Campaign",
+        direction: campaign?.campaign?.direction || "outbound",
+      },
+      callMetrics: {
+        total: 0,
+        completed: 0,
+        failed: 0,
+        voicemail: 0,
+        inProgress: 0,
+        pending: 0,
+        successRate: 0,
+      },
+      conversionMetrics: [],
+      runMetrics: [],
+      lastUpdated: new Date().toISOString(),
+    };
+  }
 
   const runData: RunCreateFormProps = {
     campaignId,
-    campaignBasePrompt: fullCampaign?.template.basePrompt,
-    campaignVoicemailMessage: fullCampaign?.template.voicemailMessage,
-    campaignName: fullCampaign?.campaign?.name,
-    campaignDescription: fullCampaign?.template.description,
-    campaignConfig: fullCampaign?.template.variablesConfig,
+    campaignBasePrompt: campaign?.template.basePrompt,
+    campaignVoicemailMessage: campaign?.template.voicemailMessage,
+    campaignName: campaign?.campaign?.name,
+    campaignDescription: campaign?.template.description,
+    campaignConfig: campaign?.template.variablesConfig,
   };
 
   return (
@@ -46,16 +79,19 @@ export default async function CampaignRunsPage({ params }: PageProps) {
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
           {
-            title: fullCampaign?.campaign?.name || "Campaign",
+            title: campaign?.campaign?.name || "Campaign",
             href: `/campaigns/${campaignId}`,
           },
-          { title: "Runs", href: `/campaigns/${campaignId}/runs` },
+          {
+            title: "Runs",
+            href: `/campaigns/${campaignId}/runs`,
+          },
         ]}
       />
       <AppBody>
         <AppHeader
           className=""
-          title={`${fullCampaign?.campaign?.name || "Campaign"} - Runs`}
+          title={`${campaign?.campaign?.name || "Campaign"} - Runs`}
           buttons={
             <TriggerSheet
               buttonText="Create Run"
@@ -66,9 +102,12 @@ export default async function CampaignRunsPage({ params }: PageProps) {
           }
         />
         <AppContent>
-          <Suspense fallback={<div>Loading...</div>}>
-            <RunsTable campaignId={campaignId} limit={20} />
-          </Suspense>
+          <RunsTable
+            runs={runs?.runs || []}
+            campaignId={campaignId}
+            campaignName={campaign?.campaign?.name || "Campaign"}
+            analytics={analytics}
+          />
         </AppContent>
       </AppBody>
     </AppPage>

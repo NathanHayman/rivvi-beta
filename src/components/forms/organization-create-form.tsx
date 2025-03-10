@@ -230,7 +230,7 @@ export function CreateOrganizationForm({
                   </SelectContent>
                 </Select>
                 <FormDescription>
-                  The organization's primary timezone for scheduling
+                  The organization&apos;s primary timezone for scheduling
                 </FormDescription>
                 <FormMessage />
               </FormItem>

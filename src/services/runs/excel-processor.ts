@@ -1089,8 +1089,8 @@ export async function processExcelFile(
 
           // Generate patient hash for deduplication
           let patientHash: string | null = null;
-          let patientId: string | null = null;
-          let isNewPatient = true;
+          const patientId: string | null = null;
+          const isNewPatient = true;
 
           // Try to create a hash if we have enough patient information
           if (

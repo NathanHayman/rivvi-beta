@@ -138,7 +138,7 @@ export function formatTime(timeString: string): string {
   const match = timeString.match(timeRegex);
 
   if (match) {
-    let [, hoursStr = "0", minutesStr = "0", , period] = match;
+    const [, hoursStr = "0", minutesStr = "0", , period] = match;
     let hours = parseInt(hoursStr);
     const minutes = parseInt(minutesStr);
 

@@ -481,7 +481,8 @@ export function CampaignEditForm({
                         />
                       </FormControl>
                       <FormDescription>
-                        The base prompt that defines the AI agent's behavior
+                        The base prompt that defines the AI agent&apos;s
+                        behavior
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

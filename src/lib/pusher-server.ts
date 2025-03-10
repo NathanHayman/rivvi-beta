@@ -81,6 +81,7 @@ export type PusherChannels = {
       status: string;
       patientId?: string;
       runId?: string;
+      outreachEffortId?: string;
       direction?: "inbound" | "outbound";
       metadata?: Record<string, unknown>;
       analysis?: Record<string, unknown>;
@@ -109,6 +110,7 @@ export type PusherChannels = {
     "call-completed": {
       rowId: string;
       callId: string;
+      outreachEffortId?: string;
       status: string;
       direction?: "inbound" | "outbound";
       metadata?: Record<string, unknown>;
@@ -145,6 +147,7 @@ export type PusherChannels = {
       callId: string;
       status: string;
       patientId?: string;
+      outreachEffortId?: string;
       direction?: "inbound" | "outbound";
       analysis?: Record<string, unknown>;
       insights?: Record<string, unknown>;
@@ -259,6 +262,7 @@ export async function triggerCallEvent(
       await triggerEvent(`run-${runId}`, eventType, {
         rowId: data.rowId as string,
         callId: data.callId as string,
+        outreachEffortId: data.outreachEffortId as string,
         status: data.status as string,
         direction: (data.direction as "inbound" | "outbound") || "outbound",
         metadata: data.metadata as Record<string, unknown>,
@@ -271,6 +275,7 @@ export async function triggerCallEvent(
         callId: data.callId as string,
         status: (data.status as string) || "completed",
         patientId: data.patientId as string,
+        outreachEffortId: data.outreachEffortId as string,
         runId,
         direction: (data.direction as "inbound" | "outbound") || "outbound",
         metadata: data.metadata as Record<string, unknown>,
@@ -287,6 +292,7 @@ export async function triggerCallEvent(
             callId: data.callId as string,
             status: (data.status as string) || "completed",
             patientId: data.patientId as string,
+            outreachEffortId: data.outreachEffortId as string,
             direction: (data.direction as "inbound" | "outbound") || "outbound",
             analysis: data.analysis as Record<string, unknown>,
             insights: data.insights as Record<string, unknown>,

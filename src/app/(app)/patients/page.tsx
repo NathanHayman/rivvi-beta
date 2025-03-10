@@ -1,3 +1,4 @@
+import { PatientsTable } from "@/components/app/patient/patients-table";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -5,7 +6,6 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { PatientsTable } from "@/components/patients/patients-table";
 import { Card, CardDescription } from "@/components/ui/card";
 import { Metadata } from "next";
 import { Suspense } from "react";

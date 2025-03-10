@@ -128,7 +128,7 @@ export default function LoginPage() {
               Revolutionizing Healthcare Communication
             </h2>
             <p className="mb-8 text-lg text-white/80">
-              Rivvi's AI-powered voice technology transforms patient care
+              Rivvi&apos;s AI-powered voice technology transforms patient care
               through natural, human-like conversational interactions.
             </p>
             <div className="flex justify-center space-x-4">

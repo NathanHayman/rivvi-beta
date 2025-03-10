@@ -7,6 +7,8 @@ import {
   campaigns,
   campaignTemplates,
   organizations,
+  outreachEfforts,
+  OutreachResolutionStatus,
   rows,
   runs,
 } from "@/server/db/schema";
@@ -79,6 +81,20 @@ export type RetellPostCallObjectRaw = {
     agent_task_completion_rating?: string;
   };
   [key: string]: any;
+};
+
+// Find the type definition for the object and add outreachEffortId
+type CallLogEntry = {
+  callId: string;
+  patientId?: string;
+  fromNumber: string;
+  toNumber: string;
+  retellCallId: string;
+  isReturnCall?: boolean;
+  campaignId?: string;
+  outreachEffortId?: string; // Add this field
+  hotSwapPerformed?: boolean;
+  time: string;
 };
 
 /**
@@ -163,6 +179,15 @@ export async function handleInboundWebhook(
   );
 
   try {
+    // Initialize variables at the beginning to fix linter errors
+    let overrideAgentId = null;
+    let dynamicVariables: Record<string, any> = {};
+    const metadata: Record<string, any> = {
+      orgId,
+      patientId: null,
+      isInboundCall: true,
+    };
+
     // Validate required fields with better error handling
     if (!payload.from_number) {
       console.error(
@@ -264,49 +289,61 @@ export async function handleInboundWebhook(
       );
     }
 
-    // Get the most recent outbound calls to this patient - optimized query to get complete data
-    let mostRecentOutboundCall = null;
+    // Update metadata with patient ID
+    metadata.patientId = patientId;
+
+    // Find open outreach efforts for this patient
+    let outreachEffort = null;
     let rowData = null;
     let campaignData = null;
     let templateData = null;
     let runData = null;
+    let mostRecentOutboundCall = null;
+    let shouldHotSwapAgent = false;
 
     if (patientId) {
       try {
-        // Get the most recent outbound call for this patient with complete join data
-        const recentCalls = await db
+        // Find open outreach efforts for the patient, prioritizing those with status 'open' or 'voicemail'
+        const openOutreachEfforts = await db
           .select({
-            call: calls,
-            run: runs,
+            effort: outreachEfforts,
             campaign: campaigns,
             row: rows,
+            run: runs,
           })
-          .from(calls)
-          .leftJoin(runs, eq(calls.runId, runs.id))
-          .leftJoin(campaigns, eq(calls.campaignId, campaigns.id))
-          .leftJoin(rows, eq(calls.rowId, rows.id))
+          .from(outreachEfforts)
+          .leftJoin(campaigns, eq(outreachEfforts.campaignId, campaigns.id))
+          .leftJoin(rows, eq(outreachEfforts.rowId, rows.id))
+          .leftJoin(runs, eq(outreachEfforts.runId, runs.id))
           .where(
             and(
-              eq(calls.patientId, patientId),
-              eq(calls.orgId, orgId),
-              eq(calls.direction, "outbound"),
-              // Prioritize completed/successful calls, but also accept in-progress
-              // and recently initiated calls
+              eq(outreachEfforts.patientId, patientId),
+              eq(outreachEfforts.orgId, orgId),
               or(
-                eq(calls.status, "completed"),
-                eq(calls.status, "in-progress"),
-                eq(calls.status, "pending"),
+                eq(outreachEfforts.resolutionStatus, "open"),
+                eq(outreachEfforts.resolutionStatus, "voicemail"),
+                eq(outreachEfforts.resolutionStatus, "follow_up"),
               ),
             ),
           )
-          .orderBy(desc(calls.createdAt))
-          .limit(1);
+          .orderBy(desc(outreachEfforts.createdAt));
 
-        if (recentCalls.length > 0) {
-          mostRecentOutboundCall = recentCalls[0].call;
-          rowData = recentCalls[0].row;
-          campaignData = recentCalls[0].campaign;
-          runData = recentCalls[0].run;
+        if (openOutreachEfforts.length > 0) {
+          outreachEffort = openOutreachEfforts[0].effort;
+          rowData = openOutreachEfforts[0].row;
+          campaignData = openOutreachEfforts[0].campaign;
+          runData = openOutreachEfforts[0].run;
+          shouldHotSwapAgent = true; // Flag to indicate we should hot-swap the agent
+
+          // Get the most recent outbound call for this outreach effort
+          if (outreachEffort.lastCallId) {
+            const [call] = await db
+              .select()
+              .from(calls)
+              .where(eq(calls.id, outreachEffort.lastCallId));
+
+            mostRecentOutboundCall = call;
+          }
 
           // Get the campaign template to access the agent ID
           if (campaignData && campaignData.templateId) {
@@ -316,125 +353,121 @@ export async function handleInboundWebhook(
               .where(eq(campaignTemplates.id, campaignData.templateId));
 
             templateData = template;
+
+            // Use the template's agent ID for hot-swapping
+            if (template && template.agentId) {
+              overrideAgentId = template.agentId;
+              console.log(
+                `[INBOUND WEBHOOK] Found agent ID ${overrideAgentId} for hot-swapping`,
+              );
+            }
           }
 
           console.log(
-            `[INBOUND WEBHOOK] Found most recent outbound call (${mostRecentOutboundCall.id}) with campaign "${campaignData?.name || "unknown"}"`,
+            `[INBOUND WEBHOOK] Found open outreach effort (${outreachEffort.id}) for campaign "${campaignData?.name || "unknown"}" with resolution status ${outreachEffort.resolutionStatus}`,
           );
+
+          // Update metadata for the call to link it to this outreach effort
+          metadata.outreachEffortId = outreachEffort.id;
+          metadata.campaignId = campaignData?.id;
+          metadata.runId = runData?.id;
+          metadata.rowId = rowData?.id;
+          metadata.isReturnCall = true;
+          metadata.previousCallId = outreachEffort.lastCallId;
+          metadata.hotSwapPerformed = true;
+
+          // Set dynamic variables for the agent
+          if (patient) {
+            dynamicVariables = {
+              organization_name: organization.name || "Our organization",
+              inbound_call: true,
+              is_return_call: true,
+              patient_exists: true,
+              patient_id: patient.id,
+              patient_first_name: patient.firstName || "Unknown",
+              patient_last_name: patient.lastName || "Unknown",
+              patient_phone: patient.primaryPhone || cleanPhone,
+              first_name: patient.firstName || "Unknown",
+              last_name: patient.lastName || "Unknown",
+              phone: patient.primaryPhone || cleanPhone,
+              previous_call_status: outreachEffort.resolutionStatus,
+              campaign_name: campaignData?.name || "Unknown Campaign",
+            };
+
+            // Add variables from the outreach effort or row
+            if (outreachEffort.variables) {
+              Object.entries(outreachEffort.variables).forEach(
+                ([key, value]) => {
+                  dynamicVariables[key] = ensureStringValue(value);
+                },
+              );
+            }
+
+            if (rowData?.variables) {
+              Object.entries(rowData.variables).forEach(([key, value]) => {
+                dynamicVariables[key] = ensureStringValue(value);
+              });
+            }
+          }
         } else {
           console.log(
-            `[INBOUND WEBHOOK] No recent outbound calls found for patient`,
+            `[INBOUND WEBHOOK] No open outreach efforts found for patient, will find organization's default inbound agent`,
           );
+
+          // Use helper function to find the default inbound agent
+          const defaultAgent = await findDefaultInboundAgent(orgId);
+          overrideAgentId = defaultAgent.agentId;
+
+          // Update metadata with campaign info if available
+          if (defaultAgent.campaignId) {
+            metadata.campaignId = defaultAgent.campaignId;
+            metadata.usingDefaultInboundCampaign = true;
+          }
+
+          // We'll still set the patient context if available
+          if (patient) {
+            // Update the dynamic variables that will be used later
+            dynamicVariables = {
+              organization_name: organization.name || "Our organization",
+              inbound_call: true,
+              is_return_call: false,
+              patient_exists: true,
+              patient_id: patient.id,
+              patient_first_name: patient.firstName || "Unknown",
+              patient_last_name: patient.lastName || "Unknown",
+              patient_phone: patient.primaryPhone || cleanPhone,
+              first_name: patient.firstName || "Unknown",
+              last_name: patient.lastName || "Unknown",
+              phone: patient.primaryPhone || cleanPhone,
+              campaign_name:
+                defaultAgent.campaignName || "Inbound Call Service",
+            };
+          }
         }
       } catch (error) {
-        console.error("[INBOUND WEBHOOK] Error fetching recent calls:", error);
+        console.error(
+          "[INBOUND WEBHOOK] Error handling callback or default agent selection:",
+          error,
+        );
+
+        // Fallback to default agent if there's an error
+        overrideAgentId = "default-inbound-agent";
       }
-    }
-
-    // Determine which agent ID to use and variables to pass
-    let overrideAgentId = null;
-    let dynamicVariables: Record<string, any> = {};
-    let metadata: Record<string, any> = {
-      orgId,
-      patientId,
-      isInboundCall: true,
-    };
-
-    // If we found a recent outbound call with a template, use its agent ID and variables
-    if (templateData && rowData) {
-      // THIS IS THE KEY CHANGE - Use the agent ID from the template for hot-swapping
-      overrideAgentId = templateData.agentId;
-
-      console.log(
-        `[INBOUND WEBHOOK] HOT-SWAPPING agent ID to ${overrideAgentId} from most recent campaign`,
-      );
-
-      // Use variables from the row data
-      dynamicVariables = {
-        ...rowData.variables,
-        // Add organization info
-        organization_name: organization.name || "Our organization",
-        // Indicate this is an inbound/return call
-        inbound_call: true,
-        is_return_call: true,
-        // Include campaign info
-        campaign_name: campaignData?.name || "Unknown",
-      };
-
-      // Include important IDs in metadata for post-call processing
-      metadata = {
-        ...metadata,
-        rowId: rowData.id,
-        runId: mostRecentOutboundCall?.runId || null,
-        campaignId: campaignData?.id || null,
-        templateId: templateData.id,
-        isReturnCall: true,
-        previousCallId: mostRecentOutboundCall?.id || null,
-        // Additional context to help with post-call association
-        originalAgentId: mostRecentOutboundCall?.agentId || null,
-        originalLlmId: templateData.llmId || null,
-        rowStatus: rowData.status, // Track the status of the associated row
-        hotSwapPerformed: true,
-      };
-
-      console.log(
-        `[INBOUND WEBHOOK] Using variables and row data from previous call`,
-      );
     } else {
-      // Fall back to default inbound handling if no recent outbound call was found
+      // No patient ID available, find the default inbound agent
       console.log(
-        `[INBOUND WEBHOOK] No recent outbound call found, using default inbound handling`,
+        `[INBOUND WEBHOOK] No patient found, finding default inbound agent`,
       );
 
-      // Get any active default inbound campaign
-      const [inboundCampaign] = await db
-        .select()
-        .from(campaigns)
-        .where(
-          and(
-            eq(campaigns.orgId, orgId),
-            eq(campaigns.direction, "inbound"),
-            eq(campaigns.isActive, true),
-            eq(campaigns.isDefaultInbound, true),
-          ),
-        );
+      // Use helper function to find the default inbound agent
+      const defaultAgent = await findDefaultInboundAgent(orgId);
+      overrideAgentId = defaultAgent.agentId;
 
-      if (inboundCampaign) {
-        console.log(
-          `[INBOUND WEBHOOK] Using default inbound campaign: ${inboundCampaign.name}`,
-        );
-
-        // Get the template for the default inbound campaign
-        const [inboundTemplate] = await db
-          .select()
-          .from(campaignTemplates)
-          .where(eq(campaignTemplates.id, inboundCampaign.templateId));
-
-        if (inboundTemplate) {
-          // Use the default inbound agent
-          overrideAgentId = inboundTemplate.agentId;
-
-          // Include campaign info in metadata
-          metadata.campaignId = inboundCampaign.id;
-          metadata.templateId = inboundTemplate.id;
-          metadata.isDefaultInbound = true;
-          metadata.hotSwapPerformed = false;
-        }
+      // Update metadata with campaign info if available
+      if (defaultAgent.campaignId) {
+        metadata.campaignId = defaultAgent.campaignId;
+        metadata.usingDefaultInboundCampaign = true;
       }
-
-      // Basic variables for default inbound handling
-      dynamicVariables = {
-        organization_name: organization.name || "Our organization",
-        inbound_call: true,
-        is_return_call: false, // This is not a return call
-        patient_exists: patient ? true : false,
-        patient_first_name: patient?.firstName || "Unknown",
-        patient_last_name: patient?.lastName || "Unknown",
-        patient_phone: patient?.primaryPhone || cleanPhone,
-        first_name: patient?.firstName || "Unknown",
-        last_name: patient?.lastName || "Unknown",
-        phone: patient?.primaryPhone || cleanPhone,
-      };
     }
 
     // Create inbound call record with better error handling
@@ -458,21 +491,55 @@ export async function handleInboundWebhook(
           patientId: patientId || null,
           rowId: metadata.rowId || null,
           runId: metadata.runId || null,
+          outreachEffortId: metadata.outreachEffortId || null,
           relatedOutboundCallId: metadata.previousCallId || null,
           metadata: {
             webhook_received: true,
             webhook_time: new Date().toISOString(),
             ...metadata,
           },
-        })
+        } as any)
         .returning();
 
       // Add the new call ID to metadata
       metadata.callId = newCall.id;
 
+      // If this relates to an outreach effort, update it
+      if (metadata.outreachEffortId) {
+        try {
+          await db
+            .update(outreachEfforts)
+            .set({
+              lastCallId: newCall.id,
+              callbackCount: sql`${outreachEfforts.callbackCount} + 1`,
+              resolutionStatus: "callback", // Mark as callback initially, post-call handler will update further
+              updatedAt: new Date(),
+            } as any)
+            .where(eq(outreachEfforts.id, metadata.outreachEffortId));
+
+          console.log(
+            `[INBOUND WEBHOOK] Updated outreach effort ${metadata.outreachEffortId} with callback data`,
+          );
+        } catch (updateError) {
+          console.error(
+            `[INBOUND WEBHOOK] Error updating outreach effort with callback data:`,
+            updateError,
+          );
+          // Continue processing even if update fails
+        }
+      }
+
       // If this is a return call and we have row data, update the row to indicate a callback
       if (metadata.isReturnCall && rowData) {
         try {
+          // Get the original status from the outreach effort (for UI display)
+          const originalStatus = outreachEffort?.resolutionStatus || "unknown";
+
+          // Get effective time of the last outbound call for context
+          const lastOutboundTime = mostRecentOutboundCall?.startTime
+            ? new Date(mostRecentOutboundCall.startTime).toISOString()
+            : new Date().toISOString();
+
           await db
             .update(rows)
             .set({
@@ -481,52 +548,103 @@ export async function handleInboundWebhook(
                 returnCall: true,
                 returnCallId: newCall.id,
                 returnCallTime: new Date().toISOString(),
+                isCallback: true, // Add a clear flag to indicate this was a callback
+                wasCallback: true, // Alternative naming for UI filtering
+                callbackReason: originalStatus, // Track the original reason for the callback
+                callbackAfterStatus: originalStatus, // Clearer naming
+                previousOutboundTime: lastOutboundTime,
+                outreachEffortId: outreachEffort?.id,
               },
               updatedAt: new Date(),
-            })
+            } as any)
             .where(eq(rows.id, rowData.id));
 
           console.log(
-            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data`,
+            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data (callback after ${originalStatus})`,
           );
-        } catch (updateError) {
+
+          // Update run statistics for inbound calls if we have a runId
+          if (metadata.runId) {
+            // Fetch current run data
+            const [run] = await db
+              .select()
+              .from(runs)
+              .where(eq(runs.id, metadata.runId));
+
+            if (run) {
+              // Create a deep copy of metadata
+              const updatedMetadata = JSON.parse(
+                JSON.stringify(run.metadata || {}),
+              ) as Record<string, any>;
+
+              // Initialize callback metrics if they don't exist
+              if (!updatedMetadata.callbacks) {
+                updatedMetadata.callbacks = {
+                  count: 0,
+                  ids: [],
+                };
+              }
+
+              // Update callback metrics
+              updatedMetadata.callbacks.count++;
+              updatedMetadata.callbacks.ids.push(newCall.id);
+              updatedMetadata.lastCallbackTime = new Date().toISOString();
+
+              try {
+                await db
+                  .update(runs)
+                  .set({
+                    metadata: updatedMetadata,
+                    updatedAt: new Date(),
+                  } as any)
+                  .where(eq(runs.id, metadata.runId));
+
+                console.log(
+                  `[INBOUND WEBHOOK] Updated run ${metadata.runId} with callback statistics`,
+                );
+              } catch (runUpdateError) {
+                console.error(
+                  `[INBOUND WEBHOOK] Error updating run with callback statistics:`,
+                  runUpdateError,
+                );
+              }
+            }
+          }
+        } catch (error) {
           console.error(
             `[INBOUND WEBHOOK] Error updating row with return call data:`,
-            updateError,
+            error,
           );
-          // Continue processing even if row update fails
         }
       }
 
-      // Send real-time update
+      // Return the success response with hot-swapping information
+      console.log(
+        `[INBOUND WEBHOOK] Inbound call webhook processed successfully`,
+      );
+      console.log(
+        `[INBOUND WEBHOOK] Returning agent override: ${overrideAgentId}`,
+      );
+      console.log(`[INBOUND WEBHOOK] Returning metadata:`, metadata);
+
+      // Emit event for inbound call (for real-time UI updates)
       try {
         await triggerEvent(`org-${orgId}`, "inbound-call", {
           callId: newCall.id,
           patientId,
           fromNumber: payload.from_number,
-          toNumber: payload.to_number,
+          toNumber: payload.to_number || "unknown",
+          retellCallId: newCall.retellCallId || "",
           isReturnCall: !!metadata.isReturnCall,
           campaignId: metadata.campaignId,
+          outreachEffortId: metadata.outreachEffortId,
           hotSwapPerformed: metadata.hotSwapPerformed || false,
           time: new Date().toISOString(),
-        });
+        } as CallLogEntry);
         console.log(`[INBOUND WEBHOOK] Sent event for inbound call`);
-      } catch (pusherError) {
-        console.error(
-          "[INBOUND WEBHOOK] Error sending notification:",
-          pusherError,
-        );
-        // Continue even if event sending fails
+      } catch (error) {
+        console.error(`[INBOUND WEBHOOK] Error sending pusher event:`, error);
       }
-
-      console.log(
-        "[INBOUND WEBHOOK] Inbound call webhook processed successfully",
-      );
-      console.log(
-        "[INBOUND WEBHOOK] Returning agent override:",
-        overrideAgentId,
-      );
-      console.log("[INBOUND WEBHOOK] Returning metadata:", metadata);
 
       // Convert dynamic variables to strings for Retell
       const stringifiedVariables: Record<string, string> = {};
@@ -534,37 +652,53 @@ export async function handleInboundWebhook(
         stringifiedVariables[key] = ensureStringValue(value);
       });
 
+      // Convert metadata to strings for Retell
+      const stringifiedMetadata: Record<string, string> = {};
+      Object.entries(metadata).forEach(([key, value]) => {
+        stringifiedMetadata[key] =
+          typeof value === "object" ? JSON.stringify(value) : String(value);
+      });
+
       return {
         status: "success",
+        message: "Inbound call processed",
         call_inbound: {
           override_agent_id: overrideAgentId,
           dynamic_variables: stringifiedVariables,
-          metadata: metadata,
+          metadata: stringifiedMetadata,
         },
       };
     } catch (error) {
-      console.error(
-        "[INBOUND WEBHOOK] Error processing inbound webhook:",
-        error,
-      );
+      console.error(`[INBOUND WEBHOOK] Error creating inbound call:`, error);
     }
-  } catch (error) {
-    console.error(
-      `[INBOUND WEBHOOK] Unhandled error in inbound webhook handler:`,
-      error,
-    );
 
-    // Return a minimal context to avoid disrupting the call
+    // Fallback response
     return {
       status: "error",
-      message: "Inbound call webhook processing failed",
-      error: error instanceof Error ? error.message : String(error),
+      message: "Error processing inbound call",
+      error: "Internal server error",
       call_inbound: {
         override_agent_id: null,
         dynamic_variables: {
-          organization_name: "Our organization",
-          error_occurred: "true",
-          inbound_call: "true",
+          error_occurred: true,
+          error_message: "Error processing call",
+        },
+        metadata: {},
+      },
+    };
+  } catch (error) {
+    console.error("[INBOUND WEBHOOK] Error processing inbound webhook:", error);
+
+    // Return a fallback error response
+    return {
+      status: "error",
+      message: "Error processing webhook",
+      error: String(error),
+      call_inbound: {
+        override_agent_id: null,
+        dynamic_variables: {
+          error_occurred: true,
+          error_message: "Error processing call",
         },
         metadata: {},
       },
@@ -600,6 +734,11 @@ export async function handlePostCallWebhook(
     if (payload.metadata.runId) {
       console.log(`[WEBHOOK] Associated run ID: ${payload.metadata.runId}`);
     }
+    if (payload.metadata.outreachEffortId) {
+      console.log(
+        `[WEBHOOK] Associated outreach effort ID: ${payload.metadata.outreachEffortId}`,
+      );
+    }
   }
   console.log(
     `[WEBHOOK] Call direction: ${payload.direction}, Duration: ${payload.duration_ms}ms`,
@@ -634,6 +773,9 @@ export async function handlePostCallWebhook(
         agent_task_completion_rating:
           payload.call_analysis?.agent_task_completion_rating || "",
       },
+      duration_ms: callDuration = payload.duration_ms || 0,
+      start_timestamp: startTime = payload.start_timestamp || null,
+      end_timestamp: endTime = payload.end_timestamp || null,
     } = payload;
 
     if (!retellCallId) {
@@ -760,7 +902,7 @@ export async function handlePostCallWebhook(
             webhook_received: true,
             webhook_time: new Date().toISOString(),
           },
-        })
+        } as any)
         .returning();
 
       callId = newCall.id;
@@ -939,7 +1081,7 @@ export async function handlePostCallWebhook(
             updated_at: new Date().toISOString(),
           },
           updatedAt: new Date(),
-        })
+        } as any)
         .where(eq(calls.id, call.id));
 
       console.log(
@@ -980,7 +1122,7 @@ export async function handlePostCallWebhook(
                   ? disconnectionReason || "Call failed"
                   : null,
               analysis: processedAnalysis,
-              patientId: patientId, // Add this to make sure it's included in the update
+              patientId: patientId,
               metadata: {
                 ...(currentRow?.metadata &&
                 typeof currentRow.metadata === "object"
@@ -993,8 +1135,14 @@ export async function handlePostCallWebhook(
                   analysis: processedAnalysis,
                 }),
                 lastUpdated: new Date().toISOString(),
-                // For inbound calls, mark it as a return call
+                // Add clear flags for callbacks to improve UI differentiation
                 isReturnCall: direction === "inbound",
+                isCallback: direction === "inbound" && call.outreachEffortId, // Clear flag indicating this was a callback
+                wasCallback: direction === "inbound" && call.outreachEffortId, // Alternative naming for UI filtering
+                callbackTimestamp:
+                  direction === "inbound" && call.outreachEffortId
+                    ? new Date().toISOString()
+                    : undefined,
                 // Add debugging info
                 webhookProcessed: true,
                 webhookTimestamp: new Date().toISOString(),
@@ -1004,72 +1152,276 @@ export async function handlePostCallWebhook(
             } as any) // Use type assertion to avoid linter errors
             .where(eq(rows.id, rowId));
 
-          // Verify the update was successful
-          const [updatedRow] = await db
-            .select()
-            .from(rows)
-            .where(eq(rows.id, rowId));
+          console.log(`[WEBHOOK] Row ${rowId} updated with call results`);
 
-          console.log(
-            `[WEBHOOK] Row ${rowId} update result: Status changed from ${currentRow?.status || "unknown"} to ${updatedRow?.status}. Expected status: ${rowStatus}`,
-          );
+          // Now, handle outreach effort tracking
+          if (direction === "outbound" && patientId) {
+            // For outbound calls, create or update an outreach effort
+            const outreachEffortId = call.outreachEffortId;
 
-          // Force re-check if status didn't update as expected
-          if (updatedRow && updatedRow.status !== rowStatus) {
-            console.warn(
-              `[WEBHOOK] Row status update failed! Expected ${rowStatus} but got ${updatedRow.status}. Attempting force update...`,
-            );
+            // Determine resolution status based on processed analysis
+            let resolutionStatus: OutreachResolutionStatus = "open";
 
-            // Force update with extra diagnostics
-            await db
-              .update(rows)
-              .set({
-                status: rowStatus,
-                metadata: {
-                  ...updatedRow.metadata,
-                  forceUpdated: true,
-                  statusUpdateAttempts:
-                    ((updatedRow.metadata?.statusUpdateAttempts ||
-                      0) as number) + 1,
-                },
-              } as any) // Use type assertion to avoid linter errors
-              .where(eq(rows.id, rowId));
+            // Extract patientReached flag from processed analysis
+            const patientReached = processedAnalysis?.patientReached === true;
 
-            // Verify force update
-            const [forceUpdatedRow] = await db
+            if (processedAnalysis) {
+              if (
+                processedAnalysis?.appointment_confirmed === true ||
+                processedAnalysis?.medication_confirmed === true ||
+                processedAnalysis?.issue_resolved === true ||
+                patientReached // Also mark as resolved if patient was reached
+              ) {
+                resolutionStatus = "resolved";
+              } else {
+                resolutionStatus = "open"; // Default: issue not yet resolved
+              }
+            } else {
+              resolutionStatus = "open";
+            }
+
+            // If we have an existing outreach effort, update it
+            if (outreachEffortId) {
+              await db
+                .update(outreachEfforts)
+                .set({
+                  lastCallId: callId,
+                  resolutionStatus: resolutionStatus,
+                  // Don't increment callCount since it was already set to 1 during dispatch
+                  // callCount: sql`${outreachEfforts.callCount} + 1`,
+                  updatedAt: new Date(),
+                  resolvedAt:
+                    resolutionStatus === "resolved" ? new Date() : null,
+                } as any)
+                .where(eq(outreachEfforts.id, outreachEffortId));
+
+              console.log(
+                `[WEBHOOK] Updated outreach effort ${outreachEffortId} with status ${resolutionStatus}`,
+              );
+            } else {
+              // Create a new outreach effort
+              // Note: This is a fallback case that should rarely happen now that
+              // we create outreach efforts at call dispatch time in the run processor.
+              // This handles legacy calls or edge cases where outreach creation failed during dispatch.
+              console.log(
+                `[WEBHOOK] No outreach effort found for call ${callId}, creating one as fallback`,
+              );
+
+              const [newOutreachEffort] = await db
+                .insert(outreachEfforts)
+                .values({
+                  orgId,
+                  patientId,
+                  campaignId: originalCampaignId,
+                  runId,
+                  rowId,
+                  originalCallId: callId,
+                  lastCallId: callId,
+                  resolutionStatus: resolutionStatus,
+                  direction: "outbound",
+                  agentId: agent_id,
+                  variables: currentRow?.variables || {},
+                  metadata: {
+                    firstCallTime: new Date().toISOString(),
+                    lastCallStatus: callStatus,
+                    analysis: processedAnalysis,
+                  },
+                } as any)
+                .returning();
+
+              // Update the call with the new outreach effort ID
+              await db
+                .update(calls)
+                .set({
+                  outreachEffortId: newOutreachEffort.id,
+                } as any)
+                .where(eq(calls.id, callId));
+
+              console.log(
+                `[WEBHOOK] Created new outreach effort ${newOutreachEffort.id} with status ${resolutionStatus}`,
+              );
+            }
+          } else if (direction === "inbound" && call.outreachEffortId) {
+            // For inbound calls, update the associated outreach effort if there is one
+            // For inbound callbacks, ALWAYS set to resolved since the patient initiated contact
+            // This addresses the issue where callbacks weren't being marked as resolved
+
+            // Get the current outreach effort to save its original status
+            const [currentOutreachEffort] = await db
               .select()
-              .from(rows)
-              .where(eq(rows.id, rowId));
+              .from(outreachEfforts)
+              .where(eq(outreachEfforts.id, call.outreachEffortId));
+
+            // Original status before this update - useful for tracking
+            const originalStatus =
+              currentOutreachEffort?.resolutionStatus || "unknown";
+
+            await db
+              .update(outreachEfforts)
+              .set({
+                lastCallId: callId,
+                resolutionStatus: "resolved", // Always resolve when it's a callback, regardless of call outcome
+                updatedAt: new Date(),
+                resolvedAt: new Date(), // Always set resolved time for callbacks
+                callbackCount: sql`${outreachEfforts.callbackCount} + 1`, // Increment callback count
+                metadata: {
+                  ...(currentOutreachEffort?.metadata || {}),
+                  lastCallbackTime: new Date().toISOString(),
+                  lastCallbackStatus: callStatus,
+                  lastCallbackAnalysis: processedAnalysis,
+                  wasCallback: true, // Flag to indicate this was resolved via callback
+                  appointmentConfirmed:
+                    processedAnalysis?.appointment_confirmed === true,
+                  issueResolved: processedAnalysis?.issue_resolved === true,
+                  medicationConfirmed:
+                    processedAnalysis?.medication_confirmed === true,
+                  // Add a clear callback resolution reason for UI differentiation
+                  callbackResolved: true,
+                  callbackResolvedAt: new Date().toISOString(),
+                  originalStatus: originalStatus, // Save original status for reference
+                },
+              } as any)
+              .where(eq(outreachEfforts.id, call.outreachEffortId));
 
             console.log(
-              `[WEBHOOK] Force update result: ${forceUpdatedRow?.status === rowStatus ? "SUCCESS" : "FAILED"}`,
+              `[WEBHOOK] Updated outreach effort ${call.outreachEffortId} from status "${originalStatus}" to resolved (inbound callback)`,
             );
           }
-        } catch (updateError) {
+        } catch (error) {
           console.error(
-            `[WEBHOOK] Critical error updating row ${rowId}:`,
-            updateError,
+            "[WEBHOOK] Error updating row or outreach effort:",
+            error,
           );
-
-          // Last resort attempt
-          try {
-            await db
-              .update(rows)
-              .set({
-                status: getStatus("row", callStatus as RetellCallStatus),
-                error: "Error updating row in webhook handler",
-                updatedAt: new Date(),
-              } as any) // Use type assertion to avoid linter errors
-              .where(eq(rows.id, rowId));
-          } catch (finalError) {
-            console.error(
-              `[WEBHOOK] Final attempt to update row ${rowId} failed:`,
-              finalError,
-            );
-          }
         }
       } catch (error) {
         console.error("[WEBHOOK] Error updating row:", error);
+      }
+    }
+
+    // If the call is not associated with a row but has a patient, we still need to track outreach
+    else if (!rowId && patientId && direction === "outbound") {
+      // Check if there's already an outreach effort for this call
+      if (call.outreachEffortId) {
+        // Update the existing outreach effort
+        try {
+          // Determine resolution status based on call outcome
+          const patientReached =
+            processedAnalysis?.patient_reached === true ||
+            processedAnalysis?.patientReached === true;
+
+          const voicemailLeft =
+            processedAnalysis?.voicemail_left === true ||
+            processedAnalysis?.left_voicemail === true ||
+            call_analysis?.in_voicemail === true;
+
+          let resolutionStatus: string;
+          if (callStatus === "failed" || callStatus === "no-answer") {
+            resolutionStatus = "no_contact";
+          } else if (voicemailLeft) {
+            resolutionStatus = "voicemail";
+          } else if (patientReached) {
+            // If patient was reached, mark as resolved directly
+            resolutionStatus = "resolved";
+          } else {
+            resolutionStatus = "open";
+          }
+
+          await db
+            .update(outreachEfforts)
+            .set({
+              lastCallId: callId,
+              resolutionStatus: resolutionStatus,
+              // Don't increment callCount since it was already set to 1 during dispatch
+              // callCount: sql`${outreachEfforts.callCount} + 1`,
+              updatedAt: new Date(),
+              resolvedAt: resolutionStatus === "resolved" ? new Date() : null,
+              metadata: {
+                lastCallTime: new Date().toISOString(),
+                lastCallStatus: callStatus,
+                analysis: processedAnalysis,
+              },
+            } as any)
+            .where(eq(outreachEfforts.id, call.outreachEffortId));
+
+          console.log(
+            `[WEBHOOK] Updated standalone outreach effort ${call.outreachEffortId} with status ${resolutionStatus}`,
+          );
+        } catch (error) {
+          console.error(
+            "[WEBHOOK] Error updating standalone outreach effort:",
+            error,
+          );
+        }
+      } else {
+        // Create an outreach effort record even without a row (e.g., for manual calls)
+        // Note: This is a fallback case that should rarely happen now that
+        // we create outreach efforts at call dispatch time in the run processor.
+        // This handles legacy calls or manually dialed calls without a row.
+        console.log(
+          `[WEBHOOK] No outreach effort found for standalone call ${callId}, creating one`,
+        );
+
+        try {
+          // Determine resolution status based on call outcome
+          const patientReached =
+            processedAnalysis?.patient_reached === true ||
+            processedAnalysis?.patientReached === true;
+
+          const voicemailLeft =
+            processedAnalysis?.voicemail_left === true ||
+            processedAnalysis?.left_voicemail === true ||
+            call_analysis?.in_voicemail === true;
+
+          let resolutionStatus: string;
+          if (callStatus === "failed" || callStatus === "no-answer") {
+            resolutionStatus = "no_contact";
+          } else if (voicemailLeft) {
+            resolutionStatus = "voicemail";
+          } else if (patientReached) {
+            // If patient was reached, mark as resolved directly
+            resolutionStatus = "resolved";
+          } else {
+            resolutionStatus = "open";
+          }
+
+          // Create a new outreach effort
+          const [newOutreachEffort] = await db
+            .insert(outreachEfforts)
+            .values({
+              orgId,
+              patientId,
+              campaignId: originalCampaignId,
+              runId,
+              originalCallId: callId,
+              lastCallId: callId,
+              resolutionStatus: resolutionStatus,
+              direction: "outbound",
+              agentId: agent_id,
+              metadata: {
+                firstCallTime: new Date().toISOString(),
+                lastCallStatus: callStatus,
+                analysis: processedAnalysis,
+              },
+            } as any)
+            .returning();
+
+          // Update the call with the new outreach effort ID
+          await db
+            .update(calls)
+            .set({
+              outreachEffortId: newOutreachEffort.id,
+            } as any)
+            .where(eq(calls.id, callId));
+
+          console.log(
+            `[WEBHOOK] Created new standalone outreach effort ${newOutreachEffort.id} with status ${resolutionStatus}`,
+          );
+        } catch (error) {
+          console.error(
+            "[WEBHOOK] Error creating standalone outreach effort:",
+            error,
+          );
+        }
       }
     }
 
@@ -1207,7 +1559,7 @@ export async function handlePostCallWebhook(
             .set({
               metadata: metadata,
               updatedAt: new Date(),
-            })
+            } as any)
             .where(eq(runs.id, runId));
 
           console.log(`[WEBHOOK] Updated run ${runId} metrics`);
@@ -1255,7 +1607,7 @@ export async function handlePostCallWebhook(
                     },
                   },
                   updatedAt: new Date(),
-                })
+                } as any)
                 .where(eq(runs.id, runId));
 
               // Send real-time update for run completion
@@ -1305,7 +1657,8 @@ export async function handlePostCallWebhook(
         status: callStatus,
         patientId,
         runId,
-        direction: callDirection,
+        outreachEffortId: call.outreachEffortId || null,
+        direction: callDirection as "inbound" | "outbound",
         metadata: {
           campaignId: originalCampaignId || null,
         },
@@ -1319,7 +1672,8 @@ export async function handlePostCallWebhook(
           callId: call.id,
           status: callStatus,
           patientId,
-          direction: callDirection,
+          outreachEffortId: call.outreachEffortId || null,
+          direction: callDirection as "inbound" | "outbound",
           analysis: processedAnalysis,
           insights,
         });
@@ -1331,7 +1685,8 @@ export async function handlePostCallWebhook(
           callId: call.id,
           status: callStatus,
           rowId,
-          direction: callDirection,
+          outreachEffortId: call.outreachEffortId || null,
+          direction: callDirection as "inbound" | "outbound",
           metadata: {
             campaignId: originalCampaignId || null,
           },
@@ -1542,4 +1897,66 @@ export function extractCallInsights(payload: {
       voicemailLeft: false,
     };
   }
+}
+
+// Add a helper function to find the default inbound agent for an organization
+async function findDefaultInboundAgent(orgId: string): Promise<{
+  agentId: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+}> {
+  try {
+    // Look for campaigns with direction "inbound" for this organization
+    const inboundCampaigns = await db
+      .select({
+        campaign: campaigns,
+        template: campaignTemplates,
+      })
+      .from(campaigns)
+      .leftJoin(
+        campaignTemplates,
+        eq(campaigns.templateId, campaignTemplates.id),
+      )
+      .where(
+        and(eq(campaigns.orgId, orgId), eq(campaigns.direction, "inbound")),
+      )
+      .orderBy(desc(campaigns.updatedAt));
+
+    if (inboundCampaigns.length > 0) {
+      // Use the most recently updated inbound campaign
+      const inboundCampaign = inboundCampaigns[0];
+
+      if (inboundCampaign.template && inboundCampaign.template.agentId) {
+        console.log(
+          `[INBOUND WEBHOOK] Found organization's default inbound agent (${inboundCampaign.template.agentId}) from campaign "${inboundCampaign.campaign.name}"`,
+        );
+
+        return {
+          agentId: inboundCampaign.template.agentId,
+          campaignId: inboundCampaign.campaign.id,
+          campaignName: inboundCampaign.campaign.name,
+        };
+      } else {
+        console.warn(
+          `[INBOUND WEBHOOK] Inbound campaign found but has no agent ID, using fallback`,
+        );
+      }
+    } else {
+      console.warn(
+        `[INBOUND WEBHOOK] No inbound campaigns found for organization ${orgId}, using fallback agent`,
+      );
+    }
+  } catch (error) {
+    console.error(
+      `[INBOUND WEBHOOK] Error finding default inbound agent:`,
+      error,
+    );
+  }
+
+  // Return fallback if no inbound campaign found or error occurred
+  return {
+    agentId: "default-inbound-agent", // Fallback agent ID
+    campaignId: null,
+    campaignName: null,
+  };
 }

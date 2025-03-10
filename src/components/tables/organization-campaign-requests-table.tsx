@@ -52,12 +52,12 @@ export function OrganizationCampaignRequestsTable() {
         <CardHeader>
           <CardTitle>No Campaign Requests</CardTitle>
           <CardDescription>
-            You haven't requested any campaigns yet.
+            You haven&apos;t requested any campaigns yet.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Request a new campaign to get started with Rivvi's voice AI
+            Request a new campaign to get started with Rivvi&apos;s voice AI
             capabilities.
           </p>
         </CardContent>

@@ -67,7 +67,8 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
             <UserIcon className="h-12 w-12 text-muted-foreground/50" />
             <h3 className="text-lg font-medium">Patient Not Found</h3>
             <p className="text-sm text-muted-foreground">
-              The requested patient could not be found or you don't have access.
+              The requested patient could not be found or you don&apos;t have
+              access.
             </p>
           </div>
         </CardContent>
@@ -224,7 +225,8 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                   <SparklesIcon className="h-12 w-12 text-muted-foreground/50" />
                   <h3 className="mt-2 text-lg font-medium">No Activity Yet</h3>
                   <p className="text-sm text-muted-foreground">
-                    This patient doesn't have any recorded interactions yet.
+                    This patient doesn&apos;t have any recorded interactions
+                    yet.
                   </p>
                   <Button className="mt-4" size="sm">
                     Create a Call

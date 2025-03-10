@@ -246,7 +246,7 @@ export function OrganizationSettings() {
       <CardHeader>
         <CardTitle>Organization Settings</CardTitle>
         <CardDescription>
-          Manage your organization's settings and preferences
+          Manage your organization&apos;s settings and preferences
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -263,7 +263,7 @@ export function OrganizationSettings() {
                     className="bg-muted"
                   />
                   <p className="text-sm text-muted-foreground">
-                    Contact support to change organization name
+                    Your organization&apos;s name cannot be changed
                   </p>
                 </div>
 
@@ -290,8 +290,8 @@ export function OrganizationSettings() {
                   className="bg-muted"
                 />
                 <p className="text-sm text-muted-foreground">
-                  Contact support to change your organization's concurrent call
-                  limit
+                  Contact support to change your organization&apos;s concurrent
+                  call limit
                 </p>
               </div>
 
@@ -317,7 +317,7 @@ export function OrganizationSettings() {
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      The organization's primary timezone for scheduling
+                      The organization&apos;s primary timezone for scheduling
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

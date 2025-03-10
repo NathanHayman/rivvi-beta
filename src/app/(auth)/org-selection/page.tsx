@@ -110,8 +110,8 @@ export default function OrganizationSelection() {
             </CardContent>
             <CardFooter className="flex items-center border-t border-border bg-zinc-50/80">
               <p className="text-sm text-muted-foreground">
-                Can't find your organization? Contact your administrator for an
-                invitation.
+                Can&apos;t find your organization? Contact your administrator
+                for an invitation.
               </p>
             </CardFooter>
           </Card>
@@ -167,8 +167,8 @@ export default function OrganizationSelection() {
               Unified Organization Management
             </h2>
             <p className="mb-8 text-lg text-white/80">
-              Access your organization's customized settings, campaigns, and
-              analytics with our powerful multi-tenant platform.
+              Access your organization&apos;s customized settings, campaigns,
+              and analytics with our powerful multi-tenant platform.
             </p>
             <div className="flex flex-col items-center rounded-xl bg-white/10 p-6 backdrop-blur-sm">
               <div className="mb-2 text-sm font-medium uppercase tracking-wider text-white/90">

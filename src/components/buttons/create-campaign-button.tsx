@@ -1,10 +1,10 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAgents } from "@/lib/retell-client-safe";
+import { getAgents } from "@/lib/retell/retell-client-safe";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { CreateCampaignForm } from "../forms/campaign-create-form";
+import { CampaignCreateForm } from "../forms/campaign-create-form";
 import { TriggerSheet } from "../modals/trigger-sheet";
 
 export function CreateCampaignButton() {
@@ -39,11 +39,7 @@ export function CreateCampaignButton() {
       buttonIcon={<Plus />}
       buttonText="Create Campaign"
       form={
-        loading ? (
-          <Skeleton className="h-96 w-full" />
-        ) : (
-          <CreateCampaignForm agents={agents} />
-        )
+        loading ? <Skeleton className="h-96 w-full" /> : <CampaignCreateForm />
       }
       title="Create Campaign"
     />

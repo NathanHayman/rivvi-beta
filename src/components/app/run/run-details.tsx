@@ -4,7 +4,6 @@
 import { format, formatDistance } from "date-fns";
 import { debounce } from "lodash";
 import {
-  BarChart3,
   Calendar,
   CheckCircle,
   Download,
@@ -34,6 +33,7 @@ import { RunRowsTable } from "../../tables/run-rows-table";
 type RunDetailsProps = {
   run: TRun;
   campaign: TCampaign;
+  initialAnalytics?: any;
 };
 
 type RunMetadata = {
@@ -363,7 +363,7 @@ function VariationMetadata({
                       <ul className="list-disc space-y-0.5 pl-5 text-sm">
                         {comparison.keyPhrases.modified.map((mod, i) => (
                           <li key={i}>
-                            "{mod.before}" → "{mod.after}"
+                            &quot;{mod.before}&quot; → &quot;{mod.after}&quot;
                           </li>
                         ))}
                       </ul>
@@ -484,7 +484,11 @@ function VariationMetadata({
   );
 }
 
-export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
+export function RunDetails({
+  run: initialRun,
+  campaign,
+  initialAnalytics,
+}: RunDetailsProps) {
   const [activeTab, setActiveTab] = useState("overview");
   const [run, setRun] = useState<TRun>(initialRun);
   const [metrics, setMetrics] = useState<RunMetadata | null>(
@@ -497,16 +501,71 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   const runId = initialRun.id;
   const orgId = initialRun.orgId;
 
+  // Add analytics state
+  const [analytics, setAnalytics] = useState<any>(initialAnalytics || null);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+
   // Add counts state to replace useRunRows data
-  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [counts, setCounts] = useState<Record<string, number> | null>(
+    initialAnalytics
+      ? {
+          total: initialAnalytics.overview.totalRows || 0,
+          completed: initialAnalytics.overview.completedCalls || 0,
+          failed: initialAnalytics.overview.failedCalls || 0,
+          pending: initialAnalytics.overview.pendingCalls || 0,
+          connected: initialAnalytics.callMetrics.patientsReached || 0,
+          voicemail: initialAnalytics.callMetrics.voicemailsLeft || 0,
+        }
+      : null,
+  );
+
+  // Function to fetch analytics data
+  const fetchAnalytics = useCallback(async () => {
+    setIsLoadingAnalytics(true);
+    try {
+      // Use server action instead of direct import
+      const { getRunAnalytics } = await import(
+        "@/server/actions/runs/analytics"
+      );
+      const data = await getRunAnalytics(runId);
+      if (data) {
+        setAnalytics({
+          overview: {
+            totalRows: data.overview?.totalRows || 0,
+            completedCalls: data.overview?.completedCalls || 0,
+            failedCalls: data.overview?.failedCalls || 0,
+            pendingCalls: data.overview?.pendingCalls || 0,
+          },
+          callMetrics: {
+            patientsReached: data.callMetrics?.patientsReached || 0,
+            voicemailsLeft: data.callMetrics?.voicemailsLeft || 0,
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching run analytics:", error);
+    } finally {
+      setIsLoadingAnalytics(false);
+    }
+  }, [runId]);
 
   // Add a debounced refresh function to avoid too many refreshes
-  const debouncedRefetch = useCallback(
-    debounce(() => {
+  const debouncedRefetch = useCallback(() => {
+    const refreshData = debounce(() => {
       refetch().finally(() => setIsRefreshing(false));
-    }, 1000),
-    [refetch],
-  );
+      // Also fetch updated analytics
+      fetchAnalytics();
+    }, 1000);
+
+    refreshData();
+  }, [refetch, fetchAnalytics, setIsRefreshing]);
+
+  // Fetch analytics on initial load
+  useEffect(() => {
+    if (!initialAnalytics) {
+      fetchAnalytics();
+    }
+  }, [fetchAnalytics, initialAnalytics]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -687,17 +746,41 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   const invalidRows = metrics?.rows?.invalid || 0;
   const validRows = totalRows - invalidRows;
 
-  // Use the actual row counts from the database if available
-  const totalCalls = counts?.total || metrics?.calls?.total || 0;
-  const completedCalls = counts?.completed || metrics?.calls?.completed || 0;
-  const failedCalls = counts?.failed || metrics?.calls?.failed || 0;
-  const callingCalls = counts?.calling || metrics?.calls?.calling || 0;
-  const pendingCalls = counts?.pending || metrics?.calls?.pending || 0;
+  // Add a helper function to safely access nested properties
+  const getNestedValue = (obj: any, path: string, defaultValue: any = 0) => {
+    try {
+      const value = path
+        .split(".")
+        .reduce((prev, curr) => prev && prev[curr], obj);
+      return value !== undefined && value !== null ? value : defaultValue;
+    } catch (e) {
+      return defaultValue;
+    }
+  };
 
-  // These values might not be in counts, so use metrics
-  const voicemailCalls = metrics?.calls?.voicemail || 0;
-  const connectedCalls = metrics?.calls?.connected || 0;
-  const convertedCalls = metrics?.calls?.converted || 0;
+  // Use the actual row counts from the database if available
+  const totalCalls =
+    getNestedValue(counts, "total") ||
+    getNestedValue(metrics, "calls.total", 0);
+  const completedCalls =
+    getNestedValue(counts, "completed") ||
+    getNestedValue(metrics, "calls.completed", 0);
+  const failedCalls =
+    getNestedValue(counts, "failed") ||
+    getNestedValue(metrics, "calls.failed", 0);
+  const callingCalls =
+    getNestedValue(counts, "calling") ||
+    getNestedValue(metrics, "calls.calling", 0);
+  const pendingCalls =
+    getNestedValue(counts, "pending") ||
+    getNestedValue(metrics, "calls.pending", 0);
+  const connectedCalls =
+    getNestedValue(counts, "connected") ||
+    getNestedValue(metrics, "calls.connected", 0);
+  const voicemailCalls =
+    getNestedValue(counts, "voicemail") ||
+    getNestedValue(metrics, "calls.voicemail", 0);
+  const convertedCalls = getNestedValue(metrics, "calls.converted", 0);
 
   // Update run metadata if counts are available
   useEffect(() => {
@@ -734,7 +817,7 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
         setMetrics(updatedMetrics);
       }
     }
-  }, [counts]); // Only depend on counts changing
+  }, [counts, metrics]); // Depend on counts and metrics changing
 
   const callProgress =
     totalCalls > 0
@@ -881,7 +964,7 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
                 <ListChecks className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{totalRows}</div>
+                <div className="text-2xl font-bold">{totalCalls}</div>
                 {invalidRows > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {invalidRows} invalid rows skipped
@@ -899,15 +982,9 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {completedCalls + failedCalls}/{totalCalls}
+                  {completedCalls + failedCalls} out of {totalCalls}
                 </div>
-                <div className="mt-2">
-                  <Progress value={callProgress} className="h-2" />
-                </div>
-                <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{callProgress}% complete</span>
-                  {callingCalls > 0 && <span>{callingCalls} in progress</span>}
-                </div>
+                <Progress value={callProgress} className="mt-2" />
               </CardContent>
             </Card>
 
@@ -916,58 +993,45 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
                 <CardTitle className="text-sm font-medium">
                   Conversion Rate
                 </CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                <CheckCircle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{conversionRate}%</div>
                 <p className="text-xs text-muted-foreground">
-                  {convertedCalls} successful conversions
+                  {connectedCalls} connected calls
                 </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Call Status
+                </CardTitle>
+                <Phone className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Connected</span>
+                  <span className="text-sm font-bold">{connectedCalls}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Voicemail</span>
+                  <span className="text-sm font-bold">{voicemailCalls}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Failed</span>
+                  <span className="text-sm font-bold">{failedCalls}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Pending</span>
+                  <span className="text-sm font-bold">{pendingCalls}</span>
+                </div>
               </CardContent>
             </Card>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Call Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Connected
-                      </span>
-                      <span className="text-2xl font-bold">
-                        {connectedCalls}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Voicemail
-                      </span>
-                      <span className="text-2xl font-bold">
-                        {voicemailCalls}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Failed
-                      </span>
-                      <span className="text-2xl font-bold">{failedCalls}</span>
-                    </div>
-                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Pending
-                      </span>
-                      <span className="text-2xl font-bold">{pendingCalls}</span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle>Run Details</CardTitle>

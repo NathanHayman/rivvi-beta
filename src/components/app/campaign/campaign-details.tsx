@@ -4,11 +4,21 @@ import {
   RunCreateForm,
   RunCreateFormProps,
 } from "@/components/forms/create-run-form/form";
+import { CreateRunAction } from "@/components/modals/actions/create-run";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { ZCampaignWithTemplate } from "@/types/zod";
@@ -17,6 +27,7 @@ import {
   Activity,
   BarChart3,
   Calendar,
+  ChevronRight,
   FileText,
   Pencil,
   Phone,
@@ -25,8 +36,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-// import { CreateRunModal } from "../run/create-run-modal";
+import { useEffect, useState } from "react";
 
 type RecentRun = {
   id: string;
@@ -42,36 +52,81 @@ type RecentRun = {
   };
 };
 
+// Add badge variant types and helper function
+type BadgeVariant =
+  | "default"
+  | "destructive"
+  | "outline"
+  | "secondary"
+  | "success_solid"
+  | "failure_solid"
+  | "neutral_solid";
+
+function getStatusBadgeVariant(status: string): string {
+  switch (status) {
+    case "completed":
+      return "success_solid";
+    case "running":
+      return "default";
+    case "paused":
+      return "neutral_solid";
+    case "failed":
+      return "failure_solid";
+    case "scheduled":
+      return "secondary";
+    default:
+      return "outline";
+  }
+}
+
 export function CampaignDetails({
   campaignId,
   initialData,
+  initialConfig,
   initialRecentRuns = [],
   isSuperAdmin = false,
 }: {
   campaignId: string;
   initialData: ZCampaignWithTemplate;
+  initialConfig: RunCreateFormProps;
   initialRecentRuns?: RecentRun[];
   isSuperAdmin?: boolean;
 }) {
-  const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const router = useRouter();
+  const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const [fullCampaign] = useState<ZCampaignWithTemplate>(initialData);
   const [recentRuns] = useState<RecentRun[]>(initialRecentRuns);
-
-  // Prepare run data for the create run form
-  const runData: RunCreateFormProps = {
-    campaignId,
-    campaignBasePrompt: fullCampaign?.template?.basePrompt,
-    campaignVoicemailMessage: fullCampaign?.template?.voicemailMessage,
-    campaignName: fullCampaign?.campaign?.name,
-    campaignDescription: fullCampaign?.template?.description,
-  };
+  const [campaignAnalytics, setCampaignAnalytics] = useState<any>(null);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
 
   const campaignTypeColor =
     fullCampaign?.campaign?.direction === "inbound" ||
     fullCampaign?.campaign?.direction === "outbound"
       ? "violet_solid"
       : "yellow_solid";
+
+  // Fetch campaign analytics
+  useEffect(() => {
+    async function fetchAnalytics() {
+      setIsLoadingAnalytics(true);
+      try {
+        // Use dynamic import to avoid issues with the module not being available
+        const analyticsModule = await import("@/server/actions/runs/analytics");
+        if (analyticsModule && analyticsModule.getCampaignAnalytics) {
+          const data = await analyticsModule.getCampaignAnalytics(campaignId);
+          if (data) {
+            setCampaignAnalytics(data);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching campaign analytics:", error);
+      } finally {
+        setIsLoadingAnalytics(false);
+      }
+    }
+
+    fetchAnalytics();
+  }, [campaignId]);
 
   return (
     <div className="space-y-6">
@@ -108,9 +163,16 @@ export function CampaignDetails({
             </Link>
             <TriggerSheet
               buttonText="Create Run"
-              form={<RunCreateForm {...runData} />}
+              form={<RunCreateForm {...initialConfig} />}
               buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
               title="Create Run"
+            />
+            <CreateRunAction
+              type="modal"
+              form={<RunCreateForm {...initialConfig} />}
+              title="Create Run"
+              buttonText="Create Run"
+              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
             />
           </div>
         </div>
@@ -132,10 +194,6 @@ export function CampaignDetails({
             <Activity className="mr-1.5 h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="runs">
-            <Calendar className="mr-1.5 h-4 w-4" />
-            Runs
-          </TabsTrigger>
           {isSuperAdmin && (
             <>
               <TabsTrigger value="configuration">
@@ -151,27 +209,52 @@ export function CampaignDetails({
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 pt-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* Campaign Stats Card */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Runs
-                </CardTitle>
+                <CardTitle>Campaign Stats</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
-                  {recentRuns?.length || 0}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Total Calls</span>
+                    <span className="font-medium">
+                      {isLoadingAnalytics ? (
+                        <Skeleton className="h-4 w-8" />
+                      ) : (
+                        campaignAnalytics?.callMetrics?.total || 0
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Completed Calls</span>
+                    <span className="font-medium">
+                      {isLoadingAnalytics ? (
+                        <Skeleton className="h-4 w-8" />
+                      ) : (
+                        campaignAnalytics?.callMetrics?.completed || 0
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Patient Reached</span>
+                    <span className="font-medium">
+                      {isLoadingAnalytics ? (
+                        <Skeleton className="h-4 w-8" />
+                      ) : (
+                        <span>
+                          {campaignAnalytics?.callMetrics?.successRate
+                            ? campaignAnalytics.callMetrics.successRate.toFixed(
+                                1,
+                              )
+                            : "0"}
+                          %
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {recentRuns?.length
-                    ? "Latest run created " +
-                      formatDistance(
-                        new Date(recentRuns[0]?.createdAt || new Date()),
-                        new Date(),
-                        { addSuffix: true },
-                      )
-                    : "No runs created yet"}
-                </p>
               </CardContent>
             </Card>
 
@@ -227,94 +310,109 @@ export function CampaignDetails({
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
 
-        <TabsContent value="runs" className="space-y-4 pt-4">
-          <div className="flex justify-between">
-            <h3 className="text-lg font-medium">Recent Runs</h3>
-            <Link
-              href={`/campaigns/${campaignId}/runs`}
-              prefetch={true}
-              className={cn(buttonVariants({ variant: "link", size: "sm" }))}
-            >
-              <span>View All Runs</span>
-            </Link>
-          </div>
-
-          {recentRuns && recentRuns.length > 0 ? (
-            <div className="space-y-4">
-              {recentRuns.map((run) => (
-                <Card key={run.id} className="overflow-hidden">
-                  <CardContent className="p-0">
-                    <div className="flex items-center justify-between p-4">
-                      <div>
-                        <h4 className="font-medium">{run.name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          Created {format(new Date(run.createdAt), "PPP")}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex flex-col items-end">
-                          <div className="text-sm">
-                            <span className="font-medium">
-                              {run.metadata?.calls?.completed || 0}
-                            </span>
-                            <span className="text-muted-foreground">
-                              /{run.metadata?.calls?.total || 0} calls
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {run.metadata?.calls?.completed || 0} completed
-                          </div>
-                        </div>
-                        <Badge
-                          variant={
-                            run.status === "completed"
-                              ? "success_solid"
-                              : run.status === "running"
-                                ? "default"
-                                : run.status === "paused"
-                                  ? "failure_solid"
-                                  : run.status === "failed"
-                                    ? "failure_solid"
-                                    : "neutral_solid"
-                          }
-                        >
-                          {run.status}
-                        </Badge>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            router.push(
-                              `/campaigns/${campaignId}/runs/${run.id}`,
-                            )
-                          }
-                        >
-                          View Details
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
+          {/* Recent Runs Section */}
+          <div>
             <Card>
-              <CardContent className="flex h-40 items-center justify-center">
-                <div className="text-center text-muted-foreground">
-                  <p>No runs created yet</p>
-                  <Button
-                    variant="outline"
-                    className="mt-2"
-                    onClick={() => setIsCreateRunModalOpen(true)}
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle>Recent Runs</CardTitle>
+                  <Link
+                    href={`/campaigns/${campaignId}/runs`}
+                    className="text-sm text-primary hover:underline"
                   >
-                    Create First Run
-                  </Button>
+                    View all runs
+                  </Link>
                 </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {recentRuns && recentRuns.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Calls</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="w-[50px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentRuns.map((run) => {
+                        // Find analytics for this run if available
+                        const runMetrics = campaignAnalytics?.runMetrics?.find(
+                          (r: any) => r.id === run.id,
+                        );
+
+                        return (
+                          <TableRow key={run.id}>
+                            <TableCell>
+                              <div className="font-medium">{run.name}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  getStatusBadgeVariant(
+                                    run.status,
+                                  ) as BadgeVariant
+                                }
+                              >
+                                {run.status.charAt(0).toUpperCase() +
+                                  run.status.slice(1)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {isLoadingAnalytics ? (
+                                <Skeleton className="h-4 w-12" />
+                              ) : (
+                                `${runMetrics?.completedCalls || 0} of ${runMetrics?.totalCalls || 0}`
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm text-muted-foreground">
+                                {formatDistance(
+                                  new Date(run.createdAt),
+                                  new Date(),
+                                  { addSuffix: true },
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Link
+                                href={`/campaigns/${campaignId}/runs/${run.id}`}
+                                prefetch={false}
+                              >
+                                <Button variant="ghost" size="icon" asChild>
+                                  <div>
+                                    <ChevronRight className="h-4 w-4" />
+                                    <span className="sr-only">View</span>
+                                  </div>
+                                </Button>
+                              </Link>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="flex h-32 flex-col items-center justify-center">
+                    <p className="mb-2 text-sm text-muted-foreground">
+                      No runs yet
+                    </p>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setIsCreateRunModalOpen(true)}
+                    >
+                      <Calendar className="mr-1.5 h-4 w-4" />
+                      Create Run
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
-          )}
+          </div>
         </TabsContent>
 
         {isSuperAdmin && (
@@ -625,12 +723,6 @@ export function CampaignDetails({
           </TabsContent>
         )}
       </Tabs>
-
-      {/* <CreateRunModal
-        campaignId={campaignId}
-        open={isCreateRunModalOpen}
-        onOpenChange={setIsCreateRunModalOpen}
-      /> */}
     </div>
   );
 }

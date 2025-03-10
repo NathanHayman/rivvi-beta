@@ -14,10 +14,10 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 interface CampaignNewPageProps {
-  searchParams: {
+  searchParams: Promise<{
     requestId?: string;
     orgId?: string;
-  };
+  }>;
 }
 
 async function CampaignFromRequest({ requestId }: { requestId: string }) {
@@ -58,10 +58,10 @@ async function CampaignFromRequest({ requestId }: { requestId: string }) {
   }
 }
 
-export default function CampaignNewPage({
+export default async function CampaignNewPage({
   searchParams,
 }: CampaignNewPageProps) {
-  const { requestId } = searchParams;
+  const { requestId } = await searchParams;
 
   if (!requestId) {
     return (

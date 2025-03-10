@@ -1,4 +1,4 @@
-import { convertPostCallToAnalysisFields } from "@/server/actions/retell/utils";
+import { convertPostCallToAnalysisFields } from "@/lib/retell/retell-client-safe";
 import { NextRequest, NextResponse } from "next/server";
 
 /**

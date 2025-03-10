@@ -844,7 +844,7 @@ export function CampaignRequestsTable({
             <DialogTitle>Approve Campaign Request</DialogTitle>
             <DialogDescription>
               Approving this request indicates it has been reviewed and
-              accepted. You'll need to create the campaign separately.
+              accepted. You&apos;ll need to create the campaign separately.
             </DialogDescription>
           </DialogHeader>
 

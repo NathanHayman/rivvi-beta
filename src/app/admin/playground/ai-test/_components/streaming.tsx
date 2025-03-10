@@ -460,7 +460,7 @@ const StreamingPromptVariation = ({ streamedData, isGenerating }) => {
                   {streamedData?.comparison?.keyPhrases?.modified?.map(
                     (mod, i) => (
                       <li key={i}>
-                        "{mod.before}" → "{mod.after}"
+                        &quot;{mod.before}&quot; → &quot;{mod.after}&quot;
                       </li>
                     ),
                   )}

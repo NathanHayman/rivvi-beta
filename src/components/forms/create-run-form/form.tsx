@@ -29,6 +29,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { ModalFooter } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
 import { useUploadFile } from "@/hooks/runs/use-files";
 import { useCreateRun } from "@/hooks/runs/use-runs";
@@ -1008,10 +1009,10 @@ export function RunCreateForm({
   };
 
   return (
-    <div className="mx-auto max-w-[600px] p-4">
-      <div className="mb-6">
-        <div className="mt-4">
-          <div className="flex items-center justify-between">
+    <div className="mx-auto w-full p-3">
+      <div className="mb-6 w-full">
+        <div className="w-full">
+          <div className="flex w-full items-center justify-between">
             {steps.map((step, index) => (
               <div key={index} className="flex flex-col items-center">
                 <div
@@ -1055,11 +1056,11 @@ export function RunCreateForm({
             console.log("Form submit event triggered");
             form.handleSubmit(onSubmit)(e);
           }}
-          className="space-y-6"
+          className="mt-0 w-full space-y-6 pb-24"
         >
           {renderStepContent()}
 
-          <div className="flex justify-between pt-4">
+          <ModalFooter className="absolute bottom-0 left-0 right-0 flex justify-between">
             {currentStep === 0 ? (
               <Button type="button" variant="outline" onClick={onCancel}>
                 Cancel
@@ -1145,7 +1146,7 @@ export function RunCreateForm({
                 )}
               </Button>
             )}
-          </div>
+          </ModalFooter>
         </form>
       </Form>
     </div>

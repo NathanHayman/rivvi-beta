@@ -1,4 +1,5 @@
 import { CampaignDetails } from "@/components/app/campaign/campaign-details";
+import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -23,6 +24,15 @@ export default async function CampaignPage({ params }: PageProps) {
     getCampaignById(campaignId),
     getRuns({ campaignId, limit: 5, offset: 0 }),
   ]);
+
+  const config: RunCreateFormProps = {
+    campaignId,
+    campaignBasePrompt: campaignData?.template.basePrompt,
+    campaignVoicemailMessage: campaignData?.template.voicemailMessage,
+    campaignName: campaignData?.campaign?.name,
+    campaignDescription: campaignData?.template.description,
+    campaignConfig: campaignData?.template.variablesConfig,
+  };
 
   // Default to false for isSuperAdmin
   const isSuperAdmin = false;
@@ -64,6 +74,7 @@ export default async function CampaignPage({ params }: PageProps) {
             <CampaignDetails
               campaignId={campaignId}
               initialData={campaignData}
+              initialConfig={config}
               initialRecentRuns={runsData.runs}
               isSuperAdmin={isSuperAdmin}
             />

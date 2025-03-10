@@ -88,7 +88,3 @@ export async function POST(
     );
   }
 }
-
-// Also add a route without the campaignId parameter for backwards compatibility
-// and to handle cases where we don't have a campaignId in the URL
-export { POST as POST_withoutCampaignId } from "./route-without-campaign";

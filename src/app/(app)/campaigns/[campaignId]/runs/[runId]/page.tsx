@@ -8,6 +8,7 @@ import {
 } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { getRun } from "@/server/actions/runs";
+import { getRunAnalytics } from "@/server/actions/runs/analytics";
 import { Suspense } from "react";
 
 interface PageProps {
@@ -24,12 +25,23 @@ async function RunDetailsData({
   campaignId: string;
   runId: string;
 }) {
-  const [campaign, run] = await Promise.all([
+  // Fetch campaign, run and analytics data in parallel
+  const [campaign, run, analytics] = await Promise.all([
     getCampaignById(campaignId),
     getRun(runId),
+    getRunAnalytics(runId).catch((error) => {
+      console.error("Error fetching run analytics:", error);
+      return null;
+    }),
   ]);
 
-  return <RunDetails run={run as any} campaign={campaign as any} />;
+  return (
+    <RunDetails
+      run={run as any}
+      campaign={campaign as any}
+      initialAnalytics={analytics}
+    />
+  );
 }
 
 export default async function RunPage({ params }: PageProps) {

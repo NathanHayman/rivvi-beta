@@ -8,6 +8,7 @@ import { db } from "@/server/db";
 import {
   calls,
   campaigns,
+  campaignTemplates,
   organizations,
   patients,
   rows,
@@ -70,7 +71,7 @@ export function createAnalyticsService(dbInstance = db) {
           .select({
             completed: sql`COUNT(CASE WHEN ${calls.status} = 'completed' THEN 1 END)`,
             connected: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND 
-                               (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 END)`,
+                               (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 END)`,
           })
           .from(calls)
           .where(eq(calls.orgId, orgId));
@@ -118,10 +119,10 @@ export function createAnalyticsService(dbInstance = db) {
             completed: sql`SUM(CASE WHEN ${calls.status} = 'completed' THEN 1 ELSE 0 END)`,
             failed: sql`SUM(CASE WHEN ${calls.status} = 'failed' THEN 1 ELSE 0 END)`,
             voicemail: sql`SUM(CASE WHEN ${calls.status} = 'voicemail' OR 
-                              (${calls.analysis}->>'voicemail_left')::text = 'true' OR 
-                              (${calls.analysis}->>'left_voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
-            connected: sql`SUM(CASE WHEN (${calls.analysis}->>'patient_reached')::text = 'true' OR 
-                              (${calls.analysis}->>'patientReached')::text = 'true' THEN 1 ELSE 0 END)`,
+                              (${calls.analysis}::jsonb->>'voicemail_left')::text = 'true' OR 
+                              (${calls.analysis}::jsonb->>'left_voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
+            connected: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' OR 
+                              (${calls.analysis}::jsonb->>'patientReached')::text = 'true' THEN 1 ELSE 0 END)`,
             totalDuration: sql`SUM(${calls.duration})`,
             avgDuration: sql`AVG(${calls.duration})`,
           })
@@ -158,7 +159,7 @@ export function createAnalyticsService(dbInstance = db) {
             id: campaigns.id,
             name: campaigns.name,
             callCount: count(),
-            successCount: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            successCount: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
             totalCompletedCount: sql`SUM(CASE WHEN ${calls.status} = 'completed' THEN 1 ELSE 0 END)`,
           })
           .from(campaigns)
@@ -183,12 +184,12 @@ export function createAnalyticsService(dbInstance = db) {
         // Get call outcomes by type
         const [callOutcomes] = await dbInstance
           .select({
-            connected: sql`SUM(CASE WHEN (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
-            voicemail: sql`SUM(CASE WHEN (${calls.analysis}->>'left_voicemail')::text = 'true' OR
-                             (${calls.analysis}->>'voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
+            connected: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            voicemail: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'left_voicemail')::text = 'true' OR
+                             (${calls.analysis}::jsonb->>'voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
             missed: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND 
-                             NOT((${calls.analysis}->>'patient_reached')::text = 'true') AND
-                             NOT((${calls.analysis}->>'left_voicemail')::text = 'true') THEN 1 ELSE 0 END)`,
+                             NOT((${calls.analysis}::jsonb->>'patient_reached')::text = 'true') AND
+                             NOT((${calls.analysis}::jsonb->>'left_voicemail')::text = 'true') THEN 1 ELSE 0 END)`,
             failed: sql`SUM(CASE WHEN ${calls.status} = 'failed' THEN 1 ELSE 0 END)`,
           })
           .from(calls)
@@ -285,7 +286,7 @@ export function createAnalyticsService(dbInstance = db) {
           .select({
             hour: sql`EXTRACT(HOUR FROM ${calls.startTime} AT TIME ZONE ${timezone})`,
             total: count(),
-            reached: sql`SUM(CASE WHEN (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            reached: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
           })
           .from(calls)
           .where(and(...conditions, sql`${calls.startTime} IS NOT NULL`))
@@ -301,7 +302,7 @@ export function createAnalyticsService(dbInstance = db) {
           .select({
             day: sql`EXTRACT(DOW FROM ${calls.startTime} AT TIME ZONE ${timezone})`,
             total: count(),
-            reached: sql`SUM(CASE WHEN (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            reached: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
           })
           .from(calls)
           .where(and(...conditions, sql`${calls.startTime} IS NOT NULL`))
@@ -317,9 +318,9 @@ export function createAnalyticsService(dbInstance = db) {
         const callOutcomes = await dbInstance
           .select({
             date: sql`DATE_TRUNC('${sql.raw(dateFormat)}', ${calls.createdAt} AT TIME ZONE ${timezone})`,
-            connected: sql`SUM(CASE WHEN (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
-            voicemail: sql`SUM(CASE WHEN (${calls.analysis}->>'left_voicemail')::text = 'true' OR
-                                      (${calls.analysis}->>'voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
+            connected: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            voicemail: sql`SUM(CASE WHEN (${calls.analysis}::jsonb->>'left_voicemail')::text = 'true' OR
+                                      (${calls.analysis}::jsonb->>'voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
             failed: sql`SUM(CASE WHEN ${calls.status} = 'failed' THEN 1 ELSE 0 END)`,
           })
           .from(calls)
@@ -385,190 +386,318 @@ export function createAnalyticsService(dbInstance = db) {
     },
 
     /**
-     * Get detailed campaign analytics
+     * Get campaign analytics by campaign ID
      */
     async getCampaignAnalytics(
       campaignId: string,
     ): Promise<ServiceResult<CampaignAnalytics>> {
       try {
-        // Get campaign details first
-        const campaign = await dbInstance.query.campaigns.findFirst({
-          where: eq(campaigns.id, campaignId),
-          with: {
-            template: true,
-          },
-        });
+        console.log(`Starting analytics for campaign ${campaignId}`);
+
+        // Get campaign details - use prepared statement to ensure UUID conversion
+        const campaign = await dbInstance
+          .select()
+          .from(campaigns)
+          .where(sql`${campaigns.id}::uuid = ${campaignId}::uuid`)
+          .limit(1)
+          .then((rows) => rows[0]);
 
         if (!campaign) {
           return createError("NOT_FOUND", "Campaign not found");
         }
 
-        // Get call metrics for the campaign
+        console.log(`Campaign found: ${campaign.id}`);
+
+        // Get template separately using prepared statement
+        let template = null;
+        try {
+          template = await dbInstance
+            .select()
+            .from(campaignTemplates)
+            .where(
+              sql`${campaignTemplates.id}::uuid = ${campaign.templateId}::uuid`,
+            )
+            .limit(1)
+            .then((rows) => rows[0]);
+
+          console.log(`Template found: ${template?.id || "none"}`);
+        } catch (templateError) {
+          console.error("Error fetching template:", templateError);
+          // Continue without template - we'll handle this gracefully
+        }
+
+        // Get call metrics with explicit casting
         const [callMetrics] = await dbInstance
           .select({
             total: count(),
-            completed: sql`SUM(CASE WHEN ${calls.status} = 'completed' THEN 1 ELSE 0 END)`,
-            failed: sql`SUM(CASE WHEN ${calls.status} = 'failed' THEN 1 ELSE 0 END)`,
-            voicemail: sql`SUM(CASE WHEN ${calls.status} = 'voicemail' OR 
-                              (${calls.analysis}->>'voicemail_left')::text = 'true' OR 
-                              (${calls.analysis}->>'left_voicemail')::text = 'true' THEN 1 ELSE 0 END)`,
-            inProgress: sql`SUM(CASE WHEN ${calls.status} = 'in-progress' THEN 1 ELSE 0 END)`,
-            pending: sql`SUM(CASE WHEN ${calls.status} = 'pending' THEN 1 ELSE 0 END)`,
-            success: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            completed: sql`COUNT(CASE WHEN ${calls.status} = 'completed' THEN 1 END)`,
+            failed: sql`COUNT(CASE WHEN ${calls.status} = 'failed' THEN 1 END)`,
+            voicemail: sql`COUNT(CASE WHEN ${calls.status} = 'voicemail' THEN 1 END)`,
+            inProgress: sql`COUNT(CASE WHEN ${calls.status} = 'in-progress' THEN 1 END)`,
+            pending: sql`COUNT(CASE WHEN ${calls.status} = 'pending' THEN 1 END)`,
+            success: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 END)`,
+            inbound: sql`COUNT(CASE WHEN ${calls.direction} = 'inbound' THEN 1 END)`,
+            outbound: sql`COUNT(CASE WHEN ${calls.direction} = 'outbound' THEN 1 END)`,
           })
           .from(calls)
-          .where(eq(calls.campaignId, campaignId));
+          .where(sql`${calls.campaignId}::uuid = ${campaignId}::uuid`);
 
-        // Get analysis fields from campaign template
-        const analysisFields =
-          campaign.template?.[0]?.analysisConfig?.campaign?.fields || [];
+        // Get conversion metrics from campaign's analysis config
+        const conversionMetrics: any[] = [];
 
-        // Get conversion metrics for each analysis field
-        const conversionMetrics = [];
-        for (const field of analysisFields) {
-          if (field.type === "boolean") {
-            // For boolean fields, get true/false counts
-            const [metrics] = await dbInstance
-              .select({
-                trueCount: sql`SUM(CASE WHEN (${calls.analysis}->>'${field.key}')::boolean = true THEN 1 ELSE 0 END)`,
-                falseCount: sql`SUM(CASE WHEN (${calls.analysis}->>'${field.key}')::boolean = false THEN 1 ELSE 0 END)`,
-                total: count(),
-              })
-              .from(calls)
-              .where(
-                and(
-                  eq(calls.campaignId, campaignId),
-                  eq(calls.status, "completed"),
-                ),
-              );
+        // Safely access nested properties with optional chaining and validate structure
+        // Shortcut: if no template or missing config, just return empty metrics
+        if (!template || !template.analysisConfig?.campaign?.fields) {
+          console.log("No template or missing analysisConfig.campaign.fields");
 
-            conversionMetrics.push({
-              field: field.key,
-              label: field.label,
-              type: field.type,
-              values: {
-                true: Number(metrics.trueCount || 0),
-                false: Number(metrics.falseCount || 0),
-              },
-              total: Number(metrics.total || 0),
-              rate:
-                Number(metrics.total) > 0
-                  ? (Number(metrics.trueCount) / Number(metrics.total)) * 100
+          // Get run metrics even if template is missing, with explicit casting
+          const runMetrics = await dbInstance
+            .select({
+              id: runs.id,
+              name: runs.name,
+              totalCalls: sql`COUNT(${calls.id})`,
+              completedCalls: sql`SUM(CASE WHEN ${calls.status} = 'completed' THEN 1 ELSE 0 END)`,
+              successCalls: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            })
+            .from(runs)
+            .leftJoin(calls, eq(calls.runId, runs.id))
+            .where(sql`${runs.campaignId}::uuid = ${campaignId}::uuid`)
+            .groupBy(runs.id, runs.name)
+            .orderBy(desc(runs.createdAt))
+            .limit(10);
+
+          return createSuccess({
+            campaign: {
+              id: campaign.id,
+              name: campaign.name,
+              direction: campaign.direction,
+            },
+            callMetrics: {
+              total: Number(callMetrics?.total || 0),
+              completed: Number(callMetrics?.completed || 0),
+              failed: Number(callMetrics?.failed || 0),
+              voicemail: Number(callMetrics?.voicemail || 0),
+              inProgress: Number(callMetrics?.inProgress || 0),
+              pending: Number(callMetrics?.pending || 0),
+              successRate:
+                Number(callMetrics?.completed) > 0
+                  ? (Number(callMetrics?.success) /
+                      Number(callMetrics?.completed)) *
+                    100
                   : 0,
-            });
-          } else if (field.type === "enum" && field.options) {
-            // For enum fields, get counts for each option
-            const values: Record<string, number> = {};
+            },
+            conversionMetrics: [],
+            runMetrics: runMetrics.map((run) => ({
+              id: run.id,
+              name: run.name || "Unnamed Run",
+              totalCalls: Number(run.totalCalls || 0),
+              completedCalls: Number(run.completedCalls || 0),
+              conversionRate:
+                Number(run.completedCalls) > 0
+                  ? (Number(run.successCalls) / Number(run.completedCalls)) *
+                    100
+                  : 0,
+            })),
+            lastUpdated: new Date().toISOString(),
+          });
+        }
 
-            // Initialize with all options
-            field.options.forEach((option) => {
-              values[option] = 0;
-            });
+        const analysisFields = template.analysisConfig?.campaign?.fields || [];
+        console.log(`Analysis fields count: ${analysisFields.length}`);
 
-            // Get actual counts
-            const optionCounts = await dbInstance
-              .select({
-                option: sql`${calls.analysis}->>'${field.key}'`,
-                count: count(),
-              })
-              .from(calls)
-              .where(
-                and(
-                  eq(calls.campaignId, campaignId),
-                  eq(calls.status, "completed"),
-                  sql`${calls.analysis}->>'${field.key}' IS NOT NULL`,
-                ),
-              )
-              .groupBy(sql`${calls.analysis}->>'${field.key}'`);
+        for (const field of analysisFields) {
+          if (!field || !field.key) {
+            console.log("Skipping analysis field due to missing key");
+            continue;
+          }
 
-            // Fill in actual counts
-            optionCounts.forEach((result) => {
-              if (result.option) {
-                values[result.option as string] = Number(result.count || 0);
-              }
-            });
+          if (field.type === "boolean") {
+            // For boolean fields, get true/false counts with direct SQL
+            const fieldKey = field.key;
+            try {
+              const [metrics] = await dbInstance
+                .select({
+                  total: sql`COUNT(${calls.id})`,
+                  trueCount: sql`COUNT(CASE WHEN COALESCE(${calls.analysis}::jsonb->>${sql.raw("$1")}, 'false')::text = 'true' THEN 1 END)`,
+                  falseCount: sql`COUNT(CASE WHEN COALESCE(${calls.analysis}::jsonb->>${sql.raw("$1")}, 'false')::text = 'false' THEN 1 END)`,
+                })
+                .from(calls)
+                .where(
+                  and(
+                    sql`${calls.campaignId}::uuid = ${campaignId}::uuid`,
+                    eq(calls.status, "completed"),
+                  ),
+                )
+                .prepare("get_boolean_metrics")
+                .execute({ 1: fieldKey });
 
-            // Get total completed calls for this field
-            const [totalResult] = await dbInstance
-              .select({
-                total: count(),
-              })
-              .from(calls)
-              .where(
-                and(
-                  eq(calls.campaignId, campaignId),
-                  eq(calls.status, "completed"),
-                ),
+              conversionMetrics.push({
+                field: field.key,
+                label: field.label || field.key,
+                type: field.type,
+                values: {
+                  true: Number(metrics?.trueCount || 0),
+                  false: Number(metrics?.falseCount || 0),
+                },
+                total: Number(metrics?.total || 0),
+                rate:
+                  Number(metrics?.total) > 0
+                    ? (Number(metrics?.trueCount) / Number(metrics?.total)) *
+                      100
+                    : 0,
+              });
+            } catch (error) {
+              console.error(
+                `Error processing boolean field ${fieldKey}:`,
+                error,
               );
+              // Continue with other fields
+            }
+          } else if (field.type === "enum" && Array.isArray(field.options)) {
+            // Check if options array has valid structure
+            let validOptions = true;
+            for (const option of field.options) {
+              if (!option || typeof option.value !== "string") {
+                validOptions = false;
+                console.log(`Invalid option in field ${field.key}`);
+                break;
+              }
+            }
 
-            const total = Number(totalResult.total || 0);
+            if (!validOptions) {
+              console.log(
+                `Skipping enum field ${field.key} due to invalid options`,
+              );
+              continue;
+            }
 
-            // Determine main value for conversion rate
-            const mainOption = field.options[0] || ""; // Default to first option
-            const mainCount = values[mainOption] || 0;
+            // For enum fields, handle all options
+            const optionCounts: Record<string, number> = {};
+            let total = 0;
 
-            conversionMetrics.push({
-              field: field.key,
-              label: field.label,
-              type: field.type,
-              values,
-              total,
-              rate: total > 0 ? (mainCount / total) * 100 : 0,
-            });
+            // Initialize counts for all options
+            for (const option of field.options) {
+              // We've already validated option.value above
+              optionCounts[option.value] = 0;
+            }
+
+            // Get counts from database with direct SQL using prepared statements
+            const fieldKey = field.key;
+            try {
+              const optionMetrics = await dbInstance
+                .select({
+                  value: sql`${calls.analysis}::jsonb->>${sql.raw("$1")}`,
+                  count: sql`COUNT(*)`,
+                })
+                .from(calls)
+                .where(
+                  and(
+                    sql`${calls.campaignId}::uuid = ${campaignId}::uuid`,
+                    eq(calls.status, "completed"),
+                    sql`${calls.analysis}::jsonb->>${sql.raw("$1")} IS NOT NULL`,
+                  ),
+                )
+                .groupBy(sql`${calls.analysis}::jsonb->>${sql.raw("$1")}`)
+                .prepare("get_enum_metrics")
+                .execute({ 1: fieldKey });
+
+              // Update counts with actual values
+              for (const metric of optionMetrics) {
+                const value = metric.value as string;
+                const count = Number(metric.count || 0);
+                if (value && optionCounts[value] !== undefined) {
+                  optionCounts[value] = count;
+                }
+                total += count;
+              }
+
+              // Find the highest count to calculate rate - safely handle empty arrays
+              const values = Object.values(optionCounts);
+              const highestCount = values.length > 0 ? Math.max(...values) : 0;
+
+              conversionMetrics.push({
+                field: field.key,
+                label: field.label || field.key,
+                type: field.type,
+                values: optionCounts,
+                total,
+                rate: total > 0 ? (highestCount / total) * 100 : 0,
+              });
+            } catch (error) {
+              console.error(`Error processing enum field ${fieldKey}:`, error);
+              // Continue with other fields
+            }
           }
         }
 
-        // Get run metrics
+        // Get run metrics with explicit casting
         const runMetrics = await dbInstance
           .select({
             id: runs.id,
             name: runs.name,
             totalCalls: sql`COUNT(${calls.id})`,
             completedCalls: sql`SUM(CASE WHEN ${calls.status} = 'completed' THEN 1 ELSE 0 END)`,
-            successCalls: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
+            successCalls: sql`SUM(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 ELSE 0 END)`,
           })
           .from(runs)
           .leftJoin(calls, eq(calls.runId, runs.id))
-          .where(eq(runs.campaignId, campaignId))
+          .where(sql`${runs.campaignId}::uuid = ${campaignId}::uuid`)
           .groupBy(runs.id, runs.name)
           .orderBy(desc(runs.createdAt))
           .limit(10);
 
-        return createSuccess({
-          campaign: {
-            id: campaign.id,
-            name: campaign.name,
-            direction: campaign.direction,
-          },
-          callMetrics: {
-            total: Number(callMetrics?.total || 0),
-            completed: Number(callMetrics?.completed || 0),
-            failed: Number(callMetrics?.failed || 0),
-            voicemail: Number(callMetrics?.voicemail || 0),
-            inProgress: Number(callMetrics?.inProgress || 0),
-            pending: Number(callMetrics?.pending || 0),
-            successRate:
-              Number(callMetrics?.completed) > 0
-                ? (Number(callMetrics?.success) /
-                    Number(callMetrics?.completed)) *
-                  100
-                : 0,
-          },
-          conversionMetrics,
-          runMetrics: runMetrics.map((run) => ({
-            id: run.id,
-            name: run.name,
-            totalCalls: Number(run.totalCalls || 0),
-            completedCalls: Number(run.completedCalls || 0),
-            conversionRate:
-              Number(run.completedCalls) > 0
-                ? (Number(run.successCalls) / Number(run.completedCalls)) * 100
-                : 0,
-          })),
-          lastUpdated: new Date().toISOString(),
-        });
+        console.log("Analytics processing completed successfully");
+
+        // Ensure we always return a valid ServiceResult by wrapping in try/catch
+        try {
+          return createSuccess({
+            campaign: {
+              id: campaign.id,
+              name: campaign.name,
+              direction: campaign.direction,
+            },
+            callMetrics: {
+              total: Number(callMetrics?.total || 0),
+              completed: Number(callMetrics?.completed || 0),
+              failed: Number(callMetrics?.failed || 0),
+              voicemail: Number(callMetrics?.voicemail || 0),
+              inProgress: Number(callMetrics?.inProgress || 0),
+              pending: Number(callMetrics?.pending || 0),
+              successRate:
+                Number(callMetrics?.completed) > 0
+                  ? (Number(callMetrics?.success) /
+                      Number(callMetrics?.completed)) *
+                    100
+                  : 0,
+            },
+            conversionMetrics,
+            runMetrics: runMetrics.map((run) => ({
+              id: run.id,
+              name: run.name || "Unnamed Run",
+              totalCalls: Number(run.totalCalls || 0),
+              completedCalls: Number(run.completedCalls || 0),
+              conversionRate:
+                Number(run.completedCalls) > 0
+                  ? (Number(run.successCalls) / Number(run.completedCalls)) *
+                    100
+                  : 0,
+            })),
+            lastUpdated: new Date().toISOString(),
+          });
+        } catch (returnError) {
+          console.error("Error creating success result:", returnError);
+          return createError(
+            "INTERNAL_ERROR",
+            "Failed to process analytics result",
+            returnError,
+          );
+        }
       } catch (error) {
         console.error("Error getting campaign analytics:", error);
+        // Include more details in the error for debugging
+        if (error instanceof Error) {
+          console.error(`Error stack: ${error.stack}`);
+        }
         return createError(
           "INTERNAL_ERROR",
           "Failed to fetch campaign analytics",
@@ -582,17 +711,37 @@ export function createAnalyticsService(dbInstance = db) {
      */
     async getRunAnalytics(runId: string): Promise<ServiceResult<RunAnalytics>> {
       try {
-        // Get run details with related campaign
-        const run = await dbInstance.query.runs.findFirst({
-          where: eq(runs.id, runId),
-          with: {
-            campaign: true,
-          },
-        });
+        console.log("Getting run analytics for runId:", runId);
+
+        // Get run details with related campaign using direct select instead of query
+        const [run] = await dbInstance
+          .select({
+            id: runs.id,
+            name: runs.name,
+            status: runs.status,
+            metadata: runs.metadata,
+            createdAt: runs.createdAt,
+            campaignId: runs.campaignId,
+          })
+          .from(runs)
+          .where(eq(runs.id, runId));
 
         if (!run) {
+          console.error("Run not found for id:", runId);
           return createError("NOT_FOUND", "Run not found");
         }
+
+        console.log("Found run:", run.id, run.name);
+
+        // Get campaign name using direct select
+        const [campaign] = await dbInstance
+          .select({
+            name: campaigns.name,
+          })
+          .from(campaigns)
+          .where(eq(campaigns.id, run.campaignId));
+
+        console.log("Found campaign:", campaign?.name);
 
         // Row counts by status
         const [rowCounts] = await dbInstance
@@ -607,17 +756,24 @@ export function createAnalyticsService(dbInstance = db) {
           .from(rows)
           .where(eq(rows.runId, runId));
 
-        // Call metrics
+        // Call metrics - get actual counts from call records, not metadata
         const [callMetrics] = await dbInstance
           .select({
-            patientsReached: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'patient_reached')::text = 'true' THEN 1 END)`,
-            voicemailsLeft: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'left_voicemail')::text = 'true' THEN 1 END)`,
-            noAnswer: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'patient_reached')::text = 'false' AND (${calls.analysis}->>'left_voicemail')::text = 'false' THEN 1 END)`,
+            total: count(),
+            patientsReached: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 END)`,
+            voicemailsLeft: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'left_voicemail')::text = 'true' THEN 1 END)`,
+            noAnswer: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'false' AND (${calls.analysis}::jsonb->>'left_voicemail')::text = 'false' THEN 1 END)`,
             averageCallDuration: avg(
-              sql`CAST(${calls.analysis}->>'duration' AS INTEGER)`,
+              sql`CASE WHEN ${calls.analysis}::jsonb->>'duration' IS NOT NULL THEN CAST(${calls.analysis}::jsonb->>'duration' AS INTEGER) ELSE NULL END`,
             ),
-            conversionCount: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}->>'conversion')::text = 'true' THEN 1 END)`,
+            conversionCount: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'conversion')::text = 'true' THEN 1 END)`,
             completedCount: sql`COUNT(CASE WHEN ${calls.status} = 'completed' THEN 1 END)`,
+            failedCount: sql`COUNT(CASE WHEN ${calls.status} = 'failed' THEN 1 END)`,
+            voicemailCount: sql`COUNT(CASE WHEN ${calls.status} = 'voicemail' THEN 1 END)`,
+            inProgress: sql`COUNT(CASE WHEN ${calls.status} = 'in-progress' THEN 1 END)`,
+            pendingCount: sql`COUNT(CASE WHEN ${calls.status} = 'pending' THEN 1 END)`,
+            connectedCount: sql`COUNT(CASE WHEN ${calls.status} = 'completed' AND (${calls.analysis}::jsonb->>'patient_reached')::text = 'true' THEN 1 END)`,
+            inboundReturns: sql`COUNT(CASE WHEN ${calls.direction} = 'inbound' THEN 1 END)`,
           })
           .from(calls)
           .where(eq(calls.runId, runId));
@@ -627,7 +783,7 @@ export function createAnalyticsService(dbInstance = db) {
           .select({
             time: calls.createdAt,
             status: calls.status,
-            reached: sql`(${calls.analysis}->>'patient_reached')::text = 'true'`,
+            reached: sql`(${calls.analysis}::jsonb->>'patient_reached')::text = 'true'`,
           })
           .from(calls)
           .where(eq(calls.runId, runId))
@@ -648,23 +804,29 @@ export function createAnalyticsService(dbInstance = db) {
         }
 
         // Get post-call analysis data
-        const analysisFields = await dbInstance
-          .select({
-            field: sql`key`,
-            value: sql`value`,
-            count: sql`COUNT(*)`,
-          })
-          .from(calls)
-          .leftJoin(sql`jsonb_each_text(${calls.analysis})`, sql`true`)
-          .where(
-            and(
-              eq(calls.runId, runId),
-              eq(calls.status, "completed"),
-              sql`key != 'patient_reached' AND key != 'left_voicemail'`,
-            ),
-          )
-          .groupBy(sql`key`, sql`value`)
-          .orderBy(sql`key`, sql`COUNT(*) DESC`);
+        let analysisFields = [];
+        try {
+          analysisFields = await dbInstance
+            .select({
+              field: sql`key`,
+              value: sql`value`,
+              count: sql`COUNT(*)`,
+            })
+            .from(calls)
+            .leftJoin(sql`jsonb_each_text(${calls.analysis}::jsonb)`, sql`true`)
+            .where(
+              and(
+                eq(calls.runId, runId),
+                eq(calls.status, "completed"),
+                sql`key != 'patient_reached' AND key != 'left_voicemail'`,
+              ),
+            )
+            .groupBy(sql`key`, sql`value`)
+            .orderBy(sql`key`, sql`COUNT(*) DESC`);
+        } catch (error) {
+          console.error("Error fetching analysis fields:", error);
+          // Continue with empty analysis fields
+        }
 
         // Organize data by field
         const fieldGroups: Record<string, { value: string; count: number }[]> =
@@ -698,16 +860,47 @@ export function createAnalyticsService(dbInstance = db) {
           },
         );
 
+        // Update run metadata with latest stats to keep it in sync
+        const updatedMetadata = {
+          ...run.metadata,
+          calls: {
+            ...(run.metadata?.calls || {}),
+            total: Number(callMetrics?.total || 0),
+            completed: Number(callMetrics?.completedCount || 0),
+            failed: Number(callMetrics?.failedCount || 0),
+            voicemail: Number(callMetrics?.voicemailCount || 0),
+            inProgress: Number(callMetrics?.inProgress || 0),
+            pending: Number(callMetrics?.pendingCount || 0),
+            connected: Number(callMetrics?.connectedCount || 0),
+            inbound_returns: Number(callMetrics?.inboundReturns || 0),
+          },
+        };
+
+        // Update the run record with the latest stats - using proper schema reference
+        try {
+          // Use raw SQL with proper table name
+          await dbInstance.execute(
+            sql`UPDATE "rivvi_run" SET metadata = ${JSON.stringify(updatedMetadata)}, 
+                updated_at = NOW() WHERE id = ${runId}`,
+          );
+          console.log("Updated run metadata successfully");
+        } catch (updateError) {
+          console.error("Error updating run metadata:", updateError);
+          // Continue even if metadata update fails
+        }
+
+        // Prepare the result in the correct RunAnalytics format
         return createSuccess({
           overview: {
             name: run.name,
-            campaignName: run.campaign?.[0]?.name || "Unknown Campaign",
+            campaignName: campaign?.name || "Unknown Campaign",
             status: run.status,
             totalRows: Number(rowCounts?.totalRows || 0),
-            completedCalls: Number(rowCounts?.completed || 0),
+            completedCalls: Number(callMetrics?.completedCount || 0),
             pendingCalls:
-              Number(rowCounts?.pending || 0) + Number(rowCounts?.calling || 0),
-            failedCalls: Number(rowCounts?.failed || 0),
+              Number(callMetrics?.pendingCount || 0) +
+              Number(callMetrics?.inProgress || 0),
+            failedCalls: Number(callMetrics?.failedCount || 0),
             startTime:
               (run.metadata?.run?.startTime as string) ||
               run.createdAt.toISOString(),
@@ -719,11 +912,12 @@ export function createAnalyticsService(dbInstance = db) {
             voicemailsLeft: Number(callMetrics?.voicemailsLeft || 0),
             noAnswer: Number(callMetrics?.noAnswer || 0),
             averageCallDuration: Number(callMetrics?.averageCallDuration || 0),
-            conversionRate: Number(callMetrics?.completedCount)
-              ? (Number(callMetrics.conversionCount) /
-                  Number(callMetrics.completedCount)) *
-                100
-              : 0,
+            conversionRate:
+              Number(callMetrics?.completedCount) > 0
+                ? (Number(callMetrics?.conversionCount) /
+                    Number(callMetrics?.completedCount)) *
+                  100
+                : 0,
           },
           callTimeline: callTimeline.map((call) => ({
             time: call.time.toISOString(),

@@ -1,7 +1,7 @@
 "use client";
 
-import PromptVariationComparison from "@/app/admin/ai-test/_components/display";
-import StreamingPromptVariation from "@/app/admin/ai-test/_components/streaming";
+import PromptVariationComparison from "@/app/admin/playground/ai-test/_components/display";
+import StreamingPromptVariation from "@/app/admin/playground/ai-test/_components/streaming";
 import { agentResponseSchema } from "@/app/api/ai/agent/schema";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

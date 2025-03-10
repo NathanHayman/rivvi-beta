@@ -1,5 +1,5 @@
 {
-  "id": "f7ccb4a5-2ea2-45b9-849d-4c09b3bcf0ed",
+  "id": "7f8eac81-d011-45a7-89a1-874152138f23",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -195,6 +195,12 @@
         },
         "patient_id": {
           "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outreach_effort_id": {
+          "name": "outreach_effort_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -407,6 +413,21 @@
           "method": "btree",
           "with": {}
         },
+        "call_outreach_effort_id_idx": {
+          "name": "call_outreach_effort_id_idx",
+          "columns": [
+            {
+              "expression": "outreach_effort_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "call_agent_id_idx": {
           "name": "call_agent_id_idx",
           "columns": [
@@ -542,6 +563,19 @@
           "tableTo": "rivvi_patient",
           "columnsFrom": [
             "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_call_outreach_effort_id_rivvi_outreach_effort_id_fk": {
+          "name": "rivvi_call_outreach_effort_id_rivvi_outreach_effort_id_fk",
+          "tableFrom": "rivvi_call",
+          "tableTo": "rivvi_outreach_effort",
+          "columnsFrom": [
+            "outreach_effort_id"
           ],
           "columnsTo": [
             "id"
@@ -1238,6 +1272,357 @@
           ]
         }
       }
+    },
+    "public.rivvi_outreach_effort": {
+      "name": "rivvi_outreach_effort",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "row_id": {
+          "name": "row_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "original_call_id": {
+          "name": "original_call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_call_id": {
+          "name": "last_call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_status": {
+          "name": "resolution_status",
+          "type": "outreach_resolution_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "direction": {
+          "name": "direction",
+          "type": "call_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'outbound'"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "follow_up_at": {
+          "name": "follow_up_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "call_count": {
+          "name": "call_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 1
+        },
+        "callback_count": {
+          "name": "callback_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "variables": {
+          "name": "variables",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "outreach_effort_org_id_idx": {
+          "name": "outreach_effort_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_patient_id_idx": {
+          "name": "outreach_effort_patient_id_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_campaign_id_idx": {
+          "name": "outreach_effort_campaign_id_idx",
+          "columns": [
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_run_id_idx": {
+          "name": "outreach_effort_run_id_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_row_id_idx": {
+          "name": "outreach_effort_row_id_idx",
+          "columns": [
+            {
+              "expression": "row_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_original_call_id_idx": {
+          "name": "outreach_effort_original_call_id_idx",
+          "columns": [
+            {
+              "expression": "original_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_resolution_status_idx": {
+          "name": "outreach_effort_resolution_status_idx",
+          "columns": [
+            {
+              "expression": "resolution_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outreach_effort_direction_idx": {
+          "name": "outreach_effort_direction_idx",
+          "columns": [
+            {
+              "expression": "direction",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "rivvi_outreach_effort_org_id_rivvi_organization_id_fk": {
+          "name": "rivvi_outreach_effort_org_id_rivvi_organization_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_organization",
+          "columnsFrom": [
+            "org_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_patient_id_rivvi_patient_id_fk": {
+          "name": "rivvi_outreach_effort_patient_id_rivvi_patient_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_patient",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_campaign_id_rivvi_campaign_id_fk": {
+          "name": "rivvi_outreach_effort_campaign_id_rivvi_campaign_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_campaign",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_run_id_rivvi_run_id_fk": {
+          "name": "rivvi_outreach_effort_run_id_rivvi_run_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_run",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_row_id_rivvi_row_id_fk": {
+          "name": "rivvi_outreach_effort_row_id_rivvi_row_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_row",
+          "columnsFrom": [
+            "row_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_original_call_id_rivvi_call_id_fk": {
+          "name": "rivvi_outreach_effort_original_call_id_rivvi_call_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_call",
+          "columnsFrom": [
+            "original_call_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "rivvi_outreach_effort_last_call_id_rivvi_call_id_fk": {
+          "name": "rivvi_outreach_effort_last_call_id_rivvi_call_id_fk",
+          "tableFrom": "rivvi_outreach_effort",
+          "tableTo": "rivvi_call",
+          "columnsFrom": [
+            "last_call_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
     },
     "public.rivvi_patient": {
       "name": "rivvi_patient",
@@ -1989,6 +2374,18 @@
         "in_progress",
         "rejected",
         "completed"
+      ]
+    },
+    "public.outreach_resolution_status": {
+      "name": "outreach_resolution_status",
+      "schema": "public",
+      "values": [
+        "open",
+        "resolved",
+        "callback",
+        "no_contact",
+        "voicemail",
+        "follow_up"
       ]
     },
     "public.row_status": {

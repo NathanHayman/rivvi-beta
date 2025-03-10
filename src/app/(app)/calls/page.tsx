@@ -68,7 +68,7 @@ async function InitialCallsData({
 export default async function Calls({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   // Await searchParams before accessing its properties
   const params = await searchParams;

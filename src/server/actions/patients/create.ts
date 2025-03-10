@@ -14,6 +14,12 @@ export async function createPatient(data: unknown) {
   const result = await patientService.create({
     ...validated,
     orgId,
+    firstName: validated.firstName || "",
+    lastName: validated.lastName || "",
+    primaryPhone: validated.primaryPhone || "",
+    dob: validated.dob || "",
+    secondaryPhone: validated.secondaryPhone || "",
+    emrIdInOrg: validated.emrIdInOrg || "",
   });
 
   if (isError(result)) {
