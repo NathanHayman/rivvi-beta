@@ -6,6 +6,7 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
+import { getRuns } from "@/server/actions/runs";
 import { Suspense } from "react";
 
 interface PageProps {
@@ -18,10 +19,12 @@ export default async function CampaignPage({ params }: PageProps) {
   const { campaignId } = await params;
 
   // Server-side data fetching
-  const campaignData = await getCampaignById(campaignId);
+  const [campaignData, runsData] = await Promise.all([
+    getCampaignById(campaignId),
+    getRuns({ campaignId, limit: 5, offset: 0 }),
+  ]);
 
-  // For now, use empty arrays and false as defaults
-  const recentRuns = [];
+  // Default to false for isSuperAdmin
   const isSuperAdmin = false;
 
   if (!campaignData) {
@@ -61,7 +64,7 @@ export default async function CampaignPage({ params }: PageProps) {
             <CampaignDetails
               campaignId={campaignId}
               initialData={campaignData}
-              initialRecentRuns={recentRuns}
+              initialRecentRuns={runsData.runs}
               isSuperAdmin={isSuperAdmin}
             />
           </Suspense>

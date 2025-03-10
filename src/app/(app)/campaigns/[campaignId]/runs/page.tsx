@@ -1,7 +1,7 @@
 import {
   RunCreateForm,
   RunCreateFormProps,
-} from "@/components/forms/run-create-form";
+} from "@/components/forms/create-run-form/form";
 import {
   AppBody,
   AppBreadcrumbs,

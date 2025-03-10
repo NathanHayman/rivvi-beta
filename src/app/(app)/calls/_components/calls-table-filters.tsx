@@ -15,10 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useCampaigns } from "@/hooks/campaigns/use-campaigns";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FilterIcon } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -37,6 +38,7 @@ const filterSchema = z.object({
     .optional()
     .default("all"),
   direction: z.enum(["all", "inbound", "outbound"]).optional().default("all"),
+  campaignId: z.string().optional().default(""),
 });
 
 type FilterValues = z.infer<typeof filterSchema>;
@@ -46,6 +48,25 @@ export function CallsTableFilters() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // Fetch campaigns for the dropdown
+  const { data: campaignsData, isLoading: isLoadingCampaigns } = useCampaigns();
+  const [campaigns, setCampaigns] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+
+  // Update campaigns when data is loaded
+  useEffect(() => {
+    if (campaignsData) {
+      // Extract campaigns from the data
+      setCampaigns(
+        (campaignsData || []).map((campaign: any) => ({
+          id: campaign.id,
+          name: campaign.name,
+        })),
+      );
+    }
+  }, [campaignsData]);
+
   // Initialize form with values from URL params
   const form = useForm<FilterValues>({
     resolver: zodResolver(filterSchema),
@@ -53,6 +74,7 @@ export function CallsTableFilters() {
       status: (searchParams.get("status") as FilterValues["status"]) || "all",
       direction:
         (searchParams.get("direction") as FilterValues["direction"]) || "all",
+      campaignId: searchParams.get("campaignId") || "all",
     },
   });
 
@@ -93,6 +115,7 @@ export function CallsTableFilters() {
     form.reset({
       status: "all",
       direction: "all",
+      campaignId: "all",
     });
 
     // When resetting filters, preserve the callId if it exists
@@ -107,7 +130,7 @@ export function CallsTableFilters() {
   // Apply filters as they change
   useEffect(() => {
     const subscription = form.watch((values) => {
-      if (values.status || values.direction) {
+      if (values.status || values.direction || values.campaignId) {
         onSubmit(values as FilterValues);
       }
     });
@@ -116,13 +139,18 @@ export function CallsTableFilters() {
   }, [form, form.watch]);
 
   return (
-    <>
-      <div className="mb-4 flex justify-between">
+    <div className="rounded-md border bg-card p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-base font-medium">
-          <FilterIcon className="h-4 w-4" />
-          Filters
+          <FilterIcon className="h-4 w-4 text-muted-foreground" />
+          <span>Filters</span>
         </h3>
-        <Button variant="outline" size="sm" onClick={resetFilters}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={resetFilters}
+          className="h-8 px-3 text-xs"
+        >
           Reset
         </Button>
       </div>
@@ -130,21 +158,21 @@ export function CallsTableFilters() {
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className="grid grid-cols-1 gap-4 md:grid-cols-3"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
         >
           {/* Status Filter */}
           <FormField
             control={form.control}
             name="status"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Status</FormLabel>
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs font-medium">Status</FormLabel>
                 <Select
                   onValueChange={field.onChange}
                   defaultValue={field.value}
                 >
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Select status" />
                     </SelectTrigger>
                   </FormControl>
@@ -167,14 +195,14 @@ export function CallsTableFilters() {
             control={form.control}
             name="direction"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Direction</FormLabel>
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs font-medium">Direction</FormLabel>
                 <Select
                   onValueChange={field.onChange}
                   defaultValue={field.value}
                 >
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Select direction" />
                     </SelectTrigger>
                   </FormControl>
@@ -187,8 +215,38 @@ export function CallsTableFilters() {
               </FormItem>
             )}
           />
+
+          {/* Campaign Filter */}
+          <FormField
+            control={form.control}
+            name="campaignId"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs font-medium">Campaign</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                  disabled={isLoadingCampaigns}
+                >
+                  <FormControl>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select campaign" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="all">All Campaigns</SelectItem>
+                    {campaigns.map((campaign) => (
+                      <SelectItem key={campaign.id} value={campaign.id}>
+                        {campaign.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
         </form>
       </Form>
-    </>
+    </div>
   );
 }

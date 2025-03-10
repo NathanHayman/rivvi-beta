@@ -1,15 +1,15 @@
 "use client";
 
 // src/components/dashboard/upcoming-runs-card.tsx
-import { formatDistance } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { ArrowUpRight, Calendar, Pause, Play } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { pauseRun, startRun } from "@/server/actions/runs/start";
 
 interface Run {
   id: string;
@@ -29,41 +29,23 @@ interface UpcomingRunsCardProps {
 
 export function UpcomingRunsCard({ runs }: UpcomingRunsCardProps) {
   const [actioningRunId, setActioningRunId] = useState<string | null>(null);
-  const utils = api.useUtils();
 
-  // tRPC mutations
-  const startRunMutation = api.runs.start.useMutation({
-    onSuccess: () => {
-      toast.success("Run started successfully");
-      setActioningRunId(null);
-      void utils.dashboard.getUpcomingRuns.invalidate();
-    },
-    onError: (error) => {
-      toast.error(`Error starting run: ${error.message}`);
-      setActioningRunId(null);
-    },
-  });
-
-  const pauseRunMutation = api.runs.pause.useMutation({
-    onSuccess: () => {
-      toast.success("Run paused successfully");
-      setActioningRunId(null);
-      void utils.dashboard.getUpcomingRuns.invalidate();
-    },
-    onError: (error) => {
-      toast.error(`Error pausing run: ${error.message}`);
-      setActioningRunId(null);
-    },
-  });
-
-  const handleStartRun = (runId: string) => {
+  const handleStartRun = async (runId: string) => {
     setActioningRunId(runId);
-    startRunMutation.mutate({ runId });
+    try {
+      await startRun({ runId });
+    } finally {
+      setActioningRunId(null);
+    }
   };
 
-  const handlePauseRun = (runId: string) => {
+  const handlePauseRun = async (runId: string) => {
     setActioningRunId(runId);
-    pauseRunMutation.mutate({ runId });
+    try {
+      await pauseRun({ runId });
+    } finally {
+      setActioningRunId(null);
+    }
   };
 
   return (
@@ -126,16 +108,14 @@ export function UpcomingRunsCard({ runs }: UpcomingRunsCardProps) {
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         Scheduled for{" "}
-                        {formatDistance(
-                          new Date(run.scheduledAt!),
-                          new Date(),
-                          { addSuffix: true },
-                        )}
+                        {formatDistanceToNow(new Date(run.scheduledAt!), {
+                          addSuffix: true,
+                        })}
                       </span>
                     ) : (
                       <span>
                         Created{" "}
-                        {formatDistance(new Date(run.createdAt), new Date(), {
+                        {formatDistanceToNow(new Date(run.createdAt), {
                           addSuffix: true,
                         })}
                       </span>

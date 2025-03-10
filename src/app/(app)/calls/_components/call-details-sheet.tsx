@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCall, useCallTranscript } from "@/hooks/calls/use-calls";
+import { useCall } from "@/hooks/calls/use-calls";
 import type { TCall } from "@/types/db";
 import { format } from "date-fns";
 import {
@@ -55,6 +55,7 @@ type CallDetails = TCall & {
   endTime: string | Date | null;
   duration: number | null;
   createdAt: string | Date;
+  relatedOutboundCallId?: string | null;
   patient?: {
     id: string;
     firstName: string;
@@ -64,6 +65,19 @@ type CallDetails = TCall & {
   campaign?: {
     id: string;
     name: string;
+    config?: {
+      analysis?: {
+        campaign?: {
+          fields?: Array<{
+            key: string;
+            label: string;
+            type: string;
+            required: boolean;
+            isMainKPI?: boolean;
+          }>;
+        };
+      };
+    };
   } | null;
   analysis?: Record<string, any>;
   run?: any;
@@ -315,24 +329,63 @@ function CallDetailsContent({ callId }: { callId: string }) {
         {call.campaign && (
           <div className="mt-4">
             <h3 className="mb-2 text-sm font-medium">Campaign</h3>
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-              <p className="font-medium">{call.campaign.name}</p>
-              {call.campaign.id && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  asChild
-                >
-                  <a
-                    href={`/campaigns/${call.campaign.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="font-medium">{call.campaign.name}</p>
+                {call.campaign.id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    asChild
                   >
-                    View Campaign
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </Button>
+                    <a
+                      href={`/campaigns/${call.campaign.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View Campaign
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </Button>
+                )}
+              </div>
+
+              {/* Display Main KPI if available */}
+              {call.campaign.config?.analysis?.campaign?.fields &&
+                call.campaign.config.analysis.campaign.fields
+                  .filter((field) => field.isMainKPI)
+                  .map((field) => {
+                    const value = call.analysis?.[field.key];
+                    return (
+                      <div
+                        key={field.key}
+                        className="mt-2 rounded-md bg-primary/5 p-2"
+                      >
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Main KPI
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">{field.label}</p>
+                          <Badge variant="outline" className="font-medium">
+                            {typeof value === "boolean"
+                              ? value
+                                ? "Yes"
+                                : "No"
+                              : value || "N/A"}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+              {/* Display if this is a callback from outbound */}
+              {call.direction === "inbound" && call.relatedOutboundCallId && (
+                <div className="mt-2 rounded-md bg-yellow-50 p-2 dark:bg-yellow-950/30">
+                  <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">
+                    Callback from previous outbound call
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -456,7 +509,11 @@ function CallDetailsContent({ callId }: { callId: string }) {
                       <div className="rounded-lg border p-4">
                         <AudioPlayerWithWaveform
                           audioUrl={call.recordingUrl}
-                          onDownload={() => {}}
+                          onDownload={() => {
+                            if (call.recordingUrl) {
+                              window.open(call.recordingUrl, "_blank");
+                            }
+                          }}
                         />
                       </div>
                       <div className="flex justify-end">
@@ -580,28 +637,8 @@ function TranscriptTab({
   callId: string;
   transcript?: string;
 }) {
-  // Use the transcript hook if we don't already have the transcript
-  const { data: transcriptData, isLoading } = useCallTranscript(
-    initialTranscript ? null : callId,
-  );
-
   // Use the initial transcript if available, otherwise use the fetched one
-  const transcript = initialTranscript || transcriptData?.transcript || "";
-
-  if (isLoading) {
-    return (
-      <TabsContent
-        value="transcript"
-        className="h-full p-0 data-[state=active]:block"
-      >
-        <div className="p-6">
-          <div className="flex h-40 items-center justify-center">
-            <Skeleton className="h-8 w-8 rounded-full" />
-          </div>
-        </div>
-      </TabsContent>
-    );
-  }
+  const transcript = initialTranscript;
 
   if (!transcript) {
     return (

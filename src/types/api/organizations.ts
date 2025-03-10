@@ -23,10 +23,12 @@ export interface Organization {
 export interface OrganizationMember {
   id: string;
   clerkId: string;
+  orgId?: string;
   firstName: string;
   lastName: string;
   email: string;
   role: string;
+  status?: string;
   createdAt: Date;
   updatedAt?: Date;
 }

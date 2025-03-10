@@ -4,6 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { isError } from "@/lib/service-result";
+import {
+  createCampaignAdmin,
+  deleteCampaignAdmin,
+  getAllCampaignsAdmin,
+} from "@/server/actions/admin";
+import { getOrganizationsIdsAndNames } from "@/server/actions/admin/organizations";
+
 // Placeholder for admin server actions
 // These will need to be implemented in src/server/actions/admin/campaigns.ts
 const adminActions = {
@@ -14,26 +22,27 @@ const adminActions = {
     limit: number;
     offset: number;
   }) => {
-    return {
-      campaigns: [],
-      totalCount: 0,
-    };
+    const result = await getAllCampaignsAdmin();
+    if (isError(result)) {
+      throw new Error(result.error.message);
+    }
+    return result.data;
   },
   deleteCampaign: async ({ campaignId }: { campaignId: string }) => {
-    // This is a placeholder until the server action is implemented
-    return { success: true };
+    return deleteCampaignAdmin(campaignId);
   },
   getAgents: async () => {
-    // This is a placeholder until the server action is implemented
-    return [];
+    const response = await fetch("/api/retell/agents");
+    if (!response.ok) {
+      throw new Error(`Failed to fetch agents: ${response.statusText}`);
+    }
+    return response.json();
   },
   getOrganizationsIdsAndNames: async () => {
-    // This is a placeholder until the server action is implemented
-    return [];
+    return getOrganizationsIdsAndNames();
   },
   createCampaign: async (data: any) => {
-    // This is a placeholder until the server action is implemented
-    return { id: "new-campaign-id" };
+    return createCampaignAdmin(data);
   },
 };
 
@@ -69,8 +78,8 @@ export function useAdminCampaigns(initialLimit = 10) {
 
   return {
     ...query,
-    campaigns: query.data?.campaigns || [],
-    totalCount: query.data?.totalCount || 0,
+    campaigns: query.data || [],
+    totalCount: query.data?.length || 0,
     pagination,
     setPagination,
     deleteCampaign: deleteCampaignMutation.mutate,

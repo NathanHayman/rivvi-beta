@@ -16,20 +16,14 @@ import {
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRun } from "@/hooks/use-runs";
+import { useRun, useRunRows } from "@/hooks/use-runs";
 import { TCampaign, TRun } from "@/types/db";
 import { RunRowsTable } from "../../tables/run-rows-table";
 
@@ -59,6 +53,429 @@ type RunMetadata = {
   };
 };
 
+// Define a type for the metadata structure
+type VariationMetadataType = {
+  categories?: string[];
+  tags?: string[];
+  keyChanges?: string[];
+  toneShift?: string;
+  focusArea?: string;
+  promptLength?: {
+    before: number;
+    after: number;
+    difference: number;
+  };
+  changeIntent?: string;
+  sentimentShift?: {
+    before?: string;
+    after?: string;
+  };
+  formalityLevel?: {
+    before?: number;
+    after?: number;
+  };
+  complexityScore?: {
+    before?: number;
+    after?: number;
+  };
+};
+
+// Define types for comparison data
+type ComparisonType = {
+  structuralChanges?: Array<{
+    section?: string;
+    changeType?: "added" | "removed" | "modified" | "unchanged";
+    description?: string;
+  }>;
+  keyPhrases?: {
+    added?: string[];
+    removed?: string[];
+    modified?: Array<{
+      before?: string;
+      after?: string;
+    }>;
+  };
+  performancePrediction?: {
+    expectedImpact?: "positive" | "neutral" | "negative" | "uncertain";
+    confidenceLevel?: number;
+    rationale?: string;
+  };
+};
+
+// Define types for diff data
+type DiffDataType = {
+  promptDiff?: Array<{
+    type?: "unchanged" | "added" | "removed";
+    value?: string;
+  }>;
+  voicemailDiff?: Array<{
+    type?: "unchanged" | "added" | "removed";
+    value?: string;
+  }>;
+};
+
+// Component to display the diff
+const DiffDisplay = ({
+  diff,
+}: {
+  diff?: Array<{ type?: "unchanged" | "added" | "removed"; value?: string }>;
+}) => {
+  if (!diff || !Array.isArray(diff)) {
+    return <div className="text-gray-500 italic">No diff data available</div>;
+  }
+
+  return (
+    <div className="whitespace-pre-wrap font-mono text-sm">
+      {diff.map((segment, index) => {
+        let className = "inline";
+        if (segment.type === "added")
+          className = "bg-green-100 text-green-800 inline";
+        if (segment.type === "removed")
+          className = "bg-red-100 text-red-800 line-through inline";
+
+        return (
+          <span key={index} className={className}>
+            {segment.value || ""}{" "}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
+
+// Component to display structured metadata
+function VariationMetadata({
+  metadata,
+  comparison,
+  summary,
+  diffData,
+}: {
+  metadata?: VariationMetadataType;
+  comparison?: ComparisonType;
+  summary?: string;
+  diffData?: DiffDataType;
+}) {
+  if (!metadata && !comparison && !summary && !diffData) return null;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Section */}
+      {summary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">{summary}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Main Metadata Section */}
+      {metadata && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Metadata</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Categories */}
+            {metadata.categories && metadata.categories.length > 0 && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">Categories</h4>
+                <div className="flex flex-wrap gap-2">
+                  {metadata.categories.map((category, i) => (
+                    <Badge key={i} variant="outline" className="bg-blue-50">
+                      {category}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tags */}
+            {metadata.tags && metadata.tags.length > 0 && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">Tags</h4>
+                <div className="flex flex-wrap gap-2">
+                  {metadata.tags.map((tag, i) => (
+                    <Badge key={i} variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Key Changes */}
+            {metadata.keyChanges && metadata.keyChanges.length > 0 && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">Key Changes</h4>
+                <ul className="list-disc space-y-1 pl-5 text-sm">
+                  {metadata.keyChanges.map((change, i) => (
+                    <li key={i}>{change}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Change Intent */}
+            {metadata.changeIntent && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">Change Intent</h4>
+                <p className="text-sm">{metadata.changeIntent}</p>
+              </div>
+            )}
+
+            {/* Metrics */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* Tone Shift */}
+              {metadata.toneShift && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Tone Shift
+                  </h4>
+                  <p className="mt-1 text-sm">{metadata.toneShift}</p>
+                </div>
+              )}
+
+              {/* Focus Area */}
+              {metadata.focusArea && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Focus Area
+                  </h4>
+                  <p className="mt-1 text-sm">{metadata.focusArea}</p>
+                </div>
+              )}
+
+              {/* Sentiment Shift */}
+              {metadata.sentimentShift && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Sentiment Change
+                  </h4>
+                  <p className="mt-1 text-sm">
+                    {metadata.sentimentShift.before} →{" "}
+                    {metadata.sentimentShift.after}
+                  </p>
+                </div>
+              )}
+
+              {/* Formality Level */}
+              {metadata.formalityLevel && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Formality Level (1-10)
+                  </h4>
+                  <p className="mt-1 text-sm">
+                    {metadata.formalityLevel.before} →{" "}
+                    {metadata.formalityLevel.after}
+                  </p>
+                </div>
+              )}
+
+              {/* Complexity Score */}
+              {metadata.complexityScore && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Complexity Score (1-10)
+                  </h4>
+                  <p className="mt-1 text-sm">
+                    {metadata.complexityScore.before} →{" "}
+                    {metadata.complexityScore.after}
+                  </p>
+                </div>
+              )}
+
+              {/* Prompt Length */}
+              {metadata.promptLength && (
+                <div className="rounded-lg border p-3">
+                  <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+                    Prompt Length
+                  </h4>
+                  <p className="mt-1 text-sm">
+                    {metadata.promptLength.before} →{" "}
+                    {metadata.promptLength.after} chars (
+                    {metadata.promptLength.difference > 0 ? "+" : ""}
+                    {metadata.promptLength.difference})
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Comparison Data */}
+      {comparison && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Changes Analysis</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Key Phrases */}
+            {comparison.keyPhrases && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold">Key Phrase Changes</h4>
+
+                {comparison.keyPhrases.added &&
+                  comparison.keyPhrases.added.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium text-green-600">
+                        Added:
+                      </h5>
+                      <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                        {comparison.keyPhrases.added.map((phrase, i) => (
+                          <li key={i}>{phrase}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                {comparison.keyPhrases.removed &&
+                  comparison.keyPhrases.removed.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium text-red-600">
+                        Removed:
+                      </h5>
+                      <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                        {comparison.keyPhrases.removed.map((phrase, i) => (
+                          <li key={i}>{phrase}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                {comparison.keyPhrases.modified &&
+                  comparison.keyPhrases.modified.length > 0 && (
+                    <div>
+                      <h5 className="text-xs font-medium text-amber-600">
+                        Modified:
+                      </h5>
+                      <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                        {comparison.keyPhrases.modified.map((mod, i) => (
+                          <li key={i}>
+                            "{mod.before}" → "{mod.after}"
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+              </div>
+            )}
+
+            {/* Structural Changes */}
+            {comparison.structuralChanges &&
+              comparison.structuralChanges.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold">Structural Changes</h4>
+                  <ul className="mt-1 space-y-2">
+                    {comparison.structuralChanges.map((change, i) => (
+                      <li key={i} className="rounded-lg border p-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{change.section}</span>
+                          <Badge
+                            variant={
+                              change.changeType === "added"
+                                ? "secondary"
+                                : change.changeType === "removed"
+                                  ? "destructive"
+                                  : change.changeType === "modified"
+                                    ? "outline"
+                                    : "default"
+                            }
+                          >
+                            {change.changeType}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {change.description}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            {/* Performance Prediction */}
+            {comparison.performancePrediction && (
+              <div>
+                <h4 className="text-sm font-semibold">
+                  Performance Prediction
+                </h4>
+                <div className="mt-1 rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Expected Impact</span>
+                    <Badge
+                      variant={
+                        comparison.performancePrediction.expectedImpact ===
+                        "positive"
+                          ? "secondary"
+                          : comparison.performancePrediction.expectedImpact ===
+                              "negative"
+                            ? "destructive"
+                            : "outline"
+                      }
+                    >
+                      {comparison.performancePrediction.expectedImpact}
+                    </Badge>
+                  </div>
+                  {comparison.performancePrediction.confidenceLevel && (
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-sm">Confidence</span>
+                      <span className="text-sm font-medium">
+                        {comparison.performancePrediction.confidenceLevel}/10
+                      </span>
+                    </div>
+                  )}
+                  {comparison.performancePrediction.rationale && (
+                    <div className="mt-2">
+                      <h5 className="text-xs font-medium">Rationale:</h5>
+                      <p className="text-sm text-muted-foreground">
+                        {comparison.performancePrediction.rationale}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Diff Visualization */}
+      {diffData && (diffData.promptDiff || diffData.voicemailDiff) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Changes Visualization</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {diffData.promptDiff && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">Prompt Changes</h4>
+                <div className="max-h-60 overflow-y-auto rounded-lg border p-3">
+                  <DiffDisplay diff={diffData.promptDiff} />
+                </div>
+              </div>
+            )}
+
+            {diffData.voicemailDiff && (
+              <div>
+                <h4 className="mb-1 text-sm font-semibold">
+                  Voicemail Changes
+                </h4>
+                <div className="max-h-60 overflow-y-auto rounded-lg border p-3">
+                  <DiffDisplay diff={diffData.voicemailDiff} />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -71,11 +488,25 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
     isPausingRun,
   } = useRun(initialRun.id);
 
+  // Use the useRunRows hook to get the actual row data
+  const { rows, counts } = useRunRows(initialRun.id);
+
   // Use the most up-to-date run data, falling back to the initial data if needed
   const run = updatedRun || initialRun;
 
   // Type-safe metadata
-  const metadata = run.metadata as RunMetadata;
+  const metadata = run.metadata as RunMetadata & {
+    summary?: string;
+    metadata?: VariationMetadataType;
+    comparison?: ComparisonType;
+    diffData?: DiffDataType;
+  };
+
+  // Extract variation data if available
+  const variationMetadata = metadata?.metadata;
+  const comparisonData = metadata?.comparison;
+  const summaryText = metadata?.summary;
+  const diffData = metadata?.diffData;
 
   // Optimistic state updates
   const [optimisticStatus, setOptimisticStatus] = useState<string | null>(null);
@@ -83,19 +514,44 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   // Get the actual status (optimistic or real)
   const status = optimisticStatus || run.status;
 
-  // Calculate stats
+  // Calculate stats from metadata
   const totalRows = metadata?.rows?.total || 0;
   const invalidRows = metadata?.rows?.invalid || 0;
   const validRows = totalRows - invalidRows;
 
-  const totalCalls = metadata?.calls?.total || 0;
-  const completedCalls = metadata?.calls?.completed || 0;
-  const failedCalls = metadata?.calls?.failed || 0;
-  const callingCalls = metadata?.calls?.calling || 0;
-  const pendingCalls = metadata?.calls?.pending || 0;
+  // Use the actual row counts from the database if available
+  const totalCalls = counts?.total || metadata?.calls?.total || 0;
+  const completedCalls = counts?.completed || metadata?.calls?.completed || 0;
+  const failedCalls = counts?.failed || metadata?.calls?.failed || 0;
+  const callingCalls = counts?.calling || metadata?.calls?.calling || 0;
+  const pendingCalls = counts?.pending || metadata?.calls?.pending || 0;
+
+  // These values might not be in counts, so use metadata
   const voicemailCalls = metadata?.calls?.voicemail || 0;
   const connectedCalls = metadata?.calls?.connected || 0;
   const convertedCalls = metadata?.calls?.converted || 0;
+
+  // Update run metadata if counts are available
+  useEffect(() => {
+    if (counts && JSON.stringify(counts) !== "{}") {
+      // Only update if we have actual counts data
+      const updatedMetadata = {
+        ...metadata,
+        calls: {
+          ...metadata?.calls,
+          total: counts.total,
+          completed: counts.completed,
+          failed: counts.failed,
+          calling: counts.calling,
+          pending: counts.pending,
+          skipped: counts.skipped || 0,
+        },
+      };
+
+      // This is just for display purposes, we're not actually updating the database
+      run.metadata = updatedMetadata as typeof run.metadata;
+    }
+  }, [counts]);
 
   const callProgress =
     totalCalls > 0
@@ -247,7 +703,7 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
-          {run.customPrompt && <TabsTrigger value="prompt">Prompt</TabsTrigger>}
+          <TabsTrigger value="variation">Variation</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -306,77 +762,85 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Call Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Connected
-                  </p>
-                  <p className="text-xl font-bold">{connectedCalls}</p>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Voicemail
-                  </p>
-                  <p className="text-xl font-bold">{voicemailCalls}</p>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Failed
-                  </p>
-                  <p className="text-xl font-bold">{failedCalls}</p>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Pending
-                  </p>
-                  <p className="text-xl font-bold">
-                    {pendingCalls + callingCalls}
-                  </p>
-                </div>
-              </div>
-
-              <Separator className="my-4" />
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm">Campaign</p>
-                  <p className="text-sm font-medium">{campaign.name}</p>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <p className="text-sm">Campaign Direction</p>
-                  <Badge variant="outline">{campaign.direction}</Badge>
-                </div>
-
-                {run.scheduledAt && (
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm">Scheduled Time</p>
-                    <p className="text-sm font-medium">
-                      {format(new Date(run.scheduledAt), "PPp")}
-                    </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Call Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Connected
+                      </span>
+                      <span className="text-2xl font-bold">
+                        {connectedCalls}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Voicemail
+                      </span>
+                      <span className="text-2xl font-bold">
+                        {voicemailCalls}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Failed
+                      </span>
+                      <span className="text-2xl font-bold">{failedCalls}</span>
+                    </div>
+                    <div className="flex flex-col items-center justify-center rounded-lg border p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Pending
+                      </span>
+                      <span className="text-2xl font-bold">{pendingCalls}</span>
+                    </div>
                   </div>
-                )}
+                </div>
+              </CardContent>
+            </Card>
 
-                {metadata?.run?.duration !== undefined && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Run Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm">Run Duration</p>
-                    <p className="text-sm font-medium">
-                      {Math.floor(metadata.run.duration / 60)} min{" "}
-                      {metadata.run.duration % 60} sec
-                    </p>
+                    <p className="text-sm">Campaign</p>
+                    <p className="text-sm font-medium">{campaign.name}</p>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm">Campaign Direction</p>
+                    <Badge variant="outline">{campaign.direction}</Badge>
+                  </div>
+
+                  {run.scheduledAt && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm">Scheduled Time</p>
+                      <p className="text-sm font-medium">
+                        {format(new Date(run.scheduledAt), "PPp")}
+                      </p>
+                    </div>
+                  )}
+
+                  {metadata?.run?.duration !== undefined && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm">Run Duration</p>
+                      <p className="text-sm font-medium">
+                        {Math.floor(metadata.run.duration / 60)} min{" "}
+                        {metadata.run.duration % 60} sec
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="data">
@@ -387,49 +851,41 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
           </Card>
         </TabsContent>
 
-        {run.customPrompt && (
-          <TabsContent value="prompt">
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium">Run Configuration</h3>
-
-              {run?.variationNotes ? (
-                <div className="rounded-md bg-muted p-4">
-                  <h4 className="mb-2 font-medium">Changes Made to Prompt</h4>
-                  <p className="text-sm">{run.variationNotes}</p>
-
-                  {run.naturalLanguageInput && (
-                    <div className="mt-3 border-t pt-3">
-                      <h5 className="text-sm font-medium">
-                        Requested Changes:
-                      </h5>
-                      <p className="text-sm text-muted-foreground">
-                        "{run.naturalLanguageInput}"
-                      </p>
+        <TabsContent value="variation">
+          <div>
+            {variationMetadata || comparisonData || summaryText || diffData ? (
+              <VariationMetadata
+                metadata={variationMetadata}
+                comparison={comparisonData}
+                summary={summaryText}
+                diffData={diffData}
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Variation Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm text-muted-foreground">
+                    No variation data available for this run.
+                  </div>
+                  {run.customPrompt && (
+                    <div className="mt-4">
+                      <h4 className="mb-2 text-sm font-semibold">
+                        Custom Prompt
+                      </h4>
+                      <div className="rounded-md bg-muted p-4">
+                        <pre className="whitespace-pre-wrap text-sm">
+                          {run.customPrompt}
+                        </pre>
+                      </div>
                     </div>
                   )}
-
-                  {/* Collapsible section for the full prompt */}
-                  <Collapsible className="mt-3">
-                    <CollapsibleTrigger className="text-xs text-blue-500 hover:underline">
-                      Show full prompt
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs">
-                        {run.customPrompt}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {run.customPrompt
-                    ? "Using custom prompt"
-                    : "Using default campaign prompt"}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
       </Tabs>
     </div>
   );

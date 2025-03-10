@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useCampaignRequests } from "@/hooks/campaigns/use-campaign-requests";
 import { formatDistance } from "date-fns";
 import { Check, Clock, ExternalLink, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -35,12 +36,8 @@ export function OrganizationCampaignRequestsTable() {
   const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
 
-  // Get campaign requests data for the current user's organization
-  const { data, isLoading, refetch } =
-    api.campaigns.getCampaignRequests.useQuery({
-      limit: 100,
-      offset: 0,
-    });
+  // Get campaign requests data for the current user's organization using the new hook
+  const { data, isLoading, isFetching } = useCampaignRequests();
 
   // Handle viewing request details
   const handleViewDetails = (request: any) => {
@@ -78,7 +75,7 @@ export function OrganizationCampaignRequestsTable() {
 
   return (
     <div className="space-y-4">
-      {isLoading ? (
+      {isLoading || isFetching ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
@@ -112,7 +109,9 @@ export function OrganizationCampaignRequestsTable() {
                           ? "success_solid"
                           : request.status === "rejected"
                             ? "failure_solid"
-                            : "neutral_solid"
+                            : request.status === "in_progress"
+                              ? "blue_solid"
+                              : "neutral_solid"
                     }
                     className="flex w-fit items-center"
                   >
@@ -125,8 +124,11 @@ export function OrganizationCampaignRequestsTable() {
                     {request.status === "rejected" && (
                       <X className="mr-1.5 h-3.5 w-3.5" />
                     )}
+                    {request.status === "in_progress" && (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    )}
                     {request.status?.charAt(0).toUpperCase() +
-                      request.status?.slice(1)}
+                      request.status?.slice(1).replace("_", " ")}
                   </Badge>
                 </TableCell>
                 <TableCell>
@@ -190,7 +192,9 @@ export function OrganizationCampaignRequestsTable() {
                           ? "success_solid"
                           : selectedRequest.status === "rejected"
                             ? "failure_solid"
-                            : "neutral_solid"
+                            : selectedRequest.status === "in_progress"
+                              ? "blue_solid"
+                              : "neutral_solid"
                     }
                     className="flex w-fit items-center"
                   >
@@ -203,8 +207,11 @@ export function OrganizationCampaignRequestsTable() {
                     {selectedRequest.status === "rejected" && (
                       <X className="mr-1.5 h-3.5 w-3.5" />
                     )}
+                    {selectedRequest.status === "in_progress" && (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    )}
                     {selectedRequest.status?.charAt(0).toUpperCase() +
-                      selectedRequest.status?.slice(1)}
+                      selectedRequest.status?.slice(1).replace("_", " ")}
                   </Badge>
                 </div>
               </div>
@@ -252,40 +259,7 @@ export function OrganizationCampaignRequestsTable() {
                   </div>
                 )}
 
-              {selectedRequest.exampleSheets &&
-                selectedRequest.exampleSheets.length > 0 && (
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-medium text-muted-foreground">
-                      Example Sheets
-                    </h3>
-                    <div className="space-y-2">
-                      {selectedRequest.exampleSheets.map((sheet, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between rounded-md border border-border bg-background p-2"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium">
-                              {sheet.name}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              ({sheet.fileType})
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => window.open(sheet.url, "_blank")}
-                          >
-                            View
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
+              {/* Admin Notes (if available) */}
               {selectedRequest.adminNotes && (
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-muted-foreground">
@@ -297,29 +271,79 @@ export function OrganizationCampaignRequestsTable() {
                 </div>
               )}
 
-              <div className="space-y-1">
+              {/* Example Sheets */}
+              {selectedRequest.exampleSheets &&
+                selectedRequest.exampleSheets.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Example Sheets
+                    </h3>
+                    <div className="grid gap-2">
+                      {selectedRequest.exampleSheets.map((sheet, index) => (
+                        <Button
+                          key={index}
+                          variant="outline"
+                          className="justify-start"
+                          onClick={() => {
+                            // Open sheet URL if available
+                            if (sheet.url) {
+                              window.open(sheet.url, "_blank");
+                            }
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ExternalLink className="h-4 w-4" />
+                            <span>{sheet.name}</span>
+                          </div>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Request metadata */}
+              <div className="space-y-1 pt-2">
                 <h3 className="text-sm font-medium text-muted-foreground">
-                  Requested On
+                  Request Details
                 </h3>
-                <p className="text-sm">
-                  {new Date(selectedRequest.createdAt).toLocaleString()}
-                </p>
+                <div className="grid grid-cols-2 gap-1 text-sm">
+                  <span className="text-muted-foreground">Requested:</span>
+                  <span>
+                    {formatDistance(
+                      new Date(selectedRequest.createdAt),
+                      new Date(),
+                      { addSuffix: true },
+                    )}
+                  </span>
+                  <span className="text-muted-foreground">Direction:</span>
+                  <span>
+                    {selectedRequest.direction.charAt(0).toUpperCase() +
+                      selectedRequest.direction.slice(1)}
+                  </span>
+                </div>
               </div>
 
-              {selectedRequest.resultingCampaignId && (
-                <div className="mt-8 flex justify-end">
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-4">
+                {selectedRequest.resultingCampaignId && (
                   <Button
-                    onClick={() => {
+                    onClick={() =>
                       router.push(
                         `/campaigns/${selectedRequest.resultingCampaignId}`,
-                      );
-                    }}
+                      )
+                    }
                   >
                     <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
                     View Campaign
                   </Button>
-                </div>
-              )}
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => setIsViewDetailsOpen(false)}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           )}
         </SheetContent>

@@ -1,7 +1,7 @@
 // src/actions/runs/start.ts
 "use server";
 
-import { requireOrg } from "@/lib/auth/auth-utils";
+import { requireOrg } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import { startRunSchema } from "@/lib/validation/runs";
 import { runService } from "@/services/runs";

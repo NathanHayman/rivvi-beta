@@ -23,7 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatDistance } from "date-fns";
-import { CreateRunModal } from "../run/create-run-modal";
+// import { CreateRunModal } from "../run/create-run-modal";
 
 interface CampaignCardProps {
   campaign: {
@@ -183,11 +183,11 @@ export function CampaignCard({
         </CardFooter>
       </Card>
 
-      <CreateRunModal
+      {/* <CreateRunModal
         campaignId={campaign.id}
         open={isCreateRunModalOpen}
         onOpenChange={setIsCreateRunModalOpen}
-      />
+      /> */}
     </>
   );
 }

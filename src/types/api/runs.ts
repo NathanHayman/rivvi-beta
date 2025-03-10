@@ -129,11 +129,68 @@ export type CreateRunInput = {
   promptVersion?: number;
   scheduledAt?: string;
   clientRequestId?: string;
+  summary?: string;
+  metadata?: {
+    categories?: string[];
+    tags?: string[];
+    keyChanges?: string[];
+    toneShift?: string;
+    focusArea?: string;
+    promptLength?: {
+      before: number;
+      after: number;
+      difference: number;
+    };
+    changeIntent?: string;
+    sentimentShift?: {
+      before?: string;
+      after?: string;
+    };
+    formalityLevel?: {
+      before?: number;
+      after?: number;
+    };
+    complexityScore?: {
+      before?: number;
+      after?: number;
+    };
+  };
+  comparison?: {
+    structuralChanges?: Array<{
+      section?: string;
+      changeType?: "added" | "removed" | "modified" | "unchanged";
+      description?: string;
+    }>;
+    keyPhrases?: {
+      added?: string[];
+      removed?: string[];
+      modified?: Array<{
+        before?: string;
+        after?: string;
+      }>;
+    };
+    performancePrediction?: {
+      expectedImpact?: "positive" | "neutral" | "negative" | "uncertain";
+      confidenceLevel?: number;
+      rationale?: string;
+    };
+  };
+  diffData?: {
+    promptDiff?: Array<{
+      type?: "unchanged" | "added" | "removed";
+      value?: string;
+    }>;
+    voicemailDiff?: Array<{
+      type?: "unchanged" | "added" | "removed";
+      value?: string;
+    }>;
+  };
 };
 
 export type ProcessedFileData = {
-  rowsAdded: number;
-  invalidRows: number;
-  errors: string[];
-  success: boolean;
+  totalRows?: number;
+  parsedData?: {
+    rows?: any[];
+  };
+  invalidRows?: number;
 };

@@ -6,57 +6,63 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { api } from "@/trpc/server";
+import { getOrganization } from "@/server/actions/admin";
 import { notFound } from "next/navigation";
 
 interface PageProps {
-  params: {
+  params: Promise<{
     orgId: string;
-  };
+  }>;
 }
 
-export default async function EditOrganizationPage({ params }: PageProps) {
-  // Fetch the organization by ID
+async function EditOrganizationPageContent({ orgId }: { orgId: string }) {
   try {
-    const organization = await api.organizations.getById({
-      id: params.orgId,
-    });
+    const organization = await getOrganization(orgId);
 
-    // If the organization doesn't exist, return 404
     if (!organization) {
       notFound();
     }
 
-    return (
-      <AppPage>
-        <AppBreadcrumbs
-          breadcrumbs={[
-            { title: "Organizations", href: "/admin/organizations" },
-            {
-              title: organization.name,
-              href: `/admin/organizations/${params.orgId}`,
-            },
-            {
-              title: "Edit",
-              href: `/admin/organizations/${params.orgId}/edit`,
-            },
-          ]}
-        />
-        <AppBody>
-          <AppHeader
-            title={`Edit ${organization.name}`}
-            subtitle="Update organization settings"
-          />
-          <AppContent>
-            <div className="max-w-2xl">
-              <EditOrganizationForm organizationId={params.orgId} />
-            </div>
-          </AppContent>
-        </AppBody>
-      </AppPage>
-    );
+    return <EditOrganizationForm organization={organization} />;
   } catch (error) {
     console.error("Error fetching organization:", error);
-    notFound();
+    return (
+      <div className="rounded-md border border-destructive bg-destructive/10 p-4 text-destructive">
+        Error loading organization data. Please try again.
+      </div>
+    );
   }
+}
+
+export default async function EditOrganizationPage({ params }: PageProps) {
+  const { orgId } = await params;
+
+  return (
+    <AppPage>
+      <AppBreadcrumbs
+        breadcrumbs={[
+          { title: "Organizations", href: "/admin/organizations" },
+          {
+            title: "Organization",
+            href: `/admin/organizations/${orgId}`,
+          },
+          {
+            title: "Edit",
+            href: `/admin/organizations/${orgId}/edit`,
+          },
+        ]}
+      />
+      <AppBody>
+        <AppHeader
+          title={`Edit Organization`}
+          subtitle="Update organization settings"
+        />
+        <AppContent>
+          <div className="max-w-2xl">
+            <EditOrganizationPageContent orgId={orgId} />
+          </div>
+        </AppContent>
+      </AppBody>
+    </AppPage>
+  );
 }

@@ -18,7 +18,7 @@ import {
   Phone,
   Search,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,45 +41,60 @@ import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 
 interface Organization {
-  org: {
-    id: string;
-    name: string;
-    clerkId: string;
-    phone: string | null;
-    timezone: string | null;
-    officeHours: Record<string, unknown> | null;
-    concurrentCallLimit: number | null;
-    isSuperAdmin: boolean | null;
-    createdAt: Date;
-    updatedAt: Date | null;
-  };
+  id: string;
+  name: string;
+  clerkId: string;
+  phone: string | null;
+  timezone: string | null;
+  officeHours: Record<string, unknown> | null;
+  concurrentCallLimit: number | null;
+  isSuperAdmin: boolean | null;
+  createdAt: Date;
+  updatedAt: Date | null;
   campaignCount: number;
   runCount: number;
   callCount: number;
 }
 
-export function OrganizationsTable() {
+interface OrganizationsTableProps {
+  organizations: Organization[];
+  totalCount: number;
+}
+
+export function OrganizationsTable({
+  organizations,
+  totalCount,
+}: OrganizationsTableProps) {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isCreateOrgDialogOpen, setIsCreateOrgDialogOpen] = useState(false);
+  const [filteredData, setFilteredData] =
+    useState<Organization[]>(organizations);
+  const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 10,
   });
 
-  // Get organizations data
-  const { data, isLoading, isError, refetch } =
-    api.admin.getOrganizationsWithStats.useQuery({
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex * pagination.pageSize,
-      search: searchTerm.length >= 3 ? searchTerm : undefined,
-    });
+  // Filter data based on search term
+  useEffect(() => {
+    if (searchTerm.length < 3) {
+      setFilteredData(organizations);
+      return;
+    }
+
+    const filtered = organizations.filter((org) =>
+      org.name.toLowerCase().includes(searchTerm.toLowerCase()),
+    );
+    setFilteredData(filtered);
+    // Reset to first page when filtering
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+  }, [searchTerm, organizations]);
 
   // Define columns
   const columns: ColumnDef<Organization>[] = [
     {
-      accessorKey: "org.name",
+      accessorKey: "name",
       header: ({ column }) => {
         return (
           <Button
@@ -93,10 +108,10 @@ export function OrganizationsTable() {
       },
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.org.name}</div>
+          <div className="font-medium">{row.original.name}</div>
           <div className="text-xs text-muted-foreground">
             Created{" "}
-            {formatDistance(new Date(row.original.org.createdAt), new Date(), {
+            {formatDistance(new Date(row.original.createdAt), new Date(), {
               addSuffix: true,
             })}
           </div>
@@ -104,12 +119,12 @@ export function OrganizationsTable() {
       ),
     },
     {
-      accessorKey: "org.phone",
+      accessorKey: "phone",
       header: "Phone",
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
           <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>{row.original.org.phone || "Not set"}</span>
+          <span>{row.original.phone || "Not set"}</span>
         </div>
       ),
     },
@@ -167,7 +182,7 @@ export function OrganizationsTable() {
     {
       id: "actions",
       cell: ({ row }) => {
-        const orgId = row.original.org.id;
+        const orgId = row.original.id;
 
         return (
           <div className="flex justify-end">
@@ -208,7 +223,7 @@ export function OrganizationsTable() {
 
   // Create table
   const table = useReactTable<Organization>({
-    data: data?.organizations || [],
+    data: filteredData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -219,21 +234,13 @@ export function OrganizationsTable() {
       pagination,
       sorting,
     },
-    manualPagination: true,
-    pageCount: data ? Math.ceil(data.totalCount / pagination.pageSize) : 0,
+    manualPagination: false,
+    pageCount: Math.ceil(filteredData.length / pagination.pageSize),
   });
 
   // Handle search
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
-    // Reset to first page when searching
-    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-  };
-
-  // Handle create organization success
-  const handleCreateOrgSuccess = () => {
-    setIsCreateOrgDialogOpen(false);
-    void refetch();
   };
 
   return (
@@ -313,7 +320,7 @@ export function OrganizationsTable() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {data?.totalCount || 0}{" "}
+          Showing {table.getRowModel().rows.length} of {filteredData.length}{" "}
           organizations
         </div>
 

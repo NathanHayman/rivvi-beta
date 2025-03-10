@@ -1,7 +1,7 @@
 // src/actions/patients/create.ts
 "use server";
 
-import { requireOrg } from "@/lib/auth/auth-utils";
+import { requireOrg } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import { createPatientSchema } from "@/lib/validation/patients";
 import { patientService } from "@/services/patients";

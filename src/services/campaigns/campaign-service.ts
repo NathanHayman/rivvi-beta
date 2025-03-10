@@ -64,13 +64,4 @@ export const campaignsService = {
       return createError("INTERNAL_ERROR", "Failed to fetch campaigns", error);
     }
   },
-  async getAllAdmin(): Promise<ServiceResult<ZCampaign[]>> {
-    try {
-      const campaignsData = await db.query.campaigns.findMany();
-      return createSuccess(campaignsData);
-    } catch (error) {
-      console.error("Error fetching campaigns:", error);
-      return createError("INTERNAL_ERROR", "Failed to fetch campaigns", error);
-    }
-  },
 };

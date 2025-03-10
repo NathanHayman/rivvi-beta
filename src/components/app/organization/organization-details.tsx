@@ -4,29 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useOrganizationMembers } from "@/hooks/organizations/use-organization";
+import { ZOrganization } from "@/types/zod";
 import { Edit, Phone, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
-
 interface OrganizationDetailsProps {
-  organizationId: string;
+  organization: ZOrganization;
 }
 
 export function OrganizationDetails({
-  organizationId,
+  organization,
 }: OrganizationDetailsProps) {
   const router = useRouter();
-  const { data: organization, isLoading } = api.organizations.getById.useQuery({
-    id: organizationId,
-  });
 
-  const { data: members, isLoading: isLoadingMembers } =
-    api.organizations.getMembers.useQuery({
-      organizationId,
-    });
-
-  if (isLoading) {
-    return <OrganizationDetailsSkeleton />;
-  }
+  const { data: members, isLoading: isLoadingMembers } = useOrganizationMembers(
+    organization.id,
+  );
 
   if (!organization) {
     return (
@@ -42,7 +35,7 @@ export function OrganizationDetails({
   }
 
   const handleEditClick = () => {
-    router.push(`/admin/orgs/${organizationId}/edit`);
+    router.push(`/admin/orgs/${organization.id}/edit`);
   };
 
   const formatOfficeHours = (day: string) => {
@@ -212,7 +205,7 @@ export function OrganizationDetails({
   );
 }
 
-function OrganizationDetailsSkeleton() {
+export function OrganizationDetailsSkeleton() {
   return (
     <div className="space-y-6">
       <Card>

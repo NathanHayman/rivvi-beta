@@ -1,7 +1,6 @@
-// src/actions/admin/dashboard.ts
 "use server";
 
-import { requireSuperAdmin } from "@/lib/auth/auth-utils";
+import { requireSuperAdmin } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import { adminService } from "@/services/admin";
 

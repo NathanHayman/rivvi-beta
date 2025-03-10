@@ -49,31 +49,49 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRun, useRunRows } from "@/hooks/use-runs";
-import { formatPhoneDisplay } from "@/services/out/file/utils";
+import { cn } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
 
-interface Row {
+// Define the Row type to match what's returned from the API
+type Row = {
   id: string;
-  createdAt: Date;
-  updatedAt: Date | null;
-  orgId: string;
-  status: RowStatus;
   runId: string;
+  orgId: string;
   patientId: string | null;
   variables: Record<string, unknown>;
-  analysis: Record<string, unknown> | null;
-  error: string | null;
-  retellCallId: string | null;
+  processedVariables?: Record<string, unknown>;
+  analysis?: Record<string, unknown> | null;
+  status: RowStatus;
+  error?: string | null;
+  retellCallId?: string | null;
   sortIndex: number;
+  priority?: number;
+  batchEligible?: boolean;
+  retryCount?: number;
+  callAttempts?: number;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string | null;
   patient?: {
     id: string;
+    patientHash: string;
+    secondaryHash?: string;
+    normalizedPhone?: string;
     firstName: string;
     lastName: string;
-    phoneNumber: string;
+    dob: string;
+    isMinor?: boolean;
+    primaryPhone: string;
+    secondaryPhone?: string;
+    externalIds?: Record<string, string>;
+    metadata?: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string | null;
   } | null;
-}
+};
 
 interface RunRowsTableProps {
   runId: string;
@@ -118,7 +136,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         const firstName = patient?.firstName || variables.firstName || "";
         const lastName = patient?.lastName || variables.lastName || "";
         const phoneNumber =
-          patient?.phoneNumber ||
+          patient?.primaryPhone ||
           variables.primaryPhone ||
           variables.phoneNumber ||
           variables.phone ||
@@ -520,7 +538,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
   // Create a table instance
   const table = useReactTable({
     data: rows,
-    columns: baseColumns,
+    columns: columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     state: {
@@ -552,7 +570,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
               void refetch();
             }}
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
@@ -578,66 +596,55 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
         </div>
       </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </TableHead>
+      <Table>
+        <TableHeader>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <TableRow key={headerGroup.id}>
+              {headerGroup.headers.map((header) => (
+                <TableHead key={header.id}>
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
+                </TableHead>
+              ))}
+            </TableRow>
+          ))}
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="h-24 text-center">
+                <div className="flex items-center justify-center">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading...
+                </div>
+              </TableCell>
+            </TableRow>
+          ) : rows.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="h-24 text-center">
+                No rows found
+              </TableCell>
+            </TableRow>
+          ) : (
+            table.getRowModel().rows.map((row) => (
+              <TableRow
+                key={row.id}
+                data-state={row.getIsSelected() && "selected"}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
                 ))}
               </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell
-                  colSpan={baseColumns.length}
-                  className="h-24 text-center"
-                >
-                  <div className="flex items-center justify-center">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={baseColumns.length}
-                  className="h-24 text-center"
-                >
-                  No rows found
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            ))
+          )}
+        </TableBody>
+      </Table>
 
       {paginationData && (
         <div className="flex items-center justify-between">

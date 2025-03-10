@@ -1,6 +1,7 @@
 import {
   Building,
   CircleHelp,
+  Code,
   Home,
   List,
   Phone,
@@ -11,6 +12,14 @@ import { TSidebarContent } from "./types";
 
 export const SIDEBAR_CONTENT: TSidebarContent = {
   admin_links: [
+    {
+      title: "Overview",
+      href: "/admin",
+      icon: {
+        icon: Home,
+        iconTitle: "Overview",
+      },
+    },
     {
       title: "Organizations",
       href: "/admin/organizations",
@@ -33,6 +42,14 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       icon: {
         icon: List,
         iconTitle: "Campaign Requests",
+      },
+    },
+    {
+      title: "Playground",
+      href: "/admin/playground",
+      icon: {
+        icon: Code,
+        iconTitle: "Playground",
       },
     },
   ],

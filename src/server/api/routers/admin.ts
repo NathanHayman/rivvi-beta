@@ -16,7 +16,6 @@ import {
   runs,
   users,
 } from "@/server/db/schema";
-import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, like, or, SQL, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";

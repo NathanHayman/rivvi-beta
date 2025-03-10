@@ -76,13 +76,24 @@ export const getAgent = async (
         throw new Error("RETELL_API_KEY is not defined");
       }
 
-      const response = await fetch(`${RETELL_BASE_URL}/get-agent/${agentId}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${RETELL_API_KEY}`,
-          "Content-Type": "application/json",
+      // Ensure agent ID is properly formatted
+      // If it doesn't start with 'agent_', the Retell API will return a 422 error
+      const formattedAgentId = agentId.startsWith("agent_")
+        ? agentId
+        : `agent_${agentId}`;
+
+      console.log("Getting agent from server:", formattedAgentId);
+
+      const response = await fetch(
+        `${RETELL_BASE_URL}/get-agent/${formattedAgentId}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${RETELL_API_KEY}`,
+            "Content-Type": "application/json",
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -140,7 +151,10 @@ export const getAgents = async (): Promise<
       }
 
       const data = await response.json();
-      return data;
+      return data.map((agent: RetellAgentComplete) => ({
+        agent_id: agent.agent_id,
+        agent_name: agent.agent_name,
+      }));
     }
   } catch (error) {
     console.error("Error fetching agents:", error);
@@ -174,8 +188,14 @@ export const getLlm = async (llmId: string): Promise<RetellLlmComplete> => {
         throw new Error("RETELL_API_KEY is not defined");
       }
 
+      // Ensure LLM ID is properly formatted
+      // If it doesn't start with 'llm_', the Retell API will return a 422 error
+      const formattedLlmId = llmId.startsWith("llm_") ? llmId : `llm_${llmId}`;
+
+      console.log("Getting LLM from server:", formattedLlmId);
+
       const response = await fetch(
-        `${RETELL_BASE_URL}/get-retell-llm/${llmId}`,
+        `${RETELL_BASE_URL}/get-retell-llm/${formattedLlmId}`,
         {
           method: "GET",
           headers: {
@@ -452,72 +472,6 @@ export const updateAgentVoicemail = async (
 };
 
 /**
- * Convert Retell post-call analysis data to campaign analysis fields
- */
-export const convertPostCallToAnalysisFields = (postCallData?: Array<any>) => {
-  if (
-    !postCallData ||
-    !Array.isArray(postCallData) ||
-    postCallData.length === 0
-  ) {
-    return {
-      standardFields: [],
-      campaignFields: [],
-    };
-  }
-
-  // Standard fields that should be in standard section (commonly used across all campaigns)
-  const standardFieldNames = [
-    "notes",
-    "transferred",
-    "detected_ai",
-    "transfer_reason",
-    "patient_reached",
-    "patient_questions",
-    "callback_requested",
-    "callback_date_time",
-  ];
-
-  const standardFields = [];
-  const campaignFields = [];
-
-  for (const field of postCallData) {
-    // Skip fields with missing required properties
-    if (!field.name || !field.type) continue;
-
-    const convertedField = {
-      key: field.name,
-      label: field.name
-        .split("_")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" "),
-      type:
-        field.type === "boolean"
-          ? "boolean"
-          : field.type === "enum"
-            ? "enum"
-            : "string",
-      options: field.choices || [],
-      required: true,
-      description: field.description || "",
-      isMainKPI: field.name === "appt_confirmed", // Set appointment confirmation as main KPI if present
-    };
-
-    // Determine if this is a standard field or campaign-specific field
-    if (standardFieldNames.includes(field.name)) {
-      standardFields.push(convertedField);
-    } else {
-      campaignFields.push(convertedField);
-    }
-  }
-
-  return {
-    standardFields,
-    campaignFields,
-  };
-};
-
-/**
  * Get complete agent information including LLM in one call
  */
 export const getAgentComplete = async (
@@ -538,6 +492,8 @@ export const getAgentComplete = async (
       return await response.json();
     } else {
       // Server-side: Make multiple direct calls to Retell API
+      console.log("Getting complete agent info (server):", agentId);
+
       const agent = await getAgent(agentId);
 
       let llmId = null;
@@ -623,4 +579,70 @@ export const getLlmFromAgent = async (agentId: string): Promise<string> => {
     console.error("Error getting LLM from agent:", error);
     throw new Error("Failed to get LLM from agent");
   }
+};
+
+/**
+ * Convert Retell post-call analysis data to campaign analysis fields
+ */
+export const convertPostCallToAnalysisFields = (postCallData?: Array<any>) => {
+  if (
+    !postCallData ||
+    !Array.isArray(postCallData) ||
+    postCallData.length === 0
+  ) {
+    return {
+      standardFields: [],
+      campaignFields: [],
+    };
+  }
+
+  // Standard fields that should be in standard section (commonly used across all campaigns)
+  const standardFieldNames = [
+    "notes",
+    "transferred",
+    "detected_ai",
+    "transfer_reason",
+    "patient_reached",
+    "patient_questions",
+    "callback_requested",
+    "callback_date_time",
+  ];
+
+  const standardFields = [];
+  const campaignFields = [];
+
+  for (const field of postCallData) {
+    // Skip fields with missing required properties
+    if (!field.name || !field.type) continue;
+
+    const convertedField = {
+      key: field.name,
+      label: field.name
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" "),
+      type:
+        field.type === "boolean"
+          ? "boolean"
+          : field.type === "enum"
+            ? "enum"
+            : "string",
+      options: field.choices || [],
+      required: true,
+      description: field.description || "",
+      isMainKPI: field.name === "appt_confirmed", // Set appointment confirmation as main KPI if present
+    };
+
+    // Determine if this is a standard field or campaign-specific field
+    if (standardFieldNames.includes(field.name)) {
+      standardFields.push(convertedField);
+    } else {
+      campaignFields.push(convertedField);
+    }
+  }
+
+  return {
+    standardFields,
+    campaignFields,
+  };
 };

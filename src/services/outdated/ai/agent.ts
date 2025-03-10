@@ -13,6 +13,18 @@ export type TGenerateAgentPrompt = {
   newVoicemailMessage: string;
   suggestedRunName: string;
   summary: string;
+  metadata: {
+    categories: string[];
+    tags: string[];
+    keyChanges: string[];
+    toneShift: string;
+    focusArea: string;
+    promptLength: {
+      before: number;
+      after: number;
+      difference: number;
+    };
+  };
 };
 
 /**
@@ -69,11 +81,17 @@ IMPORTANT GUIDELINES:
 7. Do not add technical instructions or formatting that would confuse a voice AI system
 8. Generate a clear, concise name for this run based on the campaign and customization
 
-You must generate ALL four required outputs:
+You must generate ALL required outputs:
 1. A new prompt based on the base prompt (must preserve all variables and structure)
 2. A new voicemail message based on the base voicemail message (if provided)
 3. A suggested name for the run that is descriptive but concise (maximum 50 characters)
-4. A summary explaining the key changes you made to both the prompt and voicemail message`;
+4. A summary explaining the key changes you made to both the prompt and voicemail message
+5. Structured metadata including:
+   - categories: 2-3 categories that best describe this variation (e.g., "Patient Follow-up", "Appointment Reminder") 
+   - tags: 3-5 keyword tags that highlight key aspects of this variation
+   - keyChanges: 2-4 bullet points of the most significant changes made
+   - toneShift: brief description of how the tone changed (e.g., "More empathetic", "More direct")
+   - focusArea: the primary focus of this variation (e.g., "Clarifying appointment details", "Emphasizing urgency")`;
 
   // Create a well-formatted user prompt
   const userPrompt = `Base Prompt for Live Conversation:
@@ -106,6 +124,20 @@ Please enhance both the conversation prompt and voicemail message by incorporati
         newVoicemailMessage: z.string(),
         suggestedRunName: z.string().max(50),
         summary: z.string().min(10),
+        metadata: z.object({
+          categories: z.array(z.string()).min(1).max(3),
+          tags: z.array(z.string()).min(2).max(5),
+          keyChanges: z.array(z.string()).min(1).max(4),
+          toneShift: z.string(),
+          focusArea: z.string(),
+          promptLength: z
+            .object({
+              before: z.number(),
+              after: z.number(),
+              difference: z.number(),
+            })
+            .optional(),
+        }),
       }),
     });
 
@@ -145,14 +177,27 @@ Please enhance both the conversation prompt and voicemail message by incorporati
       result.newVoicemailMessage = baseVoicemailMessage;
     }
 
+    // Calculate prompt length statistics
+    if (!result.metadata.promptLength) {
+      result.metadata.promptLength = {
+        before: basePrompt.length,
+        after: result.newPrompt.length,
+        difference: result.newPrompt.length - basePrompt.length,
+      };
+    }
+
     return result;
   } catch (error) {
     console.error("Error generating enhanced campaign content:", error);
 
     // Return a fallback response if AI generation fails
     if (basePrompt && naturalLanguageInput) {
+      const enhancedPrompt = incorporateUserInput(
+        basePrompt,
+        naturalLanguageInput,
+      );
       return {
-        newPrompt: incorporateUserInput(basePrompt, naturalLanguageInput),
+        newPrompt: enhancedPrompt,
         newVoicemailMessage: baseVoicemailMessage,
         suggestedRunName: generateSimpleRunName(
           campaignContext?.name,
@@ -160,6 +205,18 @@ Please enhance both the conversation prompt and voicemail message by incorporati
         ),
         summary:
           "Failed to generate AI content. Applied basic enhancements only.",
+        metadata: {
+          categories: ["Fallback Generation"],
+          tags: ["error-recovery", "basic-enhancement"],
+          keyChanges: ["Applied minimal changes to incorporate user input"],
+          toneShift: "Minimal change",
+          focusArea: "Basic incorporation of user input",
+          promptLength: {
+            before: basePrompt.length,
+            after: enhancedPrompt.length,
+            difference: enhancedPrompt.length - basePrompt.length,
+          },
+        },
       };
     }
 

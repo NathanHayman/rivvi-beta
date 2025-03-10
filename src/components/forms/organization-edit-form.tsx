@@ -27,9 +27,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { TIMEZONES } from "./organization-create-form";
+// Import server actions
+import { updateOrganization } from "@/server/actions/organizations";
+import { ZOrganization } from "@/types/zod";
 
 // Form schema for editing organization
 const EditOrganizationFormFormSchema = z.object({
+  id: z.string(),
   name: z.string().min(1, "Organization name is required"),
   phone: z
     .string()
@@ -96,13 +100,13 @@ const DEFAULT_OFFICE_HOURS = {
 };
 
 interface EditOrganizationFormFormProps {
-  organizationId: string;
+  organization: ZOrganization;
   onOpenChange?: (open: boolean) => void;
   onSuccess?: () => void;
 }
 
 export function EditOrganizationForm({
-  organizationId,
+  organization,
   onOpenChange,
   onSuccess,
 }: EditOrganizationFormFormProps) {
@@ -110,42 +114,48 @@ export function EditOrganizationForm({
     saturday: false,
     sunday: false,
   });
-
-  // Fetch organization data
-  const { data: organization, isLoading } = api.organizations.getById.useQuery({
-    id: organizationId,
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form setup
   const form = useForm<EditOrganizationFormFormValues>({
     resolver: zodResolver(EditOrganizationFormFormSchema),
     defaultValues: {
-      name: "",
-      phone: "",
-      timezone: "America/New_York",
-      concurrentCallLimit: 20,
-      officeHours: DEFAULT_OFFICE_HOURS,
+      id: organization.id,
+      name: organization.name,
+      phone: organization.phone || "",
+      timezone: organization.timezone || "America/New_York",
+      concurrentCallLimit: organization.concurrentCallLimit || 20,
+      officeHours: organization.officeHours || DEFAULT_OFFICE_HOURS,
     },
   });
 
-  // Update form when organization data is loaded
+  // Initialize weekend enabled state based on organization's office hours
   useEffect(() => {
-    if (organization) {
-      form.reset({
-        name: organization.name,
-        phone: organization.phone || "",
-        timezone: organization.timezone || "America/New_York",
-        concurrentCallLimit: organization.concurrentCallLimit || 20,
-        officeHours: organization.officeHours || DEFAULT_OFFICE_HOURS,
+    if (organization.officeHours) {
+      setWeekendEnabled({
+        saturday: Boolean(organization.officeHours.saturday),
+        sunday: Boolean(organization.officeHours.sunday),
       });
 
-      // Set weekend enabled states
-      setWeekendEnabled({
-        saturday: Boolean(organization.officeHours?.saturday),
-        sunday: Boolean(organization.officeHours?.sunday),
-      });
+      // Ensure the form has the correct office hours values
+      const officeHours = {
+        ...organization.officeHours,
+        // If weekend days are enabled but null, initialize them with default values
+        saturday:
+          organization.officeHours.saturday ||
+          (organization.officeHours.saturday === null
+            ? null
+            : { start: "09:00", end: "17:00" }),
+        sunday:
+          organization.officeHours.sunday ||
+          (organization.officeHours.sunday === null
+            ? null
+            : { start: "09:00", end: "17:00" }),
+      };
+
+      form.setValue("officeHours", officeHours);
     }
-  }, [organization, form]);
+  }, [organization.officeHours, form]);
 
   // Handle office hours changes
   const handleWeekendToggle = (
@@ -160,37 +170,52 @@ export function EditOrganizationForm({
     } else {
       updatedOfficeHours[day] = null;
     }
-    form.setValue("officeHours", updatedOfficeHours as any);
+    form.setValue("officeHours", updatedOfficeHours as any, {
+      shouldValidate: true,
+    });
   };
 
-  // Update organization mutation
-  const updateOrgMutation = api.organizations.update.useMutation({
-    onSuccess: () => {
+  // Handle form submission
+  const onSubmit = async (values: EditOrganizationFormFormValues) => {
+    try {
+      setIsSubmitting(true);
+
+      // Prepare the office hours data
+      const officeHours = { ...values.officeHours };
+
+      // Ensure weekend days are properly set based on the enabled state
+      if (!weekendEnabled.saturday) {
+        officeHours.saturday = null;
+      }
+
+      if (!weekendEnabled.sunday) {
+        officeHours.sunday = null;
+      }
+
+      // Prepare the data for submission
+      const formData = {
+        id: organization.id,
+        name: values.name,
+        phone: values.phone,
+        timezone: values.timezone,
+        concurrentCallLimit: values.concurrentCallLimit,
+        officeHours,
+      };
+
+      await updateOrganization(formData);
       toast.success("Organization updated successfully");
       if (onSuccess) {
         onSuccess();
       }
-    },
-    onError: (error) => {
-      toast.error(`Error updating organization: ${error.message}`);
-    },
-  });
-
-  // Handle form submission
-  const onSubmit = (values: EditOrganizationFormFormValues) => {
-    updateOrgMutation.mutate({
-      id: organizationId,
-      ...values,
-    });
+    } catch (error) {
+      console.error("Error updating organization:", error);
+      toast.error(
+        `Error updating organization: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   return (
     <Form {...form}>
@@ -271,125 +296,94 @@ export function EditOrganizationForm({
                     {...field}
                     onChange={(e) =>
                       field.onChange(
-                        e.target.value ? parseInt(e.target.value) : 0,
+                        e.target.value === ""
+                          ? ""
+                          : parseInt(e.target.value, 10),
                       )
                     }
                   />
                 </FormControl>
                 <FormDescription>
-                  Maximum number of concurrent calls
+                  Maximum number of concurrent calls allowed
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <div className="space-y-4">
+          {/* Office Hours Section */}
+          <div className="w-full space-y-4">
             <h3 className="text-lg font-medium">Office Hours</h3>
+            <p className="text-sm text-muted-foreground">
+              Set the hours when your organization is available for calls
+            </p>
+
+            {/* Weekday Office Hours */}
             {["monday", "tuesday", "wednesday", "thursday", "friday"].map(
               (day) => (
-                <div key={day} className="flex items-center gap-4">
-                  <div className="w-28 capitalize">{day}</div>
-                  <div className="flex flex-1 items-center gap-2">
-                    <FormField
-                      control={form.control}
-                      name={`officeHours.${day}.start` as any}
-                      render={({ field }) => (
-                        <FormItem className="flex-1">
-                          <FormControl>
-                            <Input type="time" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                <div
+                  key={day}
+                  className="grid w-full grid-cols-3 items-center gap-4"
+                >
+                  <div className="capitalize">{day}</div>
+                  <div className="col-span-2 flex items-center gap-2">
+                    <Input
+                      type="time"
+                      className="w-24"
+                      {...form.register(`officeHours.${day}.start` as any)}
                     />
                     <span>to</span>
-                    <FormField
-                      control={form.control}
-                      name={`officeHours.${day}.end` as any}
-                      render={({ field }) => (
-                        <FormItem className="flex-1">
-                          <FormControl>
-                            <Input type="time" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                    <Input
+                      type="time"
+                      className="w-24"
+                      {...form.register(`officeHours.${day}.end` as any)}
                     />
                   </div>
                 </div>
               ),
             )}
 
-            {/* Weekend days with toggle */}
+            {/* Weekend Office Hours */}
             {["saturday", "sunday"].map((day) => (
-              <div key={day} className="flex items-center gap-4">
-                <div className="flex w-28 items-center gap-2 capitalize">
+              <div
+                key={day}
+                className="grid w-full grid-cols-3 items-center gap-4"
+              >
+                <div className="flex items-center gap-2">
                   <Switch
                     checked={weekendEnabled[day as "saturday" | "sunday"]}
                     onCheckedChange={(checked) =>
                       handleWeekendToggle(day as "saturday" | "sunday", checked)
                     }
                   />
-                  {day}
+                  <span className="capitalize">{day}</span>
                 </div>
-                <div className="flex flex-1 items-center gap-2">
-                  {weekendEnabled[day as "saturday" | "sunday"] ? (
-                    <>
-                      <FormField
-                        control={form.control}
-                        name={`officeHours.${day}.start` as any}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormControl>
-                              <Input type="time" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <span>to</span>
-                      <FormField
-                        control={form.control}
-                        name={`officeHours.${day}.end` as any}
-                        render={({ field }) => (
-                          <FormItem className="flex-1">
-                            <FormControl>
-                              <Input type="time" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Closed</div>
-                  )}
+                <div className="col-span-2 flex items-center gap-2">
+                  <Input
+                    type="time"
+                    className="w-24"
+                    disabled={!weekendEnabled[day as "saturday" | "sunday"]}
+                    {...form.register(`officeHours.${day}.start` as any)}
+                  />
+                  <span>to</span>
+                  <Input
+                    type="time"
+                    className="w-24"
+                    disabled={!weekendEnabled[day as "saturday" | "sunday"]}
+                    {...form.register(`officeHours.${day}.end` as any)}
+                  />
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange?.(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={updateOrgMutation.isPending}>
-            {updateOrgMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Updating...
-              </>
-            ) : (
-              "Update Organization"
-            )}
-          </Button>
-        </div>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : null}
+          Update Organization
+        </Button>
       </form>
     </Form>
   );

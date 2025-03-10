@@ -1,5 +1,4 @@
-// src/services/calls/calls-service.ts
-import { retell } from "@/lib/retell/retell-client";
+// src/services/calls/call-service.ts
 import {
   ServiceResult,
   createError,
@@ -10,428 +9,508 @@ import {
   calls,
   campaignTemplates,
   campaigns,
-  organizations,
   patients,
   rows,
   runs,
 } from "@/server/db/schema";
-import { CallWithRelations, GetCallsOptions } from "@/types/api/calls";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 
-// Helper function to convert database date fields to ISO strings
-const convertDatesToStrings = <T extends Record<string, any>>(
-  record: T,
-): Record<string, any> => {
-  const result = { ...record } as Record<string, any>;
+// Import unified types
+import {
+  CallWithRelations,
+  CallsResponse,
+  GetCallsOptions,
+} from "@/services/calls/types";
 
-  // Convert Date objects to ISO strings for specific fields
-  const dateFields = [
-    "createdAt",
-    "updatedAt",
-    "nextRetryTime",
-    "startTime",
-    "endTime",
-  ];
+/**
+ * Service for managing call operations
+ */
+export function createCallService(dbInstance = db) {
+  return {
+    /**
+     * Get all calls with filtering options
+     */
+    async getAll(
+      options: GetCallsOptions,
+    ): Promise<ServiceResult<CallsResponse>> {
+      try {
+        const {
+          limit = 50,
+          offset = 0,
+          patientId,
+          runId,
+          status,
+          direction,
+          orgId,
+          search,
+          startDate,
+          endDate,
+          campaignId,
+        } = options;
 
-  for (const field of dateFields) {
-    if (result[field] instanceof Date) {
-      result[field] = result[field].toISOString();
-    }
-  }
+        // Build base query conditions
+        let conditions = eq(calls.orgId, orgId);
 
-  return result as T;
-};
+        // Add additional filters if provided
+        if (patientId) {
+          conditions = and(conditions, eq(calls.patientId, patientId));
+        }
 
-export const callService = {
-  async getAll(options: GetCallsOptions): Promise<
-    ServiceResult<{
-      calls: CallWithRelations[];
-      totalCount: number;
-      hasMore: boolean;
-    }>
-  > {
-    try {
-      const {
-        limit = 50,
-        offset = 0,
-        patientId,
-        runId,
-        status,
-        direction,
-        orgId,
-      } = options;
+        if (runId) {
+          conditions = and(conditions, eq(calls.runId, runId));
+        }
 
-      // Build base query conditions
-      let conditions = eq(calls.orgId, orgId);
+        if (status) {
+          conditions = and(conditions, eq(calls.status, status as any));
+        }
 
-      // Add additional filters if provided
-      if (patientId) {
-        conditions = and(conditions, eq(calls.patientId, patientId));
+        if (direction) {
+          conditions = and(conditions, eq(calls.direction, direction as any));
+        }
+
+        if (campaignId) {
+          conditions = and(conditions, eq(calls.campaignId, campaignId));
+        }
+
+        // Add date range filters
+        if (startDate) {
+          conditions = and(conditions, sql`${calls.createdAt} >= ${startDate}`);
+        }
+
+        if (endDate) {
+          conditions = and(conditions, sql`${calls.createdAt} <= ${endDate}`);
+        }
+
+        // Add search filter if provided
+        if (search) {
+          const searchTerm = `%${search}%`;
+          conditions = and(
+            conditions,
+            or(
+              // Search in related patient name
+              sql`EXISTS (
+                SELECT 1 FROM ${patients} 
+                WHERE ${patients.id} = ${calls.patientId} 
+                AND (
+                  ${ilike(patients.firstName, searchTerm)} OR 
+                  ${ilike(patients.lastName, searchTerm)}
+                )
+              )`,
+              // Search in phone numbers
+              ilike(calls.toNumber, searchTerm),
+              ilike(calls.fromNumber, searchTerm),
+            ),
+          );
+        }
+
+        // Query for calls
+        const allCalls = await dbInstance
+          .select()
+          .from(calls)
+          .where(conditions)
+          .limit(limit)
+          .offset(offset)
+          .orderBy(desc(calls.createdAt));
+
+        // Get total count
+        const [{ value: totalCount }] = await dbInstance
+          .select({ value: count() })
+          .from(calls)
+          .where(conditions);
+
+        // Load relationships efficiently
+        const callsWithRelations = await this.loadRelations(allCalls);
+
+        return createSuccess({
+          calls: callsWithRelations,
+          totalCount: Number(totalCount),
+          hasMore: offset + limit < Number(totalCount),
+        });
+      } catch (error) {
+        console.error("Error fetching calls:", error);
+        return createError("INTERNAL_ERROR", "Failed to fetch calls", error);
       }
+    },
 
-      if (runId) {
-        conditions = and(conditions, eq(calls.runId, runId));
-      }
+    /**
+     * Get a call by ID
+     */
+    async getById(
+      id: string,
+      orgId: string,
+    ): Promise<ServiceResult<CallWithRelations>> {
+      try {
+        // Get call with organization check
+        const [call] = await dbInstance
+          .select()
+          .from(calls)
+          .where(and(eq(calls.id, id), eq(calls.orgId, orgId)));
 
-      if (status) {
-        conditions = and(conditions, eq(calls.status, status));
-      }
+        if (!call) {
+          return createError("NOT_FOUND", "Call not found");
+        }
 
-      if (direction) {
-        conditions = and(conditions, eq(calls.direction, direction));
-      }
+        // Get all related data in parallel
+        const [patient, campaignData, run, row] = await Promise.all([
+          call.patientId
+            ? dbInstance.query.patients.findFirst({
+                where: eq(patients.id, call.patientId),
+              })
+            : null,
 
-      // Query for calls
-      const allCalls = await db
-        .select()
-        .from(calls)
-        .where(conditions)
-        .limit(limit)
-        .offset(offset)
-        .orderBy(desc(calls.createdAt));
+          call.campaignId
+            ? dbInstance
+                .select({
+                  campaign: campaigns,
+                  template: campaignTemplates,
+                })
+                .from(campaigns)
+                .leftJoin(
+                  campaignTemplates,
+                  eq(campaigns.templateId, campaignTemplates.id),
+                )
+                .where(eq(campaigns.id, call.campaignId))
+                .then((results) => (results.length > 0 ? results[0] : null))
+            : null,
 
-      // Get total count
-      const [{ value: totalCount }] = await db
-        .select({ value: count() })
-        .from(calls)
-        .where(conditions);
+          call.runId
+            ? dbInstance.query.runs.findFirst({
+                where: eq(runs.id, call.runId),
+              })
+            : null,
 
-      // Efficient batch loading of related entities
-      const callsWithRelations = await this.loadRelations(allCalls);
+          call.rowId
+            ? dbInstance.query.rows.findFirst({
+                where: eq(rows.id, call.rowId),
+              })
+            : null,
+        ]);
 
-      return createSuccess({
-        calls: callsWithRelations,
-        totalCount: Number(totalCount),
-        hasMore: offset + limit < Number(totalCount),
-      });
-    } catch (error) {
-      console.error("Error fetching calls:", error);
-      return createError("INTERNAL_ERROR", "Failed to fetch calls", error);
-    }
-  },
+        // Format dates to ISO strings
+        const formattedCall = this.formatDates(call);
 
-  async getById(
-    id: string,
-    orgId: string,
-  ): Promise<ServiceResult<CallWithRelations>> {
-    try {
-      // Get call with organization check
-      const [call] = await db
-        .select()
-        .from(calls)
-        .where(and(eq(calls.id, id), eq(calls.orgId, orgId)));
-
-      if (!call) {
-        return createError("NOT_FOUND", "Call not found");
-      }
-
-      // Get all related data in parallel
-      const [patient, campaign, run, row] = await Promise.all([
-        call.patientId
-          ? db.query.patients.findFirst({
-              where: eq(patients.id, call.patientId),
-            })
-          : null,
-
-        call.campaignId
-          ? db.query.campaigns.findFirst({
-              where: eq(campaigns.id, call.campaignId),
-              with: {
-                template: true,
-              },
-            })
-          : null,
-
-        call.runId
-          ? db.query.runs.findFirst({
-              where: eq(runs.id, call.runId),
-            })
-          : null,
-
-        call.rowId
-          ? db.query.rows.findFirst({
-              where: eq(rows.id, call.rowId),
-            })
-          : null,
-      ]);
-
-      return createSuccess({
-        ...convertDatesToStrings(call),
-        patient,
-        campaign: campaign
+        // Properly structure campaign data
+        const campaign = campaignData
           ? {
-              ...campaign,
-              template: campaign.template,
-              config: campaign.template
+              ...campaignData.campaign,
+              template: campaignData.template,
+              config: campaignData.template
                 ? {
-                    analysis: campaign.template.analysisConfig,
-                    variables: campaign.template.variablesConfig,
-                    basePrompt: campaign.template.basePrompt,
-                    voicemailMessage: campaign.template.voicemailMessage,
+                    analysis: campaignData.template.analysisConfig,
+                    variables: campaignData.template.variablesConfig,
+                    basePrompt: campaignData.template.basePrompt,
+                    voicemailMessage: campaignData.template.voicemailMessage,
                   }
                 : undefined,
             }
-          : null,
-        run,
-        row,
-      });
-    } catch (error) {
-      console.error("Error fetching call:", error);
-      return createError("INTERNAL_ERROR", "Failed to fetch call", error);
-    }
-  },
+          : null;
 
-  async getTranscript(
-    callId: string,
-    orgId: string,
-  ): Promise<
-    ServiceResult<{
-      transcript: string | null;
-      message?: string;
-    }>
-  > {
-    try {
-      // Get the call
-      const call = await db.query.calls.findFirst({
-        where: and(eq(calls.id, callId), eq(calls.orgId, orgId)),
-      });
-
-      if (!call) {
-        return createError("NOT_FOUND", "Call not found");
-      }
-
-      // If we already have a transcript, return it
-      if (call.transcript) {
-        return createSuccess({ transcript: call.transcript });
-      }
-
-      // If no retell call ID, we can't fetch a transcript
-      if (!call.retellCallId) {
         return createSuccess({
-          transcript: null,
-          message: "No transcript available for this call",
+          ...formattedCall,
+          patient,
+          campaign,
+          run,
+          row,
         });
+      } catch (error) {
+        console.error("Error fetching call:", error);
+        return createError("INTERNAL_ERROR", "Failed to fetch call", error);
       }
+    },
 
+    /**
+     * Get patient calls with pagination
+     */
+    async getPatientCalls(
+      patientId: string,
+      orgId: string,
+      limit: number,
+    ): Promise<ServiceResult<CallWithRelations[]>> {
       try {
-        // Fetch transcript from Retell
-        const retellResponse = await retell.call.retrieve(call.retellCallId);
+        // Handle case where patientId might be a comma-separated list
+        const sanitizedPatientId = patientId.includes(",")
+          ? patientId.split(",")[0]
+          : patientId;
 
-        if (retellResponse.transcript) {
-          // Store transcript for future requests
-          await db
-            .update(calls)
-            .set({ transcript: retellResponse.transcript })
-            .where(eq(calls.id, callId));
+        const recentCalls = await dbInstance
+          .select()
+          .from(calls)
+          .where(
+            and(
+              eq(calls.patientId, sanitizedPatientId),
+              eq(calls.orgId, orgId),
+            ),
+          )
+          .limit(limit)
+          .orderBy(desc(calls.createdAt));
 
-          return createSuccess({ transcript: retellResponse.transcript });
+        // Load relations for these calls
+        const callsWithRelations = await this.loadRelations(recentCalls);
+
+        return createSuccess(callsWithRelations);
+      } catch (error) {
+        console.error("Error getting patient calls:", error);
+        return createError(
+          "INTERNAL_ERROR",
+          "Failed to get patient calls",
+          error,
+        );
+      }
+    },
+
+    /**
+     * Generate call insights from transcript and analysis
+     */
+    getCallInsights(payload: {
+      transcript?: string;
+      analysis?: Record<string, any>;
+    }): {
+      sentiment: "positive" | "negative" | "neutral";
+      followUpNeeded: boolean;
+      followUpReason?: string;
+      patientReached: boolean;
+      voicemailLeft: boolean;
+    } {
+      try {
+        const { transcript, analysis } = payload;
+        const processedAnalysis = analysis || {};
+
+        // Determine sentiment - check multiple possible field names
+        let sentiment: "positive" | "negative" | "neutral" = "neutral";
+        const possibleSentimentFields = [
+          "sentiment",
+          "user_sentiment",
+          "patient_sentiment",
+          "call_sentiment",
+        ];
+
+        for (const field of possibleSentimentFields) {
+          if (field in processedAnalysis) {
+            const value = processedAnalysis[field];
+            if (typeof value === "string") {
+              if (value.toLowerCase().includes("positive")) {
+                sentiment = "positive";
+                break;
+              } else if (value.toLowerCase().includes("negative")) {
+                sentiment = "negative";
+                break;
+              }
+            }
+          }
         }
 
-        return createSuccess({
-          transcript: null,
-          message: "Transcript not available yet",
-        });
+        // Check if patient was reached
+        const patientReachedValue =
+          processedAnalysis.patient_reached !== undefined
+            ? processedAnalysis.patient_reached
+            : processedAnalysis.patientReached;
+
+        const patientReached =
+          patientReachedValue === true ||
+          patientReachedValue === "true" ||
+          patientReachedValue === "yes";
+
+        // Check if voicemail was left
+        const voicemailLeft =
+          processedAnalysis.voicemail_left === true ||
+          processedAnalysis.voicemailLeft === true ||
+          processedAnalysis.left_voicemail === true ||
+          processedAnalysis.leftVoicemail === true ||
+          processedAnalysis.voicemail === true ||
+          processedAnalysis.in_voicemail === true ||
+          processedAnalysis.voicemail_detected === true;
+
+        // Determine follow-up needs
+        const scheduleFollowUp =
+          processedAnalysis.callback_requested === true ||
+          processedAnalysis.callbackRequested === true ||
+          processedAnalysis.callback_requested === "true" ||
+          processedAnalysis.callbackRequested === "true";
+
+        const patientHadQuestions =
+          processedAnalysis.patient_questions === true ||
+          processedAnalysis.patientQuestion === true ||
+          processedAnalysis.has_questions === true ||
+          processedAnalysis.hasQuestions === true ||
+          processedAnalysis.patient_question === "true" ||
+          processedAnalysis.patientQuestion === "true";
+
+        let followUpNeeded =
+          scheduleFollowUp ||
+          patientHadQuestions ||
+          !patientReached ||
+          sentiment === "negative";
+
+        // Determine reason for follow-up
+        let followUpReason;
+        if (followUpNeeded) {
+          if (scheduleFollowUp) {
+            followUpReason = "Patient requested follow-up";
+          } else if (patientHadQuestions) {
+            followUpReason = "Patient had unanswered questions";
+          } else if (!patientReached) {
+            followUpReason = "Unable to reach patient";
+          } else if (sentiment === "negative") {
+            followUpReason = "Negative sentiment detected";
+          }
+        }
+
+        // Use transcript to enhance insights if available
+        if (transcript && typeof transcript === "string") {
+          // Check for callback requests in transcript
+          if (
+            !followUpNeeded &&
+            (transcript.toLowerCase().includes("call me back") ||
+              transcript.toLowerCase().includes("callback") ||
+              transcript.toLowerCase().includes("call me tomorrow"))
+          ) {
+            followUpNeeded = true;
+            followUpReason = "Callback request detected in transcript";
+          }
+
+          // Detect sentiment from transcript if not already determined
+          if (sentiment === "neutral") {
+            const positiveWords = [
+              "great",
+              "good",
+              "excellent",
+              "happy",
+              "pleased",
+              "thank you",
+              "appreciate",
+            ];
+            const negativeWords = [
+              "bad",
+              "unhappy",
+              "disappointed",
+              "frustrated",
+              "upset",
+              "angry",
+              "not right",
+            ];
+
+            let positiveCount = 0;
+            let negativeCount = 0;
+
+            const transcriptLower = transcript.toLowerCase();
+
+            positiveWords.forEach((word) => {
+              if (transcriptLower.includes(word)) positiveCount++;
+            });
+
+            negativeWords.forEach((word) => {
+              if (transcriptLower.includes(word)) negativeCount++;
+            });
+
+            if (positiveCount > negativeCount + 1) {
+              sentiment = "positive";
+            } else if (negativeCount > positiveCount) {
+              sentiment = "negative";
+            }
+          }
+        }
+
+        return {
+          sentiment,
+          followUpNeeded,
+          followUpReason,
+          patientReached,
+          voicemailLeft,
+        };
       } catch (error) {
-        console.error("Error fetching transcript from Retell:", error);
-        return createError(
-          "INTERNAL_ERROR",
-          "Failed to fetch transcript from Retell",
-          error,
-        );
+        console.error("Error extracting call insights:", error);
+
+        // Return default values on error
+        return {
+          sentiment: "neutral",
+          followUpNeeded: false,
+          patientReached: false,
+          voicemailLeft: false,
+        };
       }
-    } catch (error) {
-      console.error("Error fetching transcript:", error);
-      return createError("INTERNAL_ERROR", "Failed to fetch transcript", error);
-    }
-  },
+    },
 
-  async getPatientCalls(
-    patientId: string,
-    orgId: string,
-    limit: number,
-  ): Promise<ServiceResult<CallWithRelations[]>> {
-    try {
-      // Handle case where patientId might be a comma-separated list
-      // Extract just the first UUID if it contains commas
-      const sanitizedPatientId = patientId.includes(",")
-        ? patientId.split(",")[0]
-        : patientId;
+    /**
+     * Helper method to efficiently load related entities for calls
+     */
+    async loadRelations(
+      callsList: Array<typeof calls.$inferSelect>,
+    ): Promise<CallWithRelations[]> {
+      if (!callsList.length) return [];
 
-      const recentCalls = await db
-        .select()
-        .from(calls)
-        .where(
-          and(eq(calls.patientId, sanitizedPatientId), eq(calls.orgId, orgId)),
-        )
-        .limit(limit)
-        .orderBy(desc(calls.createdAt));
+      // Extract IDs for batch loading
+      const patientIds = callsList
+        .map((c) => c.patientId)
+        .filter(Boolean) as string[];
 
-      // Load relations for these calls
-      const callsWithRelations = await this.loadRelations(recentCalls);
+      const campaignIds = callsList
+        .map((c) => c.campaignId)
+        .filter(Boolean) as string[];
 
-      return createSuccess(callsWithRelations);
-    } catch (error) {
-      console.error("Error getting patient calls:", error);
-      return createError(
-        "INTERNAL_ERROR",
-        "Failed to get patient calls",
-        error,
+      const runIds = callsList.map((c) => c.runId).filter(Boolean) as string[];
+
+      // Batch load all relations in parallel
+      const [patientsData, campaignsData, runsData] = await Promise.all([
+        patientIds.length
+          ? dbInstance
+              .select()
+              .from(patients)
+              .where(
+                patientIds.length === 1
+                  ? eq(patients.id, patientIds[0])
+                  : inArray(patients.id, patientIds),
+              )
+          : [],
+
+        campaignIds.length
+          ? dbInstance
+              .select({
+                campaign: campaigns,
+                template: campaignTemplates,
+              })
+              .from(campaigns)
+              .leftJoin(
+                campaignTemplates,
+                eq(campaigns.templateId, campaignTemplates.id),
+              )
+              .where(
+                campaignIds.length === 1
+                  ? eq(campaigns.id, campaignIds[0])
+                  : inArray(campaigns.id, campaignIds),
+              )
+          : [],
+
+        runIds.length
+          ? dbInstance
+              .select()
+              .from(runs)
+              .where(
+                runIds.length === 1
+                  ? eq(runs.id, runIds[0])
+                  : inArray(runs.id, runIds),
+              )
+          : [],
+      ]);
+
+      // Create maps for quick lookups
+      const patientMap = new Map(
+        patientsData.map((p) => [p.id, p]) as [
+          string,
+          typeof patients.$inferSelect,
+        ][],
       );
-    }
-  },
 
-  async createManualCall(data: {
-    patientId: string;
-    orgId: string;
-    campaignId?: string;
-    agentId: string;
-    variables?: Record<string, any>;
-  }): Promise<ServiceResult<typeof calls.$inferSelect>> {
-    try {
-      const { patientId, orgId, campaignId, agentId, variables = {} } = data;
-
-      // Get patient
-      const patient = await db.query.patients.findFirst({
-        where: eq(patients.id, patientId),
-      });
-
-      if (!patient) {
-        return createError("NOT_FOUND", "Patient not found");
-      }
-
-      // Get organization
-      const organization = await db.query.organizations.findFirst({
-        where: eq(organizations.id, orgId),
-      });
-
-      if (!organization) {
-        return createError("NOT_FOUND", "Organization not found");
-      }
-
-      // Create call record
-      const [call] = await db
-        .insert(calls)
-        .values({
-          orgId,
-          patientId,
-          campaignId,
-          agentId,
-          direction: "outbound",
-          status: "pending",
-          isManualCall: true,
-          variables,
-        })
-        .returning();
-
-      if (!call) {
-        return createError("INTERNAL_ERROR", "Failed to create call record");
-      }
-
-      try {
-        // Create call in Retell
-        const retellCall = await retell.call.create({
-          toNumber: patient.primaryPhone,
-          fromNumber: organization.phone,
-          agentId: agentId,
-          variables: {
-            ...variables,
-            first_name: patient.firstName,
-            last_name: patient.lastName,
-            phone: patient.primaryPhone,
-            is_manual_call: "true",
-          },
-          metadata: {
-            callId: call.id,
-            orgId,
-            patientId,
-            campaignId,
-            isManualCall: true,
-          },
-        });
-
-        // Update call with Retell ID
-        await db
-          .update(calls)
-          .set({ retellCallId: retellCall.call_id })
-          .where(eq(calls.id, call.id));
-
-        return createSuccess(call);
-      } catch (error) {
-        // Delete the call record if Retell call creation fails
-        await db.delete(calls).where(eq(calls.id, call.id));
-
-        console.error("Error creating call in Retell:", error);
-        return createError(
-          "INTERNAL_ERROR",
-          "Failed to create call in Retell",
-          error,
-        );
-      }
-    } catch (error) {
-      console.error("Error creating manual call:", error);
-      return createError("INTERNAL_ERROR", "Failed to create call", error);
-    }
-  },
-
-  // Helper method to efficiently load related entities for calls
-  async loadRelations(
-    callsList: Array<typeof calls.$inferSelect>,
-  ): Promise<CallWithRelations[]> {
-    if (!callsList.length) return [];
-
-    // Extract IDs for batch loading
-    const patientIds = callsList
-      .map((c) => c.patientId)
-      .filter(Boolean) as string[];
-
-    const campaignIds = callsList
-      .map((c) => c.campaignId)
-      .filter(Boolean) as string[];
-
-    const runIds = callsList.map((c) => c.runId).filter(Boolean) as string[];
-
-    // Batch load all relations in parallel
-    const [patientsData, campaignsData, runsData] = await Promise.all([
-      patientIds.length
-        ? db
-            .select()
-            .from(patients)
-            .where(sql`${patients.id} IN (${patientIds.join(",")})`)
-        : [],
-
-      campaignIds.length
-        ? db
-            .select({
-              campaign: campaigns,
-              template: campaignTemplates,
-            })
-            .from(campaigns)
-            .leftJoin(
-              campaignTemplates,
-              eq(campaigns.templateId, campaignTemplates.id),
-            )
-            .where(sql`${campaigns.id} IN (${campaignIds.join(",")})`)
-        : [],
-
-      runIds.length
-        ? db
-            .select()
-            .from(runs)
-            .where(sql`${runs.id} IN (${runIds.join(",")})`)
-        : [],
-    ]);
-
-    // Create maps for quick lookups
-    const patientMap = new Map(patientsData.map((p) => [p.id, p] as const));
-
-    const campaignMap = new Map(
-      campaignsData.map(
-        ({ campaign, template }) =>
-          [
+      // Fix campaign map to properly handle template data
+      const campaignMap = new Map(
+        campaignsData.map(({ campaign, template }) => {
+          // Ensure we have a properly structured campaign object with config
+          return [
             campaign.id,
             {
               ...campaign,
-              template,
+              // Store the template directly instead of as an array
+              template: template,
+              // Properly structure the config object
               config: template
                 ? {
                     analysis: template.analysisConfig,
@@ -441,47 +520,58 @@ export const callService = {
                   }
                 : undefined,
             },
-          ] as const,
-      ),
-    );
+          ] as const;
+        }),
+      );
 
-    const runMap = new Map(runsData.map((r) => [r.id, r] as const));
+      const runMap = new Map(
+        runsData.map((r) => [r.id, r]) as [string, typeof runs.$inferSelect][],
+      );
 
-    // Combine data
-    return callsList.map((call) => {
-      // Create a new object with all properties from call
-      const callWithRelations: CallWithRelations = {
-        ...call,
-        // Convert Date objects to ISO strings
-        createdAt:
-          call.createdAt instanceof Date
-            ? call.createdAt.toISOString()
-            : (call.createdAt as string),
-        updatedAt:
-          call.updatedAt instanceof Date
-            ? call.updatedAt.toISOString()
-            : (call.updatedAt as string),
-        nextRetryTime:
-          call.nextRetryTime instanceof Date
-            ? call.nextRetryTime.toISOString()
-            : (call.nextRetryTime as string | undefined),
-        startTime:
-          call.startTime instanceof Date
-            ? call.startTime.toISOString()
-            : (call.startTime as string | undefined),
-        endTime:
-          call.endTime instanceof Date
-            ? call.endTime.toISOString()
-            : (call.endTime as string | undefined),
+      // Process all calls at once and format dates
+      return callsList.map((call) => {
+        // Format dates to ISO strings
+        const formattedCall = this.formatDates(call);
+
         // Add related entities
-        patient: call.patientId ? patientMap.get(call.patientId) || null : null,
-        campaign: call.campaignId
-          ? campaignMap.get(call.campaignId) || null
-          : null,
-        run: call.runId ? runMap.get(call.runId) || null : null,
-      };
+        return {
+          ...formattedCall,
+          patient: call.patientId
+            ? patientMap.get(call.patientId) || null
+            : null,
+          campaign: call.campaignId
+            ? campaignMap.get(call.campaignId) || null
+            : null,
+          run: call.runId ? runMap.get(call.runId) || null : null,
+        };
+      });
+    },
 
-      return callWithRelations;
-    });
-  },
-};
+    /**
+     * Helper to convert date objects to ISO strings
+     */
+    formatDates<T extends Record<string, any>>(record: T): T {
+      const result = { ...record } as Record<string, any>;
+
+      // Convert Date objects to ISO strings for specific fields
+      const dateFields = [
+        "createdAt",
+        "updatedAt",
+        "nextRetryTime",
+        "startTime",
+        "endTime",
+      ];
+
+      for (const field of dateFields) {
+        if (result[field] instanceof Date) {
+          result[field] = result[field].toISOString();
+        }
+      }
+
+      return result as T;
+    },
+  };
+}
+
+// Create and export the service
+export const callService = createCallService();

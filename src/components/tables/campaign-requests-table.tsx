@@ -14,9 +14,12 @@ import {
   ArrowUpDown,
   Check,
   Clock,
+  ExternalLink,
   Filter,
   Loader2,
   MoreHorizontal,
+  Plus,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -62,12 +65,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { processCampaignRequest } from "@/server/actions/campaigns/request";
 import { TCampaignRequest } from "@/types/db";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-type CampaignRequestStatus = "pending" | "approved" | "rejected" | "completed";
+type CampaignRequestStatus =
+  | "pending"
+  | "approved"
+  | "in_progress"
+  | "rejected"
+  | "completed";
 
 type CampaignRequestWithRelations = TCampaignRequest & {
   organization: { name: string };
@@ -83,6 +92,59 @@ type CampaignRequestsTableProps = {
   totalCount: number;
 };
 
+// Status badge component with appropriate colors
+const StatusBadge = ({ status }: { status: CampaignRequestStatus }) => {
+  switch (status) {
+    case "pending":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-yellow-50 text-yellow-700 hover:bg-yellow-50"
+        >
+          Pending
+        </Badge>
+      );
+    case "approved":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-blue-50 text-blue-700 hover:bg-blue-50"
+        >
+          Approved
+        </Badge>
+      );
+    case "in_progress":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-purple-50 text-purple-700 hover:bg-purple-50"
+        >
+          In Progress
+        </Badge>
+      );
+    case "completed":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-green-50 text-green-700 hover:bg-green-50"
+        >
+          Completed
+        </Badge>
+      );
+    case "rejected":
+      return (
+        <Badge
+          variant="outline"
+          className="bg-red-50 text-red-700 hover:bg-red-50"
+        >
+          Rejected
+        </Badge>
+      );
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+};
+
 export function CampaignRequestsTable({
   initialRequests,
   totalCount,
@@ -90,7 +152,7 @@ export function CampaignRequestsTable({
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [statusFilter, setStatusFilter] = useState<
-    CampaignRequestStatus | "all"
+    "pending" | "approved" | "in_progress" | "rejected" | "completed" | "all"
   >("pending");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
     null,
@@ -134,18 +196,17 @@ export function CampaignRequestsTable({
     setFilteredTotalCount(filtered.length);
   }, [statusFilter, initialRequests, totalCount]);
 
-  // Process request functions (to be replaced with server actions)
+  // Process request functions using server actions
   const approveRequest = async () => {
     if (!selectedRequestId) return;
 
     setIsApproving(true);
     try {
-      // TODO: Replace with actual server action
-      // await processCampaignRequest({
-      //   requestId: selectedRequestId,
-      //   status: "approved",
-      //   adminNotes: adminNotes || undefined,
-      // });
+      await processCampaignRequest({
+        requestId: selectedRequestId,
+        status: "approved",
+        adminNotes: adminNotes || undefined,
+      });
 
       toast.success("Request approved successfully");
       setIsApproveDialogOpen(false);
@@ -164,12 +225,11 @@ export function CampaignRequestsTable({
 
     setIsRejecting(true);
     try {
-      // TODO: Replace with actual server action
-      // await processCampaignRequest({
-      //   requestId: selectedRequestId,
-      //   status: "rejected",
-      //   adminNotes: adminNotes || undefined,
-      // });
+      await processCampaignRequest({
+        requestId: selectedRequestId,
+        status: "rejected",
+        adminNotes: adminNotes || undefined,
+      });
 
       toast.success("Request rejected successfully");
       setIsRejectDialogOpen(false);
@@ -185,7 +245,15 @@ export function CampaignRequestsTable({
 
   // Handlers
   const handleStatusFilterChange = (value: string) => {
-    setStatusFilter(value as CampaignRequestStatus | "all");
+    setStatusFilter(
+      value as
+        | "pending"
+        | "approved"
+        | "in_progress"
+        | "rejected"
+        | "completed"
+        | "all",
+    );
     setPagination({ ...pagination, pageIndex: 0 });
   };
 
@@ -210,7 +278,19 @@ export function CampaignRequestsTable({
   };
 
   const handleCreateCampaign = (requestId: string, orgId: string) => {
-    router.push(`/admin/campaigns/new?requestId=${requestId}&orgId=${orgId}`);
+    // First change status to in_progress to indicate campaign creation has started
+    processCampaignRequest({
+      requestId,
+      status: "in_progress",
+      adminNotes: "Campaign creation in progress",
+    })
+      .then(() => {
+        router.push(`/admin/campaigns/new?requestId=${requestId}`);
+      })
+      .catch((error) => {
+        console.error("Error processing campaign request:", error);
+        toast.error("Failed to process campaign request");
+      });
   };
 
   const handleViewDetails = (request: TCampaignRequest) => {
@@ -309,49 +389,28 @@ export function CampaignRequestsTable({
     },
     {
       accessorKey: "status",
-      header: "Status",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
       cell: ({ row }) => {
         const status = row.getValue("status") as CampaignRequestStatus;
-
-        const statusConfig = {
-          pending: {
-            label: "Pending",
-            variant: "neutral_solid" as const,
-            icon: <Clock className="mr-1.5 h-3.5 w-3.5" />,
-          },
-          approved: {
-            label: "Approved",
-            variant: "success_solid" as const,
-            icon: <Check className="mr-1.5 h-3.5 w-3.5" />,
-          },
-          rejected: {
-            label: "Rejected",
-            variant: "failure_solid" as const,
-            icon: <X className="mr-1.5 h-3.5 w-3.5" />,
-          },
-          completed: {
-            label: "Completed",
-            variant: "neutral_solid" as const,
-            icon: <Check className="mr-1.5 h-3.5 w-3.5" />,
-          },
-        };
-
-        const { label, variant, icon } = statusConfig[status];
-
-        return (
-          <Badge variant={variant as any} className="flex w-fit items-center">
-            {icon}
-            {label}
-          </Badge>
-        );
+        return <StatusBadge status={status} />;
+      },
+      filterFn: (row, id, value) => {
+        return value === "all" || row.getValue(id) === value;
       },
     },
     {
       id: "actions",
       cell: ({ row }) => {
         const request = row.original;
-        const isApproved = request.status === "approved";
-        const isPending = request.status === "pending";
+        const status = request.status;
 
         return (
           <div className="flex justify-end">
@@ -367,40 +426,60 @@ export function CampaignRequestsTable({
                   View Details
                 </DropdownMenuItem>
 
-                {isPending && (
+                {status === "pending" && (
                   <>
                     <DropdownMenuItem
                       onClick={() => handleApproveRequest(request.id)}
+                      className="cursor-pointer"
                     >
-                      Approve Request
+                      <Check className="mr-2 h-4 w-4" />
+                      Approve
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => handleRejectRequest(request.id)}
+                      className="cursor-pointer"
                     >
-                      Reject Request
+                      <X className="mr-2 h-4 w-4" />
+                      Reject
                     </DropdownMenuItem>
                   </>
                 )}
 
-                {isApproved && (
+                {status === "approved" && (
                   <DropdownMenuItem
                     onClick={() =>
                       handleCreateCampaign(request.id, request.orgId)
                     }
+                    className="cursor-pointer"
                   >
+                    <Plus className="mr-2 h-4 w-4" />
                     Create Campaign
                   </DropdownMenuItem>
                 )}
 
-                {request.resultingCampaignId && (
+                {status === "in_progress" && request.resultingCampaignId && (
                   <DropdownMenuItem
-                    onClick={() => {
+                    onClick={() =>
                       router.push(
                         `/admin/campaigns/${request.resultingCampaignId}`,
-                      );
-                    }}
+                      )
+                    }
+                    className="cursor-pointer"
                   >
+                    <ExternalLink className="mr-2 h-4 w-4" />
                     View Campaign
+                  </DropdownMenuItem>
+                )}
+
+                {status === "in_progress" && !request.resultingCampaignId && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      handleCreateCampaign(request.id, request.orgId)
+                    }
+                    className="cursor-pointer"
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Resume Campaign Creation
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -441,6 +520,7 @@ export function CampaignRequestsTable({
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
             </SelectContent>

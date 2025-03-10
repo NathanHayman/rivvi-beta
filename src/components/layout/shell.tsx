@@ -6,6 +6,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
+import { LoaderPinwheelIcon } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 import { ReactNode } from "react";
@@ -143,6 +144,10 @@ const AppScrollArea = ({
   );
 };
 
+const AppSpinner = () => {
+  return <LoaderPinwheelIcon className="size-10 animate-spin" />;
+};
+
 export {
   AppBody,
   AppBreadcrumbs,
@@ -150,4 +155,5 @@ export {
   AppHeader,
   AppPage,
   AppScrollArea,
+  AppSpinner,
 };

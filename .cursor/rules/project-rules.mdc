@@ -1,6 +1,6 @@
 ---
 description: Apply these rules when creating the project
-globs:
+globs: 
 alwaysApply: true
 ---
 ## Project Overview
@@ -16,7 +16,7 @@ alwaysApply: true
 *   **Directory Rules:**
 
     *   **next.js 15 (App Router):** Enforce usage of the `app/` directory with nested route folders. Example: Use `app/[route]/page.tsx` conventions.
-    *   Example 1: "Next.js 14 (App Router)" → `app/[route]/page.tsx` conventions
+    *   Example 1: "Next.js 15 (App Router)" → `app/[route]/page.tsx` conventions
     *   Example 2: "Next.js (Pages Router)" → `pages/[route].tsx` pattern (Not applicable in this project)
     *   Example 3: "React Router 6" → `src/routes/` with `createBrowserRouter` (Use similar nested structure if applicable for sub-modules)
 
@@ -26,7 +26,7 @@ alwaysApply: true
 
     *   **app/api:** Next.js 15 API routes with Route Handlers for server-side logic (e.g., campaign management, webhook endpoints).
     *   **src/middleware:** Middleware for authentication, role enforcement, and organization context management.
-    *   **src/server/api:** Contains files such as `trpc.ts` for creating role-based procedures and API handling.
+    *   **src/server/actions:** Contains server action functions for data fetching and mutations.
     *   **src/views:** React components that implement UI for dashboards and runtime campaign interactions.
 
 ### Key Files
@@ -36,7 +36,7 @@ alwaysApply: true
     *   **app/dashboard/layout.tsx:** Root layout components for Next.js 15 App Router, handling shared state and UI consistency.
     *   **app/api/webhooks/clerk/route.ts:** Specialized API routes for handling clerk webhook integration and user role synchronization.
     *   **src/middleware.ts:** Enhanced middleware implementing organization redirection and role-based access.
-    *   **src/server/api/trpc.ts:** Implements role-based procedures using tRPC, Clerk JWT validation, and dynamic API routing.
+    *   **src/server/actions/campaigns.ts:** Implements server actions for campaign-related operations with Clerk JWT validation and role-based access control.
 
 ## Tech Stack Rules
 
@@ -48,8 +48,8 @@ alwaysApply: true
     *   **postgresql:** Enforce normalized schemas with indexing on key identifiers (e.g., patient and campaign IDs);
     *   **clerk:** Use Clerk for secure, multi-tenant JWT authentication and maintain strict organization-scoped access checks.
     *   **zod:** Use for schema validations in both frontend and backend; ensure all dynamic variables conform to expected shape.
-    *   **trpc:** Structure API endpoints with type safety and role-based gating.
-    *   **react query & tanstack:** Optimize data fetching by caching responses and invalidating queries post mutation.
+    *   **server actions:** Structure API endpoints with type safety and role-based gating using Next.js Server Actions.
+    *   **tanstack react query:** Optimize data fetching by caching responses and invalidating queries post mutation.
     *   **drizzle orm:** Use type-safe SQL query constructions adhering to current version requirements, ensuring migration consistency.
     *   **pusher:** Implement real-time communication channels (e.g., for call status updates) with secure channels.
     *   **aws s3:** Store and retrieve uploaded Excel/CSV files and media securely with proper permission sets.
@@ -107,17 +107,20 @@ alwaysApply: true
     *   Maintain centralized schema definitions to avoid duplication.
     *   Incorporate Zod validations in both client-side forms and server-side endpoints.
 
-*   **trpc**
+*   **server actions**
 
-    *   Enforce strict type safety across API boundaries.
-    *   Implement role-based access control within each procedure.
-    *   Organize procedures modularly to simplify maintenance and testing.
+    *   Create type-safe server actions that handle both data fetching and mutations.
+    *   Implement role-based access control within each server action.
+    *   Organize server actions modularly by domain to simplify maintenance and testing.
+    *   Use the 'use server' directive to mark server-only code.
 
-*   **react query & tanstack**
+*   **tanstack react query**
 
     *   Cache data effectively to reduce redundant network calls.
     *   Use query invalidation and refetching strategies upon data mutation.
     *   Maintain consistent query keys for predictable updates across the UI.
+    *   Leverage useQuery hooks for data fetching and useMutation hooks for data mutations.
+    *   Implement optimistic updates where appropriate to enhance user experience.
 
 *   **drizzle orm**
 
@@ -135,7 +138,7 @@ alwaysApply: true
 
     *   Secure file uploads with proper bucket policies and access controls.
     *   Implement lifecycle rules for file storage and cleanup.
-    *   Ensure efficient file retrieval and caching for frequently access files.
+    *   Ensure efficient file retrieval and caching for frequently accessed files.
 
 ## Rules
 
@@ -147,3 +150,5 @@ alwaysApply: true
 *   Ensure that the dynamic data processing engine applies flexible, yet consistent, validations for diverse Excel/CSV file schemas.
 *   Integration of inbound and outbound analytics should allow for unified reporting within the same dashboard, correlating call data across both directions.
 *   Strict adherence to version-specific conventions: never mix version patterns (e.g., do not use `pages/` if App Router is enforced).
+*   When integrating Tanstack React Query with Server Actions, create helper hooks that wrap server actions to provide automatic data fetching, caching, and mutation capabilities.
+*   Server actions should be structured to return properly serializable data structures that can be directly consumed by the Tanstack React Query cache.

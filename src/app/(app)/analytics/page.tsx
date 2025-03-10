@@ -1,11 +1,8 @@
 // src/app/(app)/page.tsx
+import { DashboardStats, DashboardStatsSimple } from "@/components/analytics";
 import { RecentCallsCard } from "@/components/app/call/recent-calls-card";
 import { RecentCampaignsCard } from "@/components/app/campaign/recent-campaigns-card";
 import { UpcomingRunsCard } from "@/components/app/run/upcoming-runs-card";
-import {
-  DashboardStats,
-  DashboardStatsSimple,
-} from "@/components/dashboard-stats";
 import {
   AppBody,
   AppContent,

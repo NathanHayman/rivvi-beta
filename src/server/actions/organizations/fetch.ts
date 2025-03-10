@@ -1,7 +1,7 @@
 // src/actions/organizations/fetch.ts
 "use server";
 
-import { requireAuth, requireOrg } from "@/lib/auth/auth-utils";
+import { requireAuth, requireOrg } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import {
   getMembersSchema,

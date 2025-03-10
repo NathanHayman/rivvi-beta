@@ -1,7 +1,7 @@
 import { CampaignAnalytics } from "@/components/app/campaign/campaign-analytics";
 import { RunCreateFormProps } from "@/components/forms/run-create-form";
 import { AppBreadcrumbs, AppPage } from "@/components/layout/shell";
-import { api } from "@/trpc/server";
+import { getCampaignById } from "@/server/actions/campaigns";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -18,15 +18,19 @@ type PageProps = {
 export default async function CampaignAnalyticsPage({ params }: PageProps) {
   const { campaignId } = await params;
 
-  // Fetch campaign data from the server
-  const campaign = await api.campaigns.getById({ id: campaignId });
+  // Fetch campaign data using server action
+  const campaign = await getCampaignById(campaignId);
+
+  if (!campaign) {
+    throw new Error(`Campaign with ID ${campaignId} not found`);
+  }
 
   const data: RunCreateFormProps = {
     campaignId,
-    campaignBasePrompt: campaign?.template.basePrompt,
-    campaignVoicemailMessage: campaign?.template.voicemailMessage,
-    campaignName: campaign?.name,
-    campaignDescription: campaign?.template.description,
+    campaignBasePrompt: campaign.template?.basePrompt || "",
+    campaignVoicemailMessage: campaign.template?.voicemailMessage || "",
+    campaignName: campaign.campaign.name,
+    campaignDescription: campaign.template?.description || "",
   };
 
   return (
@@ -35,7 +39,7 @@ export default async function CampaignAnalyticsPage({ params }: PageProps) {
         breadcrumbs={[
           { title: "Campaigns", href: "/campaigns" },
           {
-            title: campaign?.name || "Campaign",
+            title: campaign.campaign.name || "Campaign",
             href: `/campaigns/${campaignId}`,
           },
           {

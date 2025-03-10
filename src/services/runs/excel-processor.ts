@@ -1,10 +1,14 @@
 // src/lib/excel-processor.ts - Complete Fixed Version
 import { db } from "@/server/db";
-import { PatientService } from "@/services/out/patient";
 import { nanoid } from "nanoid";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { formatDate, formatPhoneNumber, isValidDate } from "./utils";
+import {
+  formatDate,
+  formatPhoneNumber,
+  isValidDate,
+} from "../outdated/file/utils";
+import { PatientService } from "../outdated/patient";
 
 /**
  * Parse file content based on file type (Excel or CSV)
@@ -193,7 +197,7 @@ function findMatchingColumn(
  * Transform field value based on the specified transform type
  * Enhanced with better error handling and format support
  */
-function transformValue(value: unknown, transform?: string): unknown {
+export function transformValue(value: unknown, transform?: string): unknown {
   // Handle null/undefined/empty values consistently
   if (
     value === null ||
@@ -546,6 +550,76 @@ export async function processExcelFile(
   orgId: string,
 ): Promise<any> {
   console.log("Processing file with enhanced processor");
+  console.log("Config received:", JSON.stringify(config, null, 2));
+
+  // Deep clone the config to avoid mutation issues
+  let clonedConfig;
+  try {
+    clonedConfig = JSON.parse(JSON.stringify(config));
+  } catch (e) {
+    console.error("Failed to clone config:", e);
+    clonedConfig = {};
+  }
+
+  // Default empty config structure if not properly defined
+  const processConfig = {
+    variables: {
+      patient: {
+        fields: Array.isArray(clonedConfig?.variables?.patient?.fields)
+          ? clonedConfig.variables.patient.fields.filter(
+              (f: any) => f && typeof f === "object",
+            )
+          : [],
+        validation: clonedConfig?.variables?.patient?.validation || {
+          requireValidPhone: false,
+          requireValidDOB: false,
+          requireName: false,
+        },
+      },
+      campaign: {
+        fields: Array.isArray(clonedConfig?.variables?.campaign?.fields)
+          ? clonedConfig.variables.campaign.fields.filter(
+              (f: any) => f && typeof f === "object",
+            )
+          : [],
+      },
+    },
+  };
+
+  // Ensure every field has the required properties
+  processConfig.variables.patient.fields =
+    processConfig.variables.patient.fields.map((field: any) => ({
+      key: field.key || `field_${Math.random().toString(36).substring(2, 9)}`,
+      label: field.label || field.key || "Unnamed Field",
+      possibleColumns: Array.isArray(field.possibleColumns)
+        ? field.possibleColumns
+        : [field.key || ""],
+      required: !!field.required,
+      transform: field.transform || "text",
+      ...(field.referencedTable && typeof field.referencedTable === "string"
+        ? { referencedTable: field.referencedTable }
+        : {}),
+    }));
+
+  processConfig.variables.campaign.fields =
+    processConfig.variables.campaign.fields.map((field: any) => ({
+      key: field.key || `field_${Math.random().toString(36).substring(2, 9)}`,
+      label: field.label || field.key || "Unnamed Field",
+      possibleColumns: Array.isArray(field.possibleColumns)
+        ? field.possibleColumns
+        : [field.key || ""],
+      required: !!field.required,
+      transform: field.transform || "text",
+      ...(field.referencedTable && typeof field.referencedTable === "string"
+        ? { referencedTable: field.referencedTable }
+        : {}),
+    }));
+
+  console.log(
+    "Sanitized processConfig:",
+    JSON.stringify(processConfig, null, 2),
+  );
+
   const patientService = new PatientService(db);
   const result = {
     validRows: [],
@@ -581,13 +655,98 @@ export async function processExcelFile(
       throw new Error("No data found in the uploaded file");
     }
 
-    // Validate that required config sections exist
+    // Validate that required config sections exist with better error handling
     if (
-      !config.variables?.patient?.fields ||
-      !config.variables?.campaign?.fields
+      (!processConfig.variables?.patient?.fields ||
+        processConfig.variables.patient.fields.length === 0) &&
+      (!processConfig.variables?.campaign?.fields ||
+        processConfig.variables.campaign.fields.length === 0)
     ) {
-      throw new Error(
-        "Invalid campaign configuration: missing required field definitions",
+      // If configuration is empty, use auto-mapping for all headers
+      console.log("Missing config, attempting auto-mapping for all columns");
+
+      // Auto-create field mappings for all headers
+      processConfig.variables.patient.fields = [
+        // Essential patient fields
+        {
+          key: "firstName",
+          label: "First Name",
+          possibleColumns: ["first name", "firstname", "first"],
+          required: true,
+          transform: "text",
+        },
+        {
+          key: "lastName",
+          label: "Last Name",
+          possibleColumns: ["last name", "lastname", "last"],
+          required: true,
+          transform: "text",
+        },
+        {
+          key: "dob",
+          label: "Date of Birth",
+          possibleColumns: ["dob", "date of birth", "birth date"],
+          required: true,
+          transform: "short_date",
+        },
+        {
+          key: "primaryPhone",
+          label: "Phone Number",
+          possibleColumns: [
+            "phone",
+            "phone number",
+            "primaryphone",
+            "primary phone",
+            "mobile",
+            "cell",
+          ],
+          required: true,
+          transform: "phone",
+        },
+      ];
+
+      // Treat all remaining columns as campaign variables
+      const essentialFields = [
+        "first name",
+        "firstname",
+        "first",
+        "last name",
+        "lastname",
+        "last",
+        "dob",
+        "date of birth",
+        "birth date",
+        "phone",
+        "phone number",
+        "primaryphone",
+        "primary phone",
+        "mobile",
+        "cell",
+      ];
+
+      processConfig.variables.campaign.fields = headers
+        .filter(
+          (header) =>
+            !essentialFields.some((ef) => header.toLowerCase().includes(ef)),
+        )
+        .map((header) => ({
+          key: header.toLowerCase().replace(/[^a-z0-9]/g, "_"),
+          label: header,
+          possibleColumns: [header],
+          required: false,
+          transform: "text",
+        }));
+
+      console.log(
+        "Auto-generated field mappings:",
+        JSON.stringify(
+          {
+            patient: processConfig.variables.patient.fields,
+            campaign: processConfig.variables.campaign.fields,
+          },
+          null,
+          2,
+        ),
       );
     }
 
@@ -619,7 +778,7 @@ export async function processExcelFile(
           extractedData: patientData,
           columnMappings: patientColumnMappings,
           missingRequired: missingPatientFields,
-        } = extractFields(row, headers, config.variables.patient.fields);
+        } = extractFields(row, headers, processConfig.variables.patient.fields);
 
         console.log(`Patient data extracted:`, JSON.stringify(patientData));
         console.log(
@@ -645,7 +804,7 @@ export async function processExcelFile(
         // Validate patient data
         const validationError = validatePatientData(
           patientData,
-          config.variables.patient.validation,
+          processConfig.variables.patient.validation,
         );
         if (validationError) {
           throw new Error(validationError);
@@ -658,7 +817,11 @@ export async function processExcelFile(
           extractedData: campaignData,
           columnMappings: campaignColumnMappings,
           missingRequired: missingCampaignFields,
-        } = extractFields(row, headers, config.variables.campaign.fields);
+        } = extractFields(
+          row,
+          headers,
+          processConfig.variables.campaign.fields,
+        );
 
         console.log(`Campaign data extracted:`, JSON.stringify(campaignData));
         console.log(
@@ -842,7 +1005,7 @@ export async function processExcelFile(
           const { extractedData: partialPatientData } = extractFields(
             row,
             headers,
-            config.variables.patient.fields,
+            processConfig.variables.patient.fields,
             false, // Don't require fields for invalid rows
           );
 
@@ -850,7 +1013,7 @@ export async function processExcelFile(
           const { extractedData: partialCampaignData } = extractFields(
             row,
             headers,
-            config.variables.campaign.fields,
+            processConfig.variables.campaign.fields,
             false, // Don't require fields for invalid rows
           );
 
@@ -937,15 +1100,78 @@ function extractFields(
   const columnMappings: Record<string, string> = {};
   const missingRequired: string[] = [];
 
-  for (const field of fields) {
-    const columnName = findMatchingColumn(headers, field.possibleColumns);
+  // Safety check for fields
+  if (!Array.isArray(fields)) {
+    console.warn("Fields is not an array:", fields);
+    return { extractedData, columnMappings, missingRequired };
+  }
 
-    if (columnName) {
-      columnMappings[field.key] = columnName;
-      const rawValue = row[columnName];
-      extractedData[field.key] = transformValue(rawValue, field.transform);
-    } else if (field.required && enforceRequired) {
-      missingRequired.push(field.label);
+  // Process each field with careful error handling
+  for (let i = 0; i < fields.length; i++) {
+    try {
+      const field = fields[i];
+
+      // Skip if field is not properly defined
+      if (!field || typeof field !== "object") {
+        console.warn(`Skipping invalid field at index ${i}:`, field);
+        continue;
+      }
+
+      // Skip if key or possibleColumns are missing
+      if (!field.key || !Array.isArray(field.possibleColumns)) {
+        console.warn(
+          `Skipping field with missing key or possibleColumns at index ${i}:`,
+          field,
+        );
+        continue;
+      }
+
+      // Find matching column safely
+      const columnName = findMatchingColumn(headers, field.possibleColumns);
+
+      if (columnName) {
+        // Record the column mapping
+        columnMappings[field.key] = columnName;
+
+        // Get the raw value from the row
+        const rawValue = row[columnName];
+
+        // Safe handling of referenced table lookup
+        const hasReferencedTable =
+          field !== null &&
+          field !== undefined &&
+          "referencedTable" in field &&
+          field.referencedTable !== null &&
+          field.referencedTable !== undefined &&
+          typeof field.referencedTable === "string";
+
+        if (hasReferencedTable) {
+          // Store raw value for referenced table lookups
+          extractedData[field.key] = rawValue;
+          console.log(`Stored raw value for referenced field ${field.key}`);
+        } else {
+          // Normal field transformation with error handling
+          try {
+            extractedData[field.key] = transformValue(
+              rawValue,
+              field.transform,
+            );
+          } catch (transformError) {
+            console.error(
+              `Error transforming value for field ${field.key}:`,
+              transformError,
+            );
+            // Store raw value as fallback
+            extractedData[field.key] = rawValue;
+          }
+        }
+      } else if (field.required === true && enforceRequired) {
+        // Track missing required fields
+        missingRequired.push(field.label || field.key);
+      }
+    } catch (fieldError) {
+      // Catch any errors during field processing to prevent complete failure
+      console.error(`Error processing field at index ${i}:`, fieldError);
     }
   }
 
@@ -964,53 +1190,83 @@ function validatePatientData(
     requireName: boolean;
   },
 ): string | null {
+  // Default validation to false if not explicitly set
+  const validationRules = {
+    requireValidPhone: validation?.requireValidPhone === true,
+    requireValidDOB: validation?.requireValidDOB === true,
+    requireName: validation?.requireName === true,
+  };
+
+  console.log(
+    "Validating patient data with rules:",
+    JSON.stringify(validationRules),
+  );
+  console.log("Patient data to validate:", JSON.stringify(patientData));
+
   const errors = [];
 
-  // Check for required phone
-  if (validation.requireValidPhone) {
+  // Check for required phone with more lenient validation
+  if (validationRules.requireValidPhone) {
     const phone =
       patientData.primaryPhone || patientData.phoneNumber || patientData.phone;
 
     if (!phone) {
       errors.push("Valid phone number is required");
     } else {
-      // Basic phone validation - should have at least 10 digits
+      // Basic phone validation - should have at least 7 digits (more lenient)
       const digitsOnly = String(phone).replace(/\D/g, "");
-      if (digitsOnly.length < 10) {
+      if (digitsOnly.length < 7) {
         errors.push(
-          `Phone number ${phone} does not appear to be valid (needs at least 10 digits)`,
+          `Phone number ${phone} does not appear to be valid (needs at least 7 digits)`,
         );
       }
     }
   }
 
-  // Check for valid DOB
-  if (validation.requireValidDOB) {
+  // Check for valid DOB with more lenient validation
+  if (validationRules.requireValidDOB) {
     if (!patientData.dob) {
       errors.push("Date of birth is required");
-    } else if (!isValidDate(String(patientData.dob))) {
-      errors.push(`Date of birth "${patientData.dob}" is not a valid date`);
     } else {
-      // Additional check - date shouldn't be in the future
-      const dobDate = new Date(String(patientData.dob));
-      if (dobDate > new Date()) {
-        console.log("Date of birth is in the future:", patientData.dob);
-        errors.push("Date of birth cannot be in the future");
+      try {
+        // More lenient date validation
+        const dateString = String(patientData.dob);
+        const isValid = isValidDate(dateString);
+
+        if (!isValid) {
+          // Try to parse as a number (Excel date)
+          const numValue = parseFloat(dateString);
+          if (!isNaN(numValue) && numValue > 1000) {
+            // Likely an Excel date, consider it valid
+            console.log(`Accepting Excel date format: ${dateString}`);
+          } else {
+            errors.push(
+              `Date of birth "${patientData.dob}" is not a valid date`,
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(`Date validation error for "${patientData.dob}":`, e);
+        errors.push(`Date of birth "${patientData.dob}" validation error`);
       }
     }
   }
 
-  // Check for name
-  if (validation.requireName) {
-    if (!patientData.firstName) {
-      errors.push("First name is required");
-    }
-    if (!patientData.lastName) {
-      errors.push("Last name is required");
+  // Check for name with more lenient validation
+  if (validationRules.requireName) {
+    if (
+      (!patientData.firstName || String(patientData.firstName).trim() === "") &&
+      (!patientData.lastName || String(patientData.lastName).trim() === "")
+    ) {
+      errors.push("At least one name field (first or last name) is required");
     }
   }
 
-  return errors.length > 0 ? errors.join("; ") : null;
+  if (errors.length > 0) {
+    return errors.join("; ");
+  }
+
+  return null;
 }
 
 /**

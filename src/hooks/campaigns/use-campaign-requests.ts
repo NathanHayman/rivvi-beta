@@ -1,14 +1,15 @@
 // src/hooks/campaigns/use-campaign-requests.ts
 "use client";
 
-import { requestCampaign } from "@/server/actions/campaigns";
+import { getAllCampaignRequests } from "@/server/actions/campaigns";
+import { requestCampaign } from "@/server/actions/campaigns/request";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 export function useCampaignRequests(params = {}) {
   return useQuery({
     queryKey: ["campaign-requests", params],
-    queryFn: () => getCampaignRequestsForOrg(params),
+    queryFn: () => getAllCampaignRequests(),
     staleTime: 60 * 1000,
   });
 }

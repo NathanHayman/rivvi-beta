@@ -93,7 +93,7 @@ export class RunsProcessor {
         batchSize,
         delayMs,
         organization.phone,
-        campaign.template.agentId,
+        campaign.template?.agentId || "",
         maxRetries,
       );
 

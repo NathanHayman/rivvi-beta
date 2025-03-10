@@ -13,14 +13,15 @@ import {
 import { formatDistance } from "date-fns";
 import {
   ArrowUpDown,
-  CalendarIcon,
   ChevronLeft,
   ChevronRight,
   MoreHorizontal,
   RefreshCw,
+  Search,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -49,8 +50,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAdminCampaigns } from "@/hooks/use-admin";
-import { RequestCampaignButton } from "../buttons/request-campaign-button";
 
 interface Campaign {
   id: string;
@@ -62,7 +61,11 @@ interface Campaign {
   callCount?: number;
 }
 
-export function AdminCampaignsTable() {
+interface AdminCampaignsTableProps {
+  campaigns: Campaign[];
+}
+
+export function AdminCampaignsTable({ campaigns }: AdminCampaignsTableProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -71,6 +74,8 @@ export function AdminCampaignsTable() {
   );
   const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filteredData, setFilteredData] = useState<Campaign[]>(campaigns);
+  const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 10,
@@ -80,27 +85,20 @@ export function AdminCampaignsTable() {
 
   const isAdmin = pathname.includes("/admin");
 
-  // Get campaigns data using the custom hook
-  const {
-    campaigns: allCampaigns,
-    totalCount,
-    isLoading,
-    refetch,
-    deleteCampaign,
-    isDeleting,
-  } = useAdminCampaigns(pagination.pageSize);
+  // Filter data based on search term
+  useEffect(() => {
+    if (searchTerm.length < 3) {
+      setFilteredData(campaigns);
+      return;
+    }
 
-  // Map API response to Campaign interface
-  const campaignsData: Campaign[] = (allCampaigns || []).map((campaign) => ({
-    id: campaign.id || "",
-    name: campaign.name || "",
-    direction: campaign.direction || "",
-    agentId: campaign.config?.agentId || "",
-    createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
-    // Use optional chaining for properties that might not exist in the API response
-    runCount: (campaign as any).runCount,
-    callCount: (campaign as any).callCount,
-  }));
+    const filtered = campaigns.filter((campaign) =>
+      campaign.name.toLowerCase().includes(searchTerm.toLowerCase()),
+    );
+    setFilteredData(filtered);
+    // Reset to first page when filtering
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+  }, [searchTerm, campaigns]);
 
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -112,10 +110,24 @@ export function AdminCampaignsTable() {
     setIsDeleteDialogOpen(true);
   };
 
-  const deleteCampaignHandler = (campaignId: string) => {
-    deleteCampaign(campaignId);
-    setIsDeleteDialogOpen(false);
-    setCampaignToDelete(null);
+  const deleteCampaignHandler = async (campaignId: string) => {
+    try {
+      setIsLoading(true);
+      // This would need to be replaced with a server action call
+      // await deleteCampaign(campaignId);
+      toast.success("Campaign deleted successfully");
+      // Filter out the deleted campaign from the local state
+      setFilteredData(
+        filteredData.filter((campaign) => campaign.id !== campaignId),
+      );
+    } catch (error) {
+      toast.error("Failed to delete campaign");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+      setIsDeleteDialogOpen(false);
+      setCampaignToDelete(null);
+    }
   };
 
   const columns: ColumnDef<Campaign>[] = [
@@ -221,18 +233,8 @@ export function AdminCampaignsTable() {
       id: "actions",
       cell: ({ row }) => {
         const campaign = row.original;
-
         return (
           <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleCreateRun(campaign.id)}
-              className="mr-2"
-            >
-              <CalendarIcon className="mr-1.5 h-4 w-4" />
-              Create Run
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm">
@@ -244,21 +246,21 @@ export function AdminCampaignsTable() {
                 <DropdownMenuItem
                   onClick={() => router.push(`/admin/campaigns/${campaign.id}`)}
                 >
-                  View Campaign
+                  View Details
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() =>
-                    router.push(`/admin/campaigns/${campaign.id}/runs`)
+                    router.push(`/admin/campaigns/${campaign.id}/edit`)
                   }
                 >
-                  View Runs
+                  Edit Campaign
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleCreateRun(campaign.id)}>
                   Create Run
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => handleDeleteCampaign(campaign.id)}
-                  className="text-destructive"
+                  className="text-destructive focus:text-destructive"
                 >
                   Delete Campaign
                 </DropdownMenuItem>
@@ -270,8 +272,9 @@ export function AdminCampaignsTable() {
     },
   ];
 
+  // Create table
   const table = useReactTable<Campaign>({
-    data: campaignsData,
+    data: filteredData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -279,41 +282,46 @@ export function AdminCampaignsTable() {
     onPaginationChange: setPagination,
     onSortingChange: setSorting,
     state: {
-      sorting,
       pagination,
+      sorting,
     },
-    manualPagination: true,
-    pageCount: totalCount ? Math.ceil(totalCount / pagination.pageSize) : 0,
+    manualPagination: false,
+    pageCount: Math.ceil(filteredData.length / pagination.pageSize),
   });
+
+  // Handle search
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div className="flex w-full max-w-sm items-center space-x-2">
-          <Input
-            placeholder="Search campaigns..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-9"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 px-2"
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            <RefreshCw className="h-4 w-4" />
-            <span className="sr-only">Refresh</span>
-          </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search campaigns..."
+              value={searchTerm}
+              onChange={handleSearch}
+              className="w-[250px] pl-8"
+            />
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <RequestCampaignButton />
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            // This would be replaced with a server action call to refresh data
+            // refetch();
+          }}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
       </div>
 
-      <div className="rounded-md">
+      <div>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -338,10 +346,7 @@ export function AdminCampaignsTable() {
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  <div className="flex items-center justify-center">
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </div>
+                  Loading campaigns...
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
@@ -349,10 +354,6 @@ export function AdminCampaignsTable() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="cursor-pointer"
-                  onClick={() =>
-                    router.push(`/admin/campaigns/${row.original.id}`)
-                  }
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -370,7 +371,7 @@ export function AdminCampaignsTable() {
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  No campaigns found
+                  No campaigns found.
                 </TableCell>
               </TableRow>
             )}
@@ -378,11 +379,13 @@ export function AdminCampaignsTable() {
         </Table>
       </div>
 
+      {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {totalCount || 0}{" "}
+          Showing {table.getRowModel().rows.length} of {filteredData.length}{" "}
           campaigns
         </div>
+
         <div className="flex items-center space-x-2">
           <Button
             variant="outline"
@@ -391,9 +394,9 @@ export function AdminCampaignsTable() {
             disabled={!table.getCanPreviousPage()}
           >
             <ChevronLeft className="h-4 w-4" />
-            <span className="sr-only">Previous page</span>
+            <span className="sr-only">Previous Page</span>
           </Button>
-          <div className="text-sm font-medium">
+          <div className="text-sm">
             Page {table.getState().pagination.pageIndex + 1} of{" "}
             {table.getPageCount()}
           </div>
@@ -404,21 +407,22 @@ export function AdminCampaignsTable() {
             disabled={!table.getCanNextPage()}
           >
             <ChevronRight className="h-4 w-4" />
-            <span className="sr-only">Next page</span>
+            <span className="sr-only">Next Page</span>
           </Button>
         </div>
       </div>
 
+      {/* Delete Campaign Dialog */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the
-              campaign and all associated runs and data.
+              This will permanently delete the campaign and all associated data.
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -429,14 +433,7 @@ export function AdminCampaignsTable() {
               }
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete"
-              )}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

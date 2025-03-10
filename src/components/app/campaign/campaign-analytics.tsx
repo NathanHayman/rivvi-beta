@@ -14,6 +14,10 @@ import { BarChart } from "@/components/ui/charts/bar-chart";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  useCampaignAnalytics,
+  useGenerateCampaignReport,
+} from "@/hooks/campaigns/use-campaign-analytics";
+import {
   CalendarDays,
   CheckCircle,
   Clock,
@@ -36,23 +40,57 @@ export function CampaignAnalytics({ campaignId }: CampaignAnalyticsProps) {
     "overview",
   );
 
-  // Fetch campaign analytics data
-  const { data, isLoading, error } =
-    api.dashboard.getCampaignAnalytics.useQuery({
-      campaignId,
-    });
+  // Fetch campaign analytics data using the custom hook
+  const { data, isLoading, error } = useCampaignAnalytics(campaignId);
 
-  // Generate report
+  // Generate report using the custom hook
   const { mutate: generateReport, isPending: isGenerating } =
-    api.dashboard.generateReport.useMutation({
+    useGenerateCampaignReport();
+
+  // Handle report generation
+  const handleGenerateReport = () => {
+    generateReport(campaignId, {
       onSuccess: (data) => {
         // Convert to CSV
+        // Create headers from the data structure
+        const headers = ["Metric", "Value"];
+
+        // Create rows from the data
+        const rows = [
+          // Call metrics
+          { Metric: "Total Calls", Value: data.callMetrics.total },
+          { Metric: "Completed Calls", Value: data.callMetrics.completed },
+          { Metric: "Failed Calls", Value: data.callMetrics.failed },
+          { Metric: "Voicemail Calls", Value: data.callMetrics.voicemail },
+          { Metric: "In Progress Calls", Value: data.callMetrics.inProgress },
+          { Metric: "Pending Calls", Value: data.callMetrics.pending },
+          {
+            Metric: "Success Rate",
+            Value: `${(data.callMetrics.successRate * 100).toFixed(2)}%`,
+          },
+
+          // Add conversion metrics
+          ...data.conversionMetrics.flatMap((metric) =>
+            Object.entries(metric.values).map(([key, value]) => ({
+              Metric: `${metric.label} - ${key}`,
+              Value: value,
+            })),
+          ),
+
+          // Add run metrics
+          ...data.runMetrics.map((run) => ({
+            Metric: `Run: ${run.name}`,
+            Value: `${run.completedCalls}/${run.totalCalls} (${(run.conversionRate * 100).toFixed(2)}%)`,
+          })),
+        ];
+
+        // Convert to CSV
         const csvContent = [
-          data.headers.join(","),
-          ...data.rows.map((row) =>
-            data.headers
+          headers.join(","),
+          ...rows.map((row) =>
+            headers
               .map((header) => {
-                const value = row[header];
+                const value = row[header as keyof typeof row];
                 // Handle values that need quotes (strings with commas)
                 return typeof value === "string" && value.includes(",")
                   ? `"${value}"`
@@ -76,6 +114,7 @@ export function CampaignAnalytics({ campaignId }: CampaignAnalyticsProps) {
         document.body.removeChild(link);
       },
     });
+  };
 
   // Format days of week names
   const dayNames = [
@@ -126,12 +165,7 @@ export function CampaignAnalytics({ campaignId }: CampaignAnalyticsProps) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() =>
-              generateReport({
-                reportType: "campaigns",
-                campaignId,
-              })
-            }
+            onClick={handleGenerateReport}
             disabled={isGenerating}
           >
             {isGenerating ? (

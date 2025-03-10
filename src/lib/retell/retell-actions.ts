@@ -387,6 +387,20 @@ export async function updatePromptWithHistory(params: {
   naturalLanguageInput?: string;
   generatedPrompt: string;
   updateRetell?: boolean;
+  suggestedRunName?: string;
+  summary?: string;
+  metadata?: {
+    categories?: string[];
+    tags?: string[];
+    keyChanges?: string[];
+    toneShift?: string;
+    focusArea?: string;
+    promptLength?: {
+      before: number;
+      after: number;
+      difference: number;
+    };
+  };
 }) {
   const {
     campaignId,
@@ -395,6 +409,9 @@ export async function updatePromptWithHistory(params: {
     naturalLanguageInput,
     generatedPrompt,
     updateRetell = true,
+    suggestedRunName = "",
+    summary = "",
+    metadata = {},
   } = params;
 
   try {
@@ -452,16 +469,16 @@ export async function updatePromptWithHistory(params: {
       if (userId) {
         sqlQuery = sql`
           INSERT INTO rivvi_agent_variation 
-          (id, campaign_id, user_input, original_base_prompt, customized_prompt, user_id, created_at) 
+          (id, campaign_id, user_input, original_base_prompt, customized_prompt, user_id, suggested_run_name, change_description, metadata, created_at) 
           VALUES 
-          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, ${userId}, CURRENT_TIMESTAMP)
+          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, ${userId}, ${suggestedRunName}, ${summary}, ${JSON.stringify(metadata)}, CURRENT_TIMESTAMP)
         `;
       } else {
         sqlQuery = sql`
           INSERT INTO rivvi_agent_variation 
-          (id, campaign_id, user_input, original_base_prompt, customized_prompt, created_at) 
+          (id, campaign_id, user_input, original_base_prompt, customized_prompt, suggested_run_name, change_description, metadata, created_at) 
           VALUES 
-          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, CURRENT_TIMESTAMP)
+          (gen_random_uuid(), ${campaignId}, ${naturalLanguageInput}, ${template.basePrompt}, ${generatedPrompt}, ${suggestedRunName}, ${summary}, ${JSON.stringify(metadata)}, CURRENT_TIMESTAMP)
         `;
       }
 
@@ -505,6 +522,18 @@ export async function updatePromptAndVoicemail(params: {
   generatedVoicemail: string;
   suggestedRunName: string;
   summary: string;
+  metadata?: {
+    categories?: string[];
+    tags?: string[];
+    keyChanges?: string[];
+    toneShift?: string;
+    focusArea?: string;
+    promptLength?: {
+      before: number;
+      after: number;
+      difference: number;
+    };
+  };
 }) {
   const {
     campaignId,
@@ -515,6 +544,7 @@ export async function updatePromptAndVoicemail(params: {
     generatedVoicemail,
     summary,
     suggestedRunName,
+    metadata = {},
   } = params;
 
   try {
@@ -606,6 +636,7 @@ export async function updatePromptAndVoicemail(params: {
       ...(suggestedRunName ? { suggestedRunName } : {}),
       ...(summary ? { changeDescription: summary } : {}),
       ...(userId ? { userId } : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     });
 
     return {
@@ -614,6 +645,7 @@ export async function updatePromptAndVoicemail(params: {
       voicemail: generatedVoicemail,
       summary: summary,
       suggestedRunName: suggestedRunName,
+      metadata,
     } as TUpdatePromptAndVoicemailResponse;
   } catch (error) {
     console.error("Error updating prompt and voicemail:", error);
@@ -627,4 +659,16 @@ export type TUpdatePromptAndVoicemailResponse = {
   voicemail: string;
   summary: string;
   suggestedRunName: string;
+  metadata?: {
+    categories?: string[];
+    tags?: string[];
+    keyChanges?: string[];
+    toneShift?: string;
+    focusArea?: string;
+    promptLength?: {
+      before: number;
+      after: number;
+      difference: number;
+    };
+  };
 };

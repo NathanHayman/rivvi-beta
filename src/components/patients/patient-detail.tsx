@@ -12,7 +12,10 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getPatient } from "@/server/actions/patients";
-import { calculateAge, formatPhoneDisplay } from "@/services/out/file/utils";
+import {
+  calculateAge,
+  formatPhoneDisplay,
+} from "@/services/outdated/file/utils";
 import { PatientWithMetadata } from "@/types/api/patients";
 import { format } from "date-fns";
 import {

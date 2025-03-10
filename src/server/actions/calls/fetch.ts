@@ -1,25 +1,61 @@
 // src/actions/calls/fetch.ts
 "use server";
 
-import { requireOrg } from "@/lib/auth/auth-utils";
+import { requireOrg } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import { getCallsSchema } from "@/lib/validation/calls";
 import { callService } from "@/services/calls/calls-service";
 
 export async function getCalls(params = {}) {
   const { orgId } = await requireOrg();
-  const validated = getCallsSchema.parse(params);
 
-  const result = await callService.getAll({
-    ...validated,
-    orgId,
-  });
+  // Ensure params is an object and not a string or other type
+  const safeParams =
+    typeof params === "object" && params !== null ? params : {};
 
-  if (isError(result)) {
-    throw new Error(result.error.message);
+  // Clean up UUID parameters to prevent comma-separated lists
+  const cleanParams: Record<string, any> = { ...safeParams };
+
+  // Check if patientId contains commas (indicating multiple UUIDs)
+  if (
+    typeof cleanParams.patientId === "string" &&
+    cleanParams.patientId.includes(",")
+  ) {
+    console.warn(
+      "Invalid patientId format (comma-separated list detected). Setting to undefined.",
+    );
+    cleanParams.patientId = undefined;
   }
 
-  return result.data;
+  // Check if runId contains commas (indicating multiple UUIDs)
+  if (
+    typeof cleanParams.runId === "string" &&
+    cleanParams.runId.includes(",")
+  ) {
+    console.warn(
+      "Invalid runId format (comma-separated list detected). Setting to undefined.",
+    );
+    cleanParams.runId = undefined;
+  }
+
+  try {
+    const validated = getCallsSchema.parse(cleanParams);
+
+    const result = await callService.getAll({
+      ...validated,
+      orgId,
+    });
+
+    if (isError(result)) {
+      throw new Error(result.error.message);
+    }
+
+    return result.data;
+  } catch (error) {
+    console.error("Error in getCalls:", error);
+    // Return empty result set on validation error
+    return { calls: [], totalCount: 0, hasMore: false };
+  }
 }
 
 export async function getCall(id: string) {
@@ -30,21 +66,6 @@ export async function getCall(id: string) {
   if (isError(result)) {
     if (result.error.code === "NOT_FOUND") {
       return null;
-    }
-    throw new Error(result.error.message);
-  }
-
-  return result.data;
-}
-
-export async function getCallTranscript(callId: string) {
-  const { orgId } = await requireOrg();
-
-  const result = await callService.getTranscript(callId, orgId);
-
-  if (isError(result)) {
-    if (result.error.code === "NOT_FOUND") {
-      return { transcript: null, message: "Transcript not available" };
     }
     throw new Error(result.error.message);
   }

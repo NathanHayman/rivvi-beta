@@ -17,6 +17,7 @@ export const env = createEnv({
     PUSHER_APP_ID: z.string(),
     PUSHER_SECRET: z.string(),
     ANTHROPIC_API_KEY: z.string(),
+    OPENAI_API_KEY: z.string(),
   },
 
   /**
@@ -57,6 +58,7 @@ export const env = createEnv({
     NEXT_PUBLIC_PUSHER_CLUSTER: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

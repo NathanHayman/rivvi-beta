@@ -1,20 +1,12 @@
 import { AdminSidebar } from "@/components/layout/sidebar";
-import { Button } from "@/components/ui/button";
-import { SidebarProvider } from "@/components/ui/sidebar";
-
-import { SidebarInset } from "@/components/ui/sidebar";
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { OrganizationSwitcher } from "@clerk/nextjs";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AdminSidebar>
         <OrganizationSwitcher
-          fallback={
-            <Button variant="outline">
-              <UserButton />
-            </Button>
-          }
           appearance={{
             elements: {
               rootBox:

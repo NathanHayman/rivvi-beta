@@ -1,4 +1,7 @@
-import { OrganizationDetails } from "@/components/app/organization/organization-details";
+import {
+  OrganizationDetails,
+  OrganizationDetailsSkeleton,
+} from "@/components/app/organization/organization-details";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -7,7 +10,7 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { Button } from "@/components/ui/button";
-import { api } from "@/trpc/server";
+import { getOrganization } from "@/server/actions/admin";
 import { Edit, Phone } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -19,13 +22,21 @@ interface PageProps {
   }>;
 }
 
+async function OrganizationDetailsContent({ orgId }: { orgId: string }) {
+  const organization = await getOrganization(orgId);
+
+  if (!organization) {
+    notFound();
+  }
+
+  return <OrganizationDetails organization={organization} />;
+}
+
 export default async function OrganizationDetailsPage({ params }: PageProps) {
   const { orgId } = await params;
   // Fetch the organization by ID
   try {
-    const organization = await api.organizations.getById({
-      id: orgId,
-    });
+    const organization = await getOrganization(orgId);
 
     // If the organization doesn't exist, return 404
     if (!organization) {
@@ -66,8 +77,8 @@ export default async function OrganizationDetailsPage({ params }: PageProps) {
             }
           />
           <AppContent>
-            <Suspense fallback={<div>Loading...</div>}>
-              <OrganizationDetails organizationId={orgId} />
+            <Suspense fallback={<OrganizationDetailsSkeleton />}>
+              <OrganizationDetailsContent orgId={orgId} />
             </Suspense>
           </AppContent>
         </AppBody>

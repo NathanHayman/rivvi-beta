@@ -8,6 +8,10 @@ const isPublicRoute = createRouteMatcher([
   "/waitlist(.*)",
   "/api/webhooks/clerk(.*)",
   "/api/webhooks/retell(.*)",
+  "/api/ai-stream(.*)",
+  "/api/ai(.*)",
+  "/api/ai/playground(.*)",
+  "/api/runs/[runId]/upload(.*)",
 ]);
 
 // Create middleware to check auth and org selection
@@ -19,6 +23,10 @@ export default clerkMiddleware(async (auth, request) => {
 
     // Get user and org IDs
     const { userId, orgId } = await auth();
+
+    if (!userId) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
 
     // Redirect to org selection if user has no active org
     if (userId && !orgId && request.nextUrl.pathname !== "/org-selection") {

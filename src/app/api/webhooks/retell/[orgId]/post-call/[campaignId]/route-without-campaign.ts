@@ -1,5 +1,5 @@
 // src/app/api/webhooks/retell/[orgId]/post-call/route-without-campaign.ts
-import { handlePostCallWebhook } from "@/services/out/call";
+import { handlePostCallWebhook } from "@/lib/retell/webhook-handlers";
 import { RetellPostCallWebhookRaw } from "@/types/retell";
 import { NextResponse } from "next/server";
 

@@ -8,8 +8,28 @@ import {
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { OrganizationsTable } from "@/components/tables/organizations-table";
+import { getOrganizations } from "@/server/actions/admin";
 import { Plus } from "lucide-react";
 import { Suspense } from "react";
+
+async function OrganizationsContent() {
+  const result = await getOrganizations({
+    limit: 50,
+    offset: 0,
+    search: "",
+  });
+
+  if (!result) {
+    return <div>Error</div>;
+  }
+
+  return (
+    <OrganizationsTable
+      organizations={result.organizations}
+      totalCount={result.totalCount}
+    />
+  );
+}
 
 export default async function AdminOrganizationsPage() {
   return (
@@ -29,8 +49,8 @@ export default async function AdminOrganizationsPage() {
           className="mb-4"
         />
         <AppContent className="h-full">
-          <Suspense fallback={<div>Loading...</div>}>
-            <OrganizationsTable />
+          <Suspense fallback={<div>Loading organizations...</div>}>
+            <OrganizationsContent />
           </Suspense>
         </AppContent>
       </AppBody>

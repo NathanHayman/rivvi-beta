@@ -7,10 +7,79 @@ import {
 } from "@/lib/service-result";
 import { type TGetRuns } from "@/lib/validation/runs";
 import { db } from "@/server/db";
-import { campaigns, campaignTemplates, runs } from "@/server/db/schema";
+import {
+  campaigns,
+  campaignTemplates,
+  patients,
+  rows,
+  runs,
+} from "@/server/db/schema";
 import { RunResponse, RunWithCampaign } from "@/types/api/runs";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, like, or } from "drizzle-orm";
 import { RunsProcessor } from "./runs-processor";
+
+// Define the type for getRunRows options
+type GetRunRowsOptions = {
+  runId: string;
+  orgId: string;
+  limit?: number;
+  offset?: number;
+  filter?: string;
+};
+
+// Define the type for the run rows response
+type RunRowsResponse = {
+  rows: Array<{
+    id: string;
+    runId: string;
+    orgId: string;
+    patientId: string | null;
+    variables: Record<string, unknown>;
+    processedVariables?: Record<string, unknown>;
+    analysis?: Record<string, unknown> | null;
+    status: "pending" | "calling" | "completed" | "failed" | "skipped";
+    error?: string | null;
+    retellCallId?: string | null;
+    sortIndex: number;
+    priority?: number;
+    batchEligible?: boolean;
+    retryCount?: number;
+    callAttempts?: number;
+    metadata?: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string | null;
+    patient?: {
+      id: string;
+      patientHash: string;
+      secondaryHash?: string;
+      normalizedPhone?: string;
+      firstName: string;
+      lastName: string;
+      dob: string;
+      isMinor?: boolean;
+      primaryPhone: string;
+      secondaryPhone?: string;
+      externalIds?: Record<string, string>;
+      metadata?: Record<string, unknown>;
+      createdAt: string;
+      updatedAt: string | null;
+    } | null;
+  }>;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    totalItems: number;
+  };
+  counts: {
+    pending: number;
+    calling: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+    total: number;
+  };
+};
 
 export const runService = {
   async getAll(options: TGetRuns): Promise<ServiceResult<RunResponse>> {
@@ -105,6 +174,116 @@ export const runService = {
     } catch (error) {
       console.error("Error fetching run:", error);
       return createError("INTERNAL_ERROR", "Failed to fetch run", error);
+    }
+  },
+
+  async getRunRows(
+    options: GetRunRowsOptions,
+  ): Promise<ServiceResult<RunRowsResponse>> {
+    try {
+      const { runId, orgId, limit = 50, offset = 0, filter } = options;
+
+      // Build the query conditions
+      const conditions = and(eq(rows.runId, runId), eq(rows.orgId, orgId));
+
+      // Add filter if provided
+      let queryConditions = conditions;
+      if (filter) {
+        // We need to join with patients table for filtering
+        const patientConditions = or(
+          like(patients.firstName, `%${filter}%`),
+          like(patients.lastName, `%${filter}%`),
+          like(patients.primaryPhone, `%${filter}%`),
+        );
+        queryConditions = and(conditions, patientConditions);
+      }
+
+      // Get the rows with patient data
+      const rowsData = await db
+        .select({
+          row: rows,
+          patient: patients,
+        })
+        .from(rows)
+        .leftJoin(patients, eq(rows.patientId, patients.id))
+        .where(conditions)
+        .limit(limit)
+        .offset(offset)
+        .orderBy(desc(rows.createdAt));
+
+      // Get total count
+      const [{ value: totalCount }] = await db
+        .select({ value: count() })
+        .from(rows)
+        .where(conditions);
+
+      // Get counts by status
+      const statusCounts = await db
+        .select({
+          status: rows.status,
+          count: count(),
+        })
+        .from(rows)
+        .where(conditions)
+        .groupBy(rows.status);
+
+      // Format the counts
+      const counts = {
+        pending: 0,
+        calling: 0,
+        completed: 0,
+        failed: 0,
+        skipped: 0,
+        total: Number(totalCount),
+      };
+
+      // Update counts based on status
+      statusCounts.forEach((item) => {
+        const status = item.status as keyof typeof counts;
+        if (status in counts) {
+          counts[status] = Number(item.count);
+        }
+      });
+
+      // Format the rows to match the expected type
+      const formattedRows = rowsData.map((row) => {
+        const rowData = {
+          ...row.row,
+          createdAt: row.row.createdAt.toISOString(),
+          updatedAt: row.row.updatedAt?.toISOString(),
+        };
+
+        // Add patient data if available
+        if (row.patient) {
+          return {
+            ...rowData,
+            patient: {
+              ...row.patient,
+              createdAt: row.patient.createdAt.toISOString(),
+              updatedAt: row.patient.updatedAt?.toISOString(),
+            },
+          };
+        }
+
+        return {
+          ...rowData,
+          patient: null,
+        };
+      });
+
+      return createSuccess({
+        rows: formattedRows,
+        pagination: {
+          page: Math.floor(offset / limit) + 1,
+          pageSize: limit,
+          totalPages: Math.ceil(Number(totalCount) / limit),
+          totalItems: Number(totalCount),
+        },
+        counts,
+      });
+    } catch (error) {
+      console.error("Error fetching run rows:", error);
+      return createError("INTERNAL_ERROR", "Failed to fetch run rows", error);
     }
   },
 
@@ -259,7 +438,7 @@ export const runService = {
         return createError("NOT_FOUND", "Campaign not found");
       }
 
-      // Create empty metadata structure
+      // Create base run metadata structure
       const runMetadata = {
         rows: {
           total: 0,
@@ -279,6 +458,7 @@ export const runService = {
         run: {
           createdAt: new Date().toISOString(),
         },
+        // Incorporate new metadata fields from the client
         ...metadata,
       };
 

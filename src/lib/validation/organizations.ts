@@ -1,15 +1,31 @@
 import { z } from "zod";
 
+// Define the office hours schema
+const officeHourSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+});
+
+const officeHoursSchema = z.object({
+  monday: officeHourSchema,
+  tuesday: officeHourSchema,
+  wednesday: officeHourSchema,
+  thursday: officeHourSchema,
+  friday: officeHourSchema,
+  saturday: officeHourSchema.nullable().optional(),
+  sunday: officeHourSchema.nullable().optional(),
+});
+
 /**
  * Update Organization
  */
 const updateOrgSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().min(1).optional(),
-  phone: z.string().optional(),
-  timezone: z.string().optional(),
-  officeHours: z.record(z.any()).optional(),
-  concurrentCallLimit: z.number().min(1).max(100).optional(),
+  name: z.string().min(1, "Organization name is required"),
+  phone: z.string().min(10, "Phone number is required"),
+  timezone: z.string().min(1, "Timezone is required"),
+  concurrentCallLimit: z.number().int().min(1).max(100),
+  officeHours: officeHoursSchema.optional(),
 });
 
 type TUpdateOrg = z.infer<typeof updateOrgSchema>;
@@ -25,4 +41,21 @@ const getMembersSchema = z.object({
 
 type TGetMembers = z.infer<typeof getMembersSchema>;
 
-export { getMembersSchema, updateOrgSchema, type TGetMembers, type TUpdateOrg };
+/**
+ * Invite User to Organization
+ */
+const inviteUserToOrganizationSchema = z.object({
+  emailAddress: z.string().email(),
+  role: z.enum(["member", "admin", "superadmin"]),
+});
+
+type TInviteUserToOrganization = z.infer<typeof inviteUserToOrganizationSchema>;
+
+export {
+  getMembersSchema,
+  inviteUserToOrganizationSchema,
+  updateOrgSchema,
+  type TGetMembers,
+  type TInviteUserToOrganization,
+  type TUpdateOrg,
+};

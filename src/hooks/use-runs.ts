@@ -4,6 +4,7 @@
 import {
   createRun,
   getRun,
+  getRunRows,
   getRuns,
   pauseRun as pauseRunAction,
   startRun as startRunAction,
@@ -320,24 +321,12 @@ export function useRunRows(runId: string) {
       filter,
     ],
     queryFn: async () => {
-      // This is a placeholder until getRunRows is implemented
-      return {
-        rows: [],
-        pagination: {
-          page: pagination.pageIndex + 1,
-          pageSize: pagination.pageSize,
-          totalPages: 0,
-          totalItems: 0,
-        },
-        counts: {
-          pending: 0,
-          calling: 0,
-          completed: 0,
-          failed: 0,
-          skipped: 0,
-          total: 0,
-        },
-      };
+      return getRunRows({
+        runId,
+        limit: pagination.pageSize,
+        offset: pagination.pageIndex * pagination.pageSize,
+        filter,
+      });
     },
   });
 

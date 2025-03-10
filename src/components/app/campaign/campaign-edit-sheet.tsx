@@ -3,33 +3,22 @@
 import { CampaignEditForm } from "@/components/forms/campaign-edit-form";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { TCampaign } from "@/types/db";
+import { ZCampaignWithTemplate } from "@/types/zod";
 import { Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface CampaignEditSheetProps {
-  campaignId: string;
+  campaignData: ZCampaignWithTemplate;
 }
 
-export function CampaignEditSheet({ campaignId }: CampaignEditSheetProps) {
+export function CampaignEditSheet({ campaignData }: CampaignEditSheetProps) {
   const router = useRouter();
-
-  // Fetch campaign data
-  const { data: campaignData, isLoading } = api.campaigns.getById.useQuery(
-    { id: campaignId },
-    { refetchOnWindowFocus: false },
-  );
-
-  if (isLoading || !campaignData) {
-    return null;
-  }
-
-  // Validate that we have all required fields before proceeding
   if (
-    !campaignData.id ||
-    !campaignData.name ||
-    !campaignData.orgId ||
-    !campaignData.template.agentId ||
-    !campaignData.template.basePrompt
+    !campaignData.campaign?.id ||
+    !campaignData.campaign?.name ||
+    !campaignData.campaign?.orgId ||
+    !campaignData.template?.agentId ||
+    !campaignData.template?.basePrompt
   ) {
     console.error("Campaign data is missing required fields", campaignData);
     return null;
@@ -38,10 +27,10 @@ export function CampaignEditSheet({ campaignId }: CampaignEditSheetProps) {
   // Convert date strings to Date objects
   const campaign = {
     ...campaignData,
-    createdAt: new Date(campaignData.createdAt),
-    updatedAt: new Date(campaignData.updatedAt),
+    createdAt: new Date(campaignData.campaign?.createdAt),
+    updatedAt: new Date(campaignData.campaign?.updatedAt),
     // Ensure isActive has a default value
-    isActive: campaignData.isActive ?? true,
+    isActive: campaignData.campaign?.isActive ?? true,
   } as TCampaign;
 
   return (
@@ -53,7 +42,7 @@ export function CampaignEditSheet({ campaignId }: CampaignEditSheetProps) {
       description="Update campaign details and configuration"
       form={
         <CampaignEditForm
-          campaign={campaign}
+          campaign={campaign as any}
           onSuccess={() => {
             router.refresh();
           }}

@@ -65,9 +65,9 @@ export async function handleInboundWebhook(
     const dynamicVariables = {
       // Default variables
       call_direction: "inbound",
-      patient_id: patient?.id || "",
-      first_name: patient?.firstName || "",
-      last_name: patient?.lastName || "",
+      patient_id: patient?.patient.id || "",
+      first_name: patient?.patient.firstName || "",
+      last_name: patient?.patient.lastName || "",
 
       // Flags
       is_known_patient: !!patient,
@@ -77,7 +77,7 @@ export async function handleInboundWebhook(
     // Build metadata for the call
     const metadata = {
       orgId,
-      patientId: patient?.id,
+      patientId: patient?.patient.id,
       campaignId: campaign?.id,
       direction: "inbound",
       fromNumber: from_number,
@@ -85,12 +85,14 @@ export async function handleInboundWebhook(
     };
 
     // If patient found and has had previous calls, include additional info
-    if (patient?.id) {
+    if (patient?.patient.id) {
       // Get recent calls for this patient
       const recentCalls = await db
         .select()
         .from(calls)
-        .where(and(eq(calls.patientId, patient.id), eq(calls.orgId, orgId)))
+        .where(
+          and(eq(calls.patientId, patient.patient.id), eq(calls.orgId, orgId)),
+        )
         .orderBy(desc(calls.createdAt))
         .limit(5);
 
@@ -107,7 +109,7 @@ export async function handleInboundWebhook(
       orgId,
       direction: "inbound",
       status: "in-progress",
-      patientId: patient?.id,
+      patientId: patient?.patient.id,
       campaignId: campaign?.id,
       agentId: agent_id,
       toNumber: to_number,

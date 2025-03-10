@@ -8,7 +8,7 @@ import {
 } from "@/components/layout/shell";
 import { AdminCampaignsTable } from "@/components/tables/admin-campaigns-table";
 import { isError } from "@/lib/service-result";
-import { getAllCampaignsAdmin } from "@/server/actions/campaigns";
+import { getAllCampaignsAdmin } from "@/server/actions/admin";
 import { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -22,14 +22,29 @@ type PageProps = {
   params: Promise<{ orgId: string }>;
 };
 
-export default async function AdminCampaignsPage({ params }: PageProps) {
-  const { orgId } = await params;
-
+async function CampaignsContent() {
   const campaigns = await getAllCampaignsAdmin();
 
   if (isError(campaigns)) {
     return <div>Error: {campaigns.error.message}</div>;
   }
+
+  // Map the campaign data to the expected format
+  const formattedCampaigns = campaigns.data.map((campaign) => ({
+    id: campaign.id || "",
+    name: campaign.name || "",
+    direction: campaign.direction || "",
+    agentId: (campaign as any).config?.agentId || "",
+    createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(),
+    runCount: (campaign as any).runCount || 0,
+    callCount: (campaign as any).callCount || 0,
+  }));
+
+  return <AdminCampaignsTable campaigns={formattedCampaigns} />;
+}
+
+export default async function AdminCampaignsPage({ params }: PageProps) {
+  const { orgId } = await params;
 
   return (
     <AppPage>
@@ -50,8 +65,8 @@ export default async function AdminCampaignsPage({ params }: PageProps) {
           buttons={<CampaignCreateSheet />}
         />
         <AppContent className="">
-          <Suspense fallback={<div>Loading...</div>}>
-            <AdminCampaignsTable />
+          <Suspense fallback={<div>Loading campaigns...</div>}>
+            <CampaignsContent />
           </Suspense>
         </AppContent>
       </AppBody>

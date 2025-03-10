@@ -26,6 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SheetFooter } from "@/components/ui/sheet";
+// Import the server action
+import { updateOrganization } from "@/server/actions/organizations";
 
 // Define timezone options
 export const TIMEZONES = [
@@ -70,6 +73,7 @@ export function CreateOrganizationForm({
   onSuccess,
 }: CreateOrganizationFormProps) {
   const [isFetching, setIsFetching] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form setup
   const form = useForm<OrganizationFormValues>({
@@ -83,23 +87,23 @@ export function CreateOrganizationForm({
     },
   });
 
-  // Create organization mutation
-  const createOrgMutation = api.organizations.create.useMutation({
-    onSuccess: () => {
+  // Handle form submission
+  const onSubmit = async (values: OrganizationFormValues) => {
+    try {
+      setIsSubmitting(true);
+      await updateOrganization(values);
       toast.success("Organization created successfully");
       form.reset();
       if (onSuccess) {
         onSuccess();
       }
-    },
-    onError: (error) => {
-      toast.error(`Error creating organization: ${error.message}`);
-    },
-  });
-
-  // Handle form submission
-  const onSubmit = (values: OrganizationFormValues) => {
-    createOrgMutation.mutate(values);
+    } catch (error) {
+      toast.error(
+        `Error creating organization: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Handle fetching organization from Clerk
@@ -248,13 +252,15 @@ export function CreateOrganizationForm({
                     {...field}
                     onChange={(e) =>
                       field.onChange(
-                        e.target.value ? parseInt(e.target.value) : 0,
+                        e.target.value === ""
+                          ? ""
+                          : parseInt(e.target.value, 10),
                       )
                     }
                   />
                 </FormControl>
                 <FormDescription>
-                  Maximum number of concurrent calls
+                  Maximum number of concurrent calls allowed
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -262,25 +268,14 @@ export function CreateOrganizationForm({
           />
         </div>
 
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange?.(false)}
-          >
-            Cancel
+        <SheetFooter>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            Create Organization
           </Button>
-          <Button type="submit" disabled={createOrgMutation.isPending}>
-            {createOrgMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              "Create Organization"
-            )}
-          </Button>
-        </div>
+        </SheetFooter>
       </form>
     </Form>
   );

@@ -60,8 +60,6 @@ export const analyticsService = {
           completedCalls: Number(completedCallsCount?.value || 0),
           patients: Number(patientsCount?.value || 0),
         },
-        recentRequests: [],
-        topOrganizations: [],
       });
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);

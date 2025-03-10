@@ -92,7 +92,7 @@ const createCampaignSchema = z.object({
   requestId: z.string().uuid().optional(),
   configureWebhooks: z.boolean().default(true),
 });
-type TCreateCampaign = z.infer<typeof createCampaignSchema>;
+type ZCreateCampaign = z.infer<typeof createCampaignSchema>;
 /**
  * Update Campaign
  */
@@ -105,7 +105,7 @@ const updateCampaignSchema = z.object({
   analysisConfig: z.record(z.any()).optional(),
   isActive: z.boolean().optional(),
 });
-type TUpdateCampaign = z.infer<typeof updateCampaignSchema>;
+type ZUpdateCampaign = z.infer<typeof updateCampaignSchema>;
 
 /**
  * Create Campaign Request
@@ -128,25 +128,25 @@ const createCampaignRequestSchema = z.object({
     )
     .optional(),
 });
-type TCreateCampaignRequest = z.infer<typeof createCampaignRequestSchema>;
+type ZCreateCampaignRequest = z.infer<typeof createCampaignRequestSchema>;
 
 /**
  * Process Campaign Request
  */
 const processCampaignRequestSchema = z.object({
   requestId: z.string().uuid(),
-  status: z.enum(["approved", "rejected", "completed"]),
+  status: z.enum(["approved", "rejected", "completed", "in_progress"]),
   adminNotes: z.string().optional(),
   resultingCampaignId: z.string().uuid().optional(),
 });
-type TProcessCampaignRequest = z.infer<typeof processCampaignRequestSchema>;
+type ZProcessCampaignRequest = z.infer<typeof processCampaignRequestSchema>;
 /**
  * Get Campaign
  */
 const getCampaignSchema = z.object({
   id: z.string().uuid(),
 });
-type TGetCampaign = z.infer<typeof getCampaignSchema>;
+type ZGetCampaign = z.infer<typeof getCampaignSchema>;
 
 export {
   createCampaignRequestSchema,
@@ -154,9 +154,9 @@ export {
   getCampaignSchema,
   processCampaignRequestSchema,
   updateCampaignSchema,
-  type TCreateCampaign,
-  type TCreateCampaignRequest,
-  type TGetCampaign,
-  type TProcessCampaignRequest,
-  type TUpdateCampaign,
+  type ZCreateCampaign,
+  type ZCreateCampaignRequest,
+  type ZGetCampaign,
+  type ZProcessCampaignRequest,
+  type ZUpdateCampaign,
 };

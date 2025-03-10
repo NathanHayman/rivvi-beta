@@ -1,9 +1,9 @@
 // src/actions/campaigns/fetch.ts
 "use server";
 
-import { requireOrg, requireSuperAdmin } from "@/lib/auth/auth-utils";
-import { createError, isError, ServiceResult } from "@/lib/service-result";
-import { getCampaignSchema, TGetCampaign } from "@/lib/validation/campaigns";
+import { requireOrg } from "@/lib/auth";
+import { isError, ServiceResult } from "@/lib/service-result";
+import { getCampaignSchema } from "@/lib/validation/campaigns";
 import { campaignsService } from "@/services/campaigns";
 import { ZCampaign, ZCampaignWithTemplate } from "@/types/zod";
 
@@ -41,17 +41,4 @@ export async function getAllCampaignsForOrg(): Promise<
 > {
   const { orgId } = await requireOrg();
   return campaignsService.getAllByOrgId(orgId);
-}
-
-export async function getAllCampaignsAdmin(): Promise<
-  ServiceResult<ZCampaign[]>
-> {
-  const { isSuperAdmin } = await requireSuperAdmin();
-  if (!isSuperAdmin) {
-    return createError(
-      "UNAUTHORIZED",
-      "You are not authorized to access this resource",
-    );
-  }
-  return campaignsService.getAllAdmin();
 }

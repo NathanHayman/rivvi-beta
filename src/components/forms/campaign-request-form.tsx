@@ -31,8 +31,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
-import { SheetFooter } from "../ui/sheet";
 import { TagInput } from "../ui/tag-input";
+// Import server action
+import { useRequestCampaign } from "@/hooks/campaigns/use-campaign-requests";
 
 // Define the form schema using zod
 const campaignRequestSchema = z.object({
@@ -44,6 +45,7 @@ const campaignRequestSchema = z.object({
     .string()
     .min(10, "Description must be at least 10 characters")
     .max(1000, "Description cannot exceed 1000 characters"),
+  direction: z.enum(["inbound", "outbound"]).default("outbound"),
   mainGoal: z
     .string()
     .min(10, "Main goal must be at least 10 characters")
@@ -82,7 +84,7 @@ const formSteps: FormStep[] = [
     id: "basics",
     title: "Campaign Basics",
     description: "Let's start with the basic information about your campaign",
-    fields: ["name", "description"],
+    fields: ["name", "description", "direction"],
   },
   {
     id: "goals",
@@ -113,6 +115,8 @@ export function CampaignRequestForm({
   const [isUploading, setIsUploading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
 
+  const { mutateAsync: submitCampaignRequest } = useRequestCampaign();
+
   // Calculate progress percentage
   const progress = (currentStepIndex / (formSteps.length - 1)) * 100;
 
@@ -122,6 +126,7 @@ export function CampaignRequestForm({
     defaultValues: {
       name: "",
       description: "",
+      direction: "outbound",
       mainGoal: "",
       desiredAnalysis: [],
       exampleSheets: [],
@@ -129,54 +134,43 @@ export function CampaignRequestForm({
     mode: "onChange",
   });
 
-  // Setup the mutation
-  const requestCampaign = api.campaigns.requestCampaign.useMutation({
-    onSuccess: () => {
-      toast.success("Campaign request submitted");
-      form.reset();
-      setIsComplete(true);
-      if (onSuccess) {
-        onSuccess();
-      }
-    },
-    onError: (error: any) => {
-      toast.error("Failed to submit campaign request.");
-    },
-    onSettled: () => {
-      setIsSubmitting(false);
-    },
-  });
-
   // Handle file upload
   const handleFileUpload = async (file: File) => {
     setIsUploading(true);
+    console.log("Starting file upload for:", file.name);
+
     try {
-      // This is a placeholder for your actual file upload implementation
-      // You would typically upload to S3 or another storage service
-      // For now, we'll simulate a successful upload
+      // Get file extension
       const fileType = file.name.split(".").pop() || "";
 
-      // Simulate upload delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const url = `https://example.com/uploads/${file.name}`;
+      console.log("Creating object URL for file");
+      // Create a simple object URL for the file
+      // This keeps the file in memory without needing external storage
+      const url = URL.createObjectURL(file);
+      console.log("Object URL created:", url);
 
       // Get current example sheets
       const currentSheets = form.getValues("exampleSheets") || [];
 
+      console.log("Adding file to form state");
       // Add the new file
       form.setValue("exampleSheets", [
         ...currentSheets,
         {
           name: file.name,
-          url: url,
+          url: url, // This is a browser-generated URL that points to the file in memory
           fileType: fileType,
         },
       ]);
 
-      toast.success(`File ${file.name} uploaded successfully`);
+      // Force form state update
+      form.trigger("exampleSheets");
+
+      toast.success(`File ${file.name} added successfully`);
+      console.log("File added successfully");
     } catch (error) {
-      toast.error("Failed to upload file");
+      toast.error("Failed to add file");
+      console.error("File upload error:", error);
     } finally {
       setIsUploading(false);
     }
@@ -185,14 +179,43 @@ export function CampaignRequestForm({
   // Handle removing a file
   const handleRemoveFile = (index: number) => {
     const currentSheets = form.getValues("exampleSheets") || [];
+
+    // Release the object URL to free memory
+    try {
+      const fileToRemove = currentSheets[index];
+      if (fileToRemove?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(fileToRemove.url);
+      }
+    } catch (error) {
+      console.error("Error releasing object URL:", error);
+    }
+
     const updatedSheets = currentSheets.filter((_, i) => i !== index);
     form.setValue("exampleSheets", updatedSheets);
   };
 
   // Handle form submission
   const onSubmit = async (values: CampaignRequestFormValues) => {
-    setIsSubmitting(true);
-    requestCampaign.mutate(values);
+    try {
+      setIsSubmitting(true);
+
+      // Submit the campaign request with all form values
+      await submitCampaignRequest(values);
+
+      toast.success("Campaign request submitted");
+      form.reset();
+      setIsComplete(true);
+      if (onSuccess) {
+        onSuccess();
+      }
+    } catch (error) {
+      console.error("Submission error:", error);
+      toast.error(
+        `Failed to submit campaign request: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Get current step
@@ -222,15 +245,18 @@ export function CampaignRequestForm({
   const handleNext = async () => {
     const fields = currentStep.fields;
 
+    // If this is the last step (review), just submit the form
+    if (currentStepIndex === formSteps.length - 1) {
+      const values = form.getValues();
+      await onSubmit(values);
+      return;
+    }
+
     // Validate current step fields
     const isValid = await form.trigger(fields as any);
 
     if (isValid) {
-      if (currentStepIndex === formSteps.length - 1) {
-        await form.handleSubmit(onSubmit)();
-      } else {
-        setCurrentStepIndex((prev) => prev + 1);
-      }
+      setCurrentStepIndex((prev) => prev + 1);
     }
   };
 
@@ -248,23 +274,10 @@ export function CampaignRequestForm({
         </div>
         <h2 className="text-2xl font-bold">Request Submitted!</h2>
         <p className="text-center text-muted-foreground">
-          Your campaign request has been submitted successfully. The Rivvi team
-          will review your request and create the campaign for your
-          organization.
+          Your campaign request has been submitted successfully. Our team will
+          review it and get back to you soon.
         </p>
-        <Button
-          className="mt-4"
-          onClick={() => {
-            form.reset();
-            setIsComplete(false);
-            setCurrentStepIndex(0);
-            if (onOpenChange) {
-              onOpenChange(false);
-            }
-          }}
-        >
-          Close
-        </Button>
+        <Button onClick={() => onOpenChange?.(false)}>Close</Button>
       </div>
     );
   }
@@ -273,101 +286,38 @@ export function CampaignRequestForm({
     <div className="flex h-full flex-col">
       {/* Progress indicator */}
       <div className="px-6 pt-6">
-        <CampaignRequestStepHelper
-          progress={progress}
-          formSteps={formSteps}
-          currentStep={currentStep}
-          currentStepIndex={currentStepIndex}
-        />
-        {/* <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium">
-            Step {currentStepIndex + 1} of {formSteps.length}
-          </span>
-          <span className="text-sm text-muted-foreground">
-            {currentStep.title}
-          </span>
-        </div>
-        <Progress value={progress} className="h-2" /> */}
+        <Progress value={progress} className="h-2" />
       </div>
 
+      {/* Step helper */}
+      <CampaignRequestStepHelper
+        progress={progress}
+        formSteps={formSteps}
+        currentStep={currentStep}
+        currentStepIndex={currentStepIndex}
+      />
+
       <Form {...form}>
-        <form
-          className="flex flex-1 flex-col"
-          onSubmit={form.handleSubmit(onSubmit)}
-        >
-          <ScrollArea className="flex-1 px-6 py-4">
-            {/* Step content */}
-            <div className="space-y-6 px-2">
-              {/* Step 1: Basics */}
-              {currentStep.id === "basics" && (
-                <>
+        <form className="flex h-full flex-col">
+          <ScrollArea className="flex-1 px-6">
+            <div className="space-y-6 py-6">
+              {/* Step 1: Campaign Basics */}
+              {currentStepIndex === 0 && (
+                <div className="space-y-4">
                   <FormField
                     control={form.control}
                     name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="">Campaign Name</FormLabel>
+                        <FormLabel>Campaign Name</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="e.g., Annual Wellness Visit Reminders"
-                            {...field}
-                            className="h-10"
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Give your campaign a clear, descriptive name
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Separator className="my-4" />
-
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className=" ">
-                          Campaign Description
-                        </FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Describe the purpose of the campaign, your specific requirements, and any special instructions..."
-                            className="min-h-[120px] resize-none"
+                            placeholder="Enter a descriptive name for your campaign"
                             {...field}
                           />
                         </FormControl>
-                        <FormDescription className="text-xs">
-                          Provide detailed information about your campaign
-                          goals, target audience, and specific requirements
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {/* Step 2: Goals */}
-              {currentStep.id === "goals" && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="mainGoal"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="">Main Goal</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="What is the primary objective of this campaign? What outcomes are you hoping to achieve?"
-                            className="min-h-[120px] resize-none"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Clearly define what success looks like for this
+                        <FormDescription>
+                          Choose a clear name that describes the purpose of this
                           campaign
                         </FormDescription>
                         <FormMessage />
@@ -375,144 +325,232 @@ export function CampaignRequestForm({
                     )}
                   />
 
-                  <Separator className="my-4" />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Campaign Description</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Describe what this campaign is about and its context"
+                            className="min-h-32"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Provide details about the campaign's context, target
+                          audience, and general purpose
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Campaign Direction</FormLabel>
+                        <FormControl>
+                          <div className="flex space-x-4">
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "outbound"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              className="flex-1"
+                              onClick={() => field.onChange("outbound")}
+                            >
+                              Outbound
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "inbound"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              className="flex-1"
+                              onClick={() => field.onChange("inbound")}
+                            >
+                              Inbound
+                            </Button>
+                          </div>
+                        </FormControl>
+                        <FormDescription>
+                          Select whether this is an outbound campaign (system
+                          calls patients) or inbound campaign (patients call the
+                          system)
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* Step 2: Campaign Goals */}
+              {currentStepIndex === 1 && (
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="mainGoal"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Main Goal</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="What is the primary goal of this campaign?"
+                            className="min-h-32"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Clearly state what you want to achieve with this
+                          campaign (e.g., appointment scheduling, medication
+                          adherence reminders, etc.)
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
                   <FormField
                     control={form.control}
                     name="desiredAnalysis"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="">
-                          Desired Analysis/KPIs
-                        </FormLabel>
+                        <FormLabel>Desired Analysis</FormLabel>
                         <FormControl>
                           <TagInput
-                            initialTags={field.value || []}
-                            onTagsChange={(tags) => field.onChange(tags)}
-                            placeholder="Type KPI and press Enter (e.g., conversion rate, call duration)..."
-                            unique={true}
+                            placeholder="Add analysis metrics and press Enter"
+                            onTagsChange={(newTags) => field.onChange(newTags)}
                           />
                         </FormControl>
-                        <FormDescription className="text-xs">
-                          What metrics or KPIs would you like to track for this
-                          campaign?
+                        <FormDescription>
+                          What metrics or insights would you like to analyze
+                          from this campaign? (e.g., response rate, appointment
+                          conversion)
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                </>
+                </div>
               )}
 
-              {/* Step 3: Data */}
-              {currentStep.id === "data" && (
-                <FormField
-                  control={form.control}
-                  name="exampleSheets"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="">Example Data Sheets</FormLabel>
-                      <div className="space-y-3">
-                        {(field.value || []).length > 0 && (
-                          <div className="rounded-md border border-border bg-background p-2">
-                            <div className="flex flex-col gap-2">
-                              {(field.value || []).map((file, index) => (
-                                <div
-                                  key={index}
-                                  className="flex items-center justify-between rounded-md bg-muted/40 p-2"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <FileText className="h-4 w-4 text-muted-foreground" />
-                                    <div className="text-sm font-medium">
-                                      {file.name}
-                                    </div>
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {file.fileType}
-                                    </Badge>
-                                  </div>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleRemoveFile(index)}
-                                    className="h-7 w-7 p-0"
-                                  >
-                                    <X className="h-4 w-4" />
-                                    <span className="sr-only">Remove</span>
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-center rounded-md border border-dashed border-border p-4">
-                          <div className="flex flex-col items-center gap-2">
+              {/* Step 3: Example Data */}
+              {currentStepIndex === 2 && (
+                <div className="space-y-4">
+                  <div className="rounded-md border border-dashed p-6">
+                    <div className="flex flex-col items-center justify-center space-y-2 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                        <Upload className="h-6 w-6 text-primary" />
+                      </div>
+                      <h3 className="text-lg font-medium">
+                        Upload Example Data
+                      </h3>
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Upload example Excel or CSV files that represent the
+                        data you'll use for this campaign. This helps us
+                        understand your data structure.
+                      </p>
+                      <label htmlFor="file-upload" className="cursor-pointer">
+                        <div className="mt-2 flex items-center space-x-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isUploading}
+                          >
                             {isUploading ? (
                               <>
-                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                                <p className="text-sm text-muted-foreground">
-                                  Uploading file...
-                                </p>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Uploading...
                               </>
                             ) : (
                               <>
-                                <Upload className="h-6 w-6 text-muted-foreground" />
-                                <p className="text-sm text-muted-foreground">
-                                  Upload example data sheets
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  (CSV, Excel, etc.)
-                                </p>
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  id="file-upload"
-                                  accept=".csv,.xlsx,.xls"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      handleFileUpload(file);
-                                    }
-                                  }}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="mt-1"
-                                  asChild
-                                >
-                                  <label htmlFor="file-upload">
-                                    Select File
-                                  </label>
-                                </Button>
+                                <Upload className="mr-2 h-4 w-4" />
+                                Select File
                               </>
                             )}
-                          </div>
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            {isUploading
+                              ? "Processing..."
+                              : "Supported formats: .xlsx, .xls, .csv"}
+                          </span>
                         </div>
+                        <input
+                          id="file-upload"
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              handleFileUpload(file);
+                              // Reset input so the same file can be selected again if needed
+                              e.target.value = "";
+                            }
+                          }}
+                          disabled={isUploading}
+                          aria-label="Upload example data file"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Display uploaded files */}
+                  {form.getValues("exampleSheets")?.length ? (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">Uploaded Files</h4>
+                      <div className="space-y-2">
+                        {form
+                          .getValues("exampleSheets")
+                          ?.map((sheet, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center justify-between rounded-md border p-3"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <FileText className="h-5 w-5 text-muted-foreground" />
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {sheet.name}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {sheet.fileType.toUpperCase()} File
+                                  </p>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveFile(index)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
                       </div>
-                      <FormDescription className="text-xs">
-                        Upload example data sheets to help us understand your
-                        data structure
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    </div>
+                  ) : null}
+                </div>
               )}
 
               {/* Step 4: Review */}
-              {currentStep.id === "review" && (
+              {currentStepIndex === 3 && (
                 <div className="space-y-6">
                   <Card>
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="">Campaign Basics</CardTitle>
+                    <CardHeader>
+                      <CardTitle>Campaign Basics</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3 p-4 pt-0">
+                    <CardContent className="space-y-2">
                       <div>
                         <h4 className="text-sm font-medium">Name</h4>
                         <p className="text-sm text-muted-foreground">
@@ -525,14 +563,22 @@ export function CampaignRequestForm({
                           {form.getValues("description")}
                         </p>
                       </div>
+                      <div>
+                        <h4 className="text-sm font-medium">Direction</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {form.getValues("direction") === "outbound"
+                            ? "Outbound (system calls patients)"
+                            : "Inbound (patients call the system)"}
+                        </p>
+                      </div>
                     </CardContent>
                   </Card>
 
                   <Card>
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="">Campaign Goals</CardTitle>
+                    <CardHeader>
+                      <CardTitle>Campaign Goals</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3 p-4 pt-0">
+                    <CardContent className="space-y-2">
                       <div>
                         <h4 className="text-sm font-medium">Main Goal</h4>
                         <p className="text-sm text-muted-foreground">
@@ -541,22 +587,18 @@ export function CampaignRequestForm({
                       </div>
                       <div>
                         <h4 className="text-sm font-medium">
-                          Desired Analysis/KPIs
+                          Desired Analysis
                         </h4>
                         <div className="mt-1 flex flex-wrap gap-2">
-                          {form
-                            .getValues("desiredAnalysis")
-                            ?.map((kpi, index) => (
-                              <Badge
-                                key={index}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {kpi}
+                          {form.getValues("desiredAnalysis")?.length ? (
+                            form.getValues("desiredAnalysis")?.map((tag, i) => (
+                              <Badge key={i} variant="secondary">
+                                {tag}
                               </Badge>
-                            )) || (
+                            ))
+                          ) : (
                             <p className="text-sm text-muted-foreground">
-                              No KPIs specified
+                              No analysis metrics specified
                             </p>
                           )}
                         </div>
@@ -565,54 +607,29 @@ export function CampaignRequestForm({
                   </Card>
 
                   <Card>
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="">Example Data</CardTitle>
+                    <CardHeader>
+                      <CardTitle>Example Data</CardTitle>
                     </CardHeader>
-                    <CardContent className="p-4 pt-0">
-                      <div>
-                        <h4 className="text-sm font-medium">Uploaded Files</h4>
-                        {form.getValues("exampleSheets")?.length ? (
-                          <ul className="mt-2 space-y-1">
-                            {form
-                              .getValues("exampleSheets")
-                              ?.map((file, index) => (
-                                <li
-                                  key={index}
-                                  className="flex items-center gap-2 text-sm text-muted-foreground"
-                                >
-                                  <FileText className="h-3 w-3" />
-                                  {file.name}
-                                  <Badge variant="outline" className="text-xs">
-                                    {file.fileType}
-                                  </Badge>
-                                </li>
-                              ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            No files uploaded
-                          </p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border bg-accent/40 shadow-none">
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="">What happens next?</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-0 text-xs text-muted-foreground">
-                      <p>
-                        After submitting, the Rivvi team will review your
-                        request and create the campaign for your organization.
-                      </p>
-                      <p className="mt-2">
-                        You will be notified when your campaign is ready to use.
-                        Look out for an email from{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-                          hello@rivvi.ai
-                        </code>
-                      </p>
+                    <CardContent>
+                      {form.getValues("exampleSheets")?.length ? (
+                        <div className="space-y-2">
+                          {form
+                            .getValues("exampleSheets")
+                            ?.map((sheet, index) => (
+                              <div
+                                key={index}
+                                className="flex items-center space-x-3"
+                              >
+                                <FileText className="h-5 w-5 text-muted-foreground" />
+                                <p className="text-sm">{sheet.name}</p>
+                              </div>
+                            ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No example files uploaded
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -620,45 +637,41 @@ export function CampaignRequestForm({
             </div>
           </ScrollArea>
 
-          {/* Navigation buttons */}
-          <SheetFooter className="flex w-full items-center justify-between border-t p-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handlePrevious}
-              disabled={currentStepIndex === 0}
-            >
-              <ChevronLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
-            <Button
-              type="button"
-              onClick={handleNext}
-              disabled={!isCurrentStepValid() || isSubmitting}
-            >
-              {currentStepIndex === formSteps.length - 1 ? (
-                isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  "Submit Request"
-                )
-              ) : (
-                <>
-                  Next
+          <div className="border-t p-6">
+            <div className="flex justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePrevious}
+                disabled={currentStepIndex === 0 || isSubmitting}
+              >
+                <ChevronLeft className="mr-2 h-4 w-4" />
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleNext}
+                disabled={!isCurrentStepValid() || isSubmitting}
+              >
+                {isSubmitting && currentStepIndex === formSteps.length - 1 ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {currentStepIndex === formSteps.length - 1
+                  ? "Submit Request"
+                  : "Next"}
+                {currentStepIndex !== formSteps.length - 1 && (
                   <ChevronRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </SheetFooter>
+                )}
+              </Button>
+            </div>
+          </div>
         </form>
       </Form>
     </div>
   );
 }
 
+// Helper component for the step indicator
 const CampaignRequestStepHelper = ({
   progress,
   formSteps,
@@ -671,22 +684,25 @@ const CampaignRequestStepHelper = ({
   currentStepIndex: number;
 }) => {
   return (
-    <div className="relative flex w-full flex-col gap-4 overflow-hidden rounded-xl border border-primary/20 bg-primary/5 p-4">
-      <div className="flex flex-col gap-1.5">
-        <p className="text-base font-medium">
-          {currentStepIndex + 1}) {currentStep.title}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {currentStep.description}
-        </p>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Progress value={progress} className="h-2 bg-primary/20" />
-        <div className="flex items-center justify-end">
-          <p className="text-xs text-muted-foreground">
-            {currentStepIndex + 1} / {formSteps.length}
-          </p>
-        </div>
+    <div className="px-6 pt-4">
+      <h2 className="text-xl font-semibold">{currentStep.title}</h2>
+      <p className="text-sm text-muted-foreground">{currentStep.description}</p>
+
+      <div className="mt-4 flex items-center space-x-1">
+        {formSteps.map((step, index) => (
+          <div key={step.id} className="flex items-center">
+            {index > 0 && <Separator className="w-4" />}
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                index <= currentStepIndex
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-input bg-background"
+              }`}
+            >
+              {index + 1}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

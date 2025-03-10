@@ -1,7 +1,7 @@
 // src/actions/calls/create.ts
 "use server";
 
-import { requireOrg } from "@/lib/auth/auth-utils";
+import { requireOrg } from "@/lib/auth";
 import { isError } from "@/lib/service-result";
 import {
   createManualCallSchema,

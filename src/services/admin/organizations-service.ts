@@ -150,4 +150,25 @@ export const organizationsService = {
       );
     }
   },
+
+  async getById(
+    id: string,
+  ): Promise<ServiceResult<typeof organizations.$inferSelect>> {
+    try {
+      const [organization] = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, id))
+        .limit(1);
+
+      return createSuccess(organization);
+    } catch (error) {
+      console.error("Error fetching organization:", error);
+      return createError(
+        "INTERNAL_ERROR",
+        "Failed to fetch organization",
+        error,
+      );
+    }
+  },
 };

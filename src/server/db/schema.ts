@@ -54,6 +54,7 @@ export const callStatusEnum = pgEnum("call_status", [
 export const campaignRequestStatusEnum = pgEnum("campaign_request_status", [
   "pending",
   "approved",
+  "in_progress",
   "rejected",
   "completed",
 ]);
@@ -89,6 +90,7 @@ export type CallStatus =
 export type CampaignRequestStatus =
   | "pending"
   | "approved"
+  | "in_progress"
   | "rejected"
   | "completed";
 
@@ -351,7 +353,7 @@ export const campaigns = createTable(
   }),
 );
 
-// Agent Variations - unchanged
+// Agent Variations - updated with new columns
 export const agentVariations = createTable(
   "agent_variation",
   {
@@ -368,6 +370,61 @@ export const agentVariations = createTable(
     customizedVoicemailMessage: text("customized_voicemail_message"),
     suggestedRunName: varchar("suggested_run_name", { length: 256 }),
     changeDescription: text("change_description"),
+    metadata: json("metadata").$type<{
+      categories?: string[];
+      tags?: string[];
+      keyChanges?: string[];
+      toneShift?: string;
+      focusArea?: string;
+      promptLength?: {
+        before: number;
+        after: number;
+        difference: number;
+      };
+      changeIntent?: string;
+      sentimentShift?: {
+        before?: string;
+        after?: string;
+      };
+      formalityLevel?: {
+        before?: number;
+        after?: number;
+      };
+      complexityScore?: {
+        before?: number;
+        after?: number;
+      };
+    }>(),
+    comparison: json("comparison").$type<{
+      structuralChanges?: Array<{
+        section?: string;
+        changeType?: "added" | "removed" | "modified" | "unchanged";
+        description?: string;
+      }>;
+      keyPhrases?: {
+        added?: string[];
+        removed?: string[];
+        modified?: Array<{
+          before?: string;
+          after?: string;
+        }>;
+      };
+      performancePrediction?: {
+        expectedImpact?: "positive" | "neutral" | "negative" | "uncertain";
+        confidenceLevel?: number;
+        rationale?: string;
+      };
+    }>(),
+    diffData: json("diff_data").$type<{
+      promptDiff?: Array<{
+        type?: "unchanged" | "added" | "removed";
+        value?: string;
+      }>;
+      voicemailDiff?: Array<{
+        type?: "unchanged" | "added" | "removed";
+        value?: string;
+      }>;
+    }>(),
     userId: uuid("user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -406,11 +463,11 @@ export const runs = createTable(
     aiGenerated: boolean("ai_generated").default(false),
     status: runStatusEnum("status").default("draft").notNull(),
     metadata: json("metadata").$type<{
-      rows: {
+      rows?: {
         total: number;
         invalid: number;
       };
-      calls: {
+      calls?: {
         total: number;
         completed: number;
         failed: number;
@@ -421,7 +478,7 @@ export const runs = createTable(
         connected: number;
         converted: number;
       };
-      run: {
+      run?: {
         error?: string;
         startTime?: string;
         endTime?: string;
@@ -436,6 +493,65 @@ export const runs = createTable(
         maxRetries?: number;
         pausedOutsideHours?: boolean;
         lastCallTime?: string;
+      };
+      // Add new fields for AI-generated metadata
+      summary?: string;
+      metadata?: {
+        categories?: string[];
+        tags?: string[];
+        keyChanges?: string[];
+        toneShift?: string;
+        focusArea?: string;
+        promptLength?: {
+          before: number;
+          after: number;
+          difference: number;
+        };
+        changeIntent?: string;
+        sentimentShift?: {
+          before?: string;
+          after?: string;
+        };
+        formalityLevel?: {
+          before?: number;
+          after?: number;
+        };
+        complexityScore?: {
+          before?: number;
+          after?: number;
+        };
+      };
+      // Add new fields for comparison data
+      comparison?: {
+        structuralChanges?: Array<{
+          section?: string;
+          changeType?: "added" | "removed" | "modified" | "unchanged";
+          description?: string;
+        }>;
+        keyPhrases?: {
+          added?: string[];
+          removed?: string[];
+          modified?: Array<{
+            before?: string;
+            after?: string;
+          }>;
+        };
+        performancePrediction?: {
+          expectedImpact?: "positive" | "neutral" | "negative" | "uncertain";
+          confidenceLevel?: number;
+          rationale?: string;
+        };
+      };
+      // Add new fields for diff data
+      diffData?: {
+        promptDiff?: Array<{
+          type?: "unchanged" | "added" | "removed";
+          value?: string;
+        }>;
+        voicemailDiff?: Array<{
+          type?: "unchanged" | "added" | "removed";
+          value?: string;
+        }>;
       };
     }>(),
     rawFileUrl: varchar("raw_file_url", { length: 512 }),

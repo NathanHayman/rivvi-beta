@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { getPatients } from "@/server/actions/patients";
-import { formatPhoneDisplay } from "@/services/out/file/utils";
+import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import { PatientWithMetadata } from "@/types/api/patients";
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";

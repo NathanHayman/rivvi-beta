@@ -3,7 +3,7 @@
 import {
   RunCreateForm,
   RunCreateFormProps,
-} from "@/components/forms/run-create-form";
+} from "@/components/forms/create-run-form/form";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -633,4 +633,8 @@ export function CampaignDetails({
       /> */}
     </div>
   );
+}
+
+export function CampaignDetailsSkeleton() {
+  return <div>CampaignDetailsSkeleton</div>;
 }

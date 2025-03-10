@@ -1,85 +1,156 @@
-// src/hooks/campaigns/use-campaign.ts
-"use client";
-
-import { Campaign } from "@/components/tables/campaigns-table";
+// src/hooks/campaigns/use-campaigns.ts
+import { isError } from "@/lib/service-result";
 import {
   getAllCampaignsForOrg,
   getCampaignById,
-} from "@/server/actions/campaigns";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
+} from "@/server/actions/campaigns/fetch";
+import { requestCampaign } from "@/server/actions/campaigns/request";
+import { useCallback, useEffect, useState } from "react";
 
-export function useCampaign(id: string | null) {
-  return useQuery({
-    queryKey: ["campaign", id],
-    queryFn: () => (id ? getCampaignById(id) : null),
-    enabled: !!id,
-    staleTime: 30 * 1000,
-  });
-}
+// Define types
+type CampaignHookReturn = {
+  data: any | null;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+};
 
-export function useCampaigns(initialLimit = 10) {
-  const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: initialLimit,
-  });
+type CampaignsHookReturn = {
+  data: any[] | null;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+};
 
-  const query = useQuery({
-    queryKey: ["campaigns", pagination.pageIndex, pagination.pageSize],
-    queryFn: async () => {
-      return getAllCampaignsForOrg();
-    },
-  });
+type RequestCampaignInput = {
+  name: string;
+  description: string;
+  mainGoal?: string;
+  desiredAnalysis?: string[];
+  exampleSheets?: Array<{
+    name: string;
+    url: string;
+    fileType: string;
+  }>;
+  direction?: "inbound" | "outbound";
+};
 
-  // Transform the data to match the Campaign interface
-  const campaigns: Campaign[] = query.data?.success
-    ? query.data.data.map((campaign: any) => ({
-        id: campaign.id || "",
-        name: campaign.name || "",
-        direction: campaign.direction || "",
-        agentId: campaign.template?.agentId || "",
-        createdAt: campaign.createdAt
-          ? new Date(campaign.createdAt)
-          : new Date(),
-        runCount: campaign.runCount || 0,
-        callCount: campaign.callCount || 0,
-      }))
-    : [];
+type RequestCampaignHookReturn = {
+  mutateAsync: (data: RequestCampaignInput) => Promise<any>;
+  isPending: boolean;
+  error: Error | null;
+};
+
+/**
+ * Hook to fetch a single campaign by ID
+ */
+export function useCampaign(campaignId: string | null): CampaignHookReturn {
+  const [data, setData] = useState<any | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(campaignId !== null);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchCampaign = useCallback(async () => {
+    if (!campaignId) {
+      setData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await getCampaignById(campaignId);
+      setData(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err
+          : new Error(`Failed to fetch campaign ${campaignId}`),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [campaignId]);
+
+  useEffect(() => {
+    fetchCampaign();
+  }, [fetchCampaign]);
 
   return {
-    ...query,
-    campaigns,
-    totalCount: campaigns.length,
-    pagination,
-    setPagination,
+    data,
+    isLoading,
+    error,
+    refetch: fetchCampaign,
   };
 }
 
-export function useUpdateCampaign() {
-  const queryClient = useQueryClient();
+/**
+ * Hook to fetch all campaigns for the current organization
+ */
+export function useCampaigns(): CampaignsHookReturn {
+  const [data, setData] = useState<any[] | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
 
-  return useMutation({
-    mutationFn: async (data: { id: string; [key: string]: any }) => {
-      // This is a placeholder until updateCampaign is implemented
-      toast.error("Campaign update not implemented yet");
-      return data;
-    },
-    onSuccess: (data) => {
-      toast.success("Campaign updated successfully");
+  const fetchCampaigns = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
 
-      // Invalidate affected queries
-      queryClient.invalidateQueries({
-        queryKey: ["campaign", data.id],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["campaigns"],
-      });
+    try {
+      const result = await getAllCampaignsForOrg();
+      if (isError(result)) {
+        throw new Error(result.error.message);
+      }
+      setData(result.data);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err : new Error("Failed to fetch campaigns"),
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-      return data;
-    },
-    onError: (error) => {
-      toast.error(`Failed to update campaign: ${error.message}`);
-    },
-  });
+  useEffect(() => {
+    fetchCampaigns();
+  }, [fetchCampaigns]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchCampaigns,
+  };
+}
+
+/**
+ * Hook to request a new campaign
+ */
+export function useRequestCampaign(): RequestCampaignHookReturn {
+  const [isPending, setIsPending] = useState<boolean>(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const mutateAsync = async (data: RequestCampaignInput): Promise<any> => {
+    setIsPending(true);
+    setError(null);
+
+    try {
+      const result = await requestCampaign(data);
+      return result;
+    } catch (err) {
+      const thrownError =
+        err instanceof Error ? err : new Error("Failed to request campaign");
+      setError(thrownError);
+      throw thrownError;
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  return {
+    mutateAsync,
+    isPending,
+    error,
+  };
 }
