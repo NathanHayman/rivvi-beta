@@ -6,23 +6,18 @@ import {
   flexRender,
   getCoreRowModel,
   getPaginationRowModel,
+  SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import {
-  CheckIcon,
-  CircleIcon,
+  ChevronLeft,
+  ChevronRight,
   InfoIcon,
-  Loader2,
-  MoreHorizontal,
   Phone,
-  PhoneIcon,
   RefreshCw,
-  SkipForwardIcon,
   User,
-  XCircle,
-  XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +28,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -48,14 +37,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useRun, useRunRows } from "@/hooks/use-runs";
+import { useRun } from "@/hooks/runs/use-runs";
+import { useRunEvents } from "@/hooks/use-run-events";
 import { cn } from "@/lib/utils";
+import { fetchRunRows } from "@/server/actions/rows";
 import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
 
-// Define the Row type to match what's returned from the API
+// Row type definition based on your DB schema
 type Row = {
   id: string;
   runId: string;
@@ -98,644 +90,870 @@ interface RunRowsTableProps {
 }
 
 export function RunRowsTable({ runId }: RunRowsTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [searchQuery, setSearchQuery] = useState("");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 10,
+  });
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "sortIndex", desc: false },
+  ]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefetching, setIsRefetching] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [totalRows, setTotalRows] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Use the useRun hook to get run details
-  const { run: runData } = useRun(runId);
+  // Get basic run info
+  const { run: runData, isLoading: isRunLoading } = useRun(runId);
 
-  // Get campaign variables from the run's campaign
-  const campaignVariables =
-    runData?.campaign?.config?.variables?.campaign?.fields || [];
-
-  // Get campaign analysis fields and find the main KPI
-  const campaignAnalysisFields =
-    runData?.campaign?.config?.analysis?.campaign?.fields || [];
-  const mainKpiField = campaignAnalysisFields.find((field) => field.isMainKPI);
-
-  // Use the useRunRows hook for better real-time updates
-  const {
-    rows,
-    pagination: paginationData,
-    counts,
-    isLoading,
-    refetch,
-    pageOptions: { pagination, setPagination },
-    filterOptions: { filter, setFilter },
-  } = useRunRows(runId);
-
-  // Define base columns
-  const baseColumns: ColumnDef<Row>[] = [
-    {
-      accessorKey: "patient",
-      header: "Patient",
-      cell: ({ row }) => {
-        const patient = row.original.patient;
-        const variables = row.original.variables || {};
-
-        // Extract patient data from either the patient object or variables
-        const firstName = patient?.firstName || variables.firstName || "";
-        const lastName = patient?.lastName || variables.lastName || "";
-        const phoneNumber =
-          patient?.primaryPhone ||
-          variables.primaryPhone ||
-          variables.phoneNumber ||
-          variables.phone ||
-          "No phone";
-
-        const name =
-          firstName && lastName ? `${firstName} ${lastName}` : "Unknown";
-
-        const initials =
-          firstName && lastName
-            ? `${String(firstName).charAt(0)}${String(lastName).charAt(0)}`
-            : "?";
-
-        // Format the phone number for display
-        const formattedPhone = phoneNumber
-          ? formatPhoneDisplay(String(phoneNumber))
-          : "No phone";
-
-        return (
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="flex cursor-pointer items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback>{initials}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-medium">{name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {formattedPhone}
-                  </div>
-                </div>
-                <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground" />
-              </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium leading-none">Patient Details</h4>
-                  <div className="text-sm text-muted-foreground">
-                    Complete information about this patient.
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <div className="grid grid-cols-3 items-center gap-4">
-                    <span className="text-sm font-medium">Name</span>
-                    <span className="col-span-2 text-sm">{name}</span>
-                  </div>
-                  <div className="grid grid-cols-3 items-center gap-4">
-                    <span className="text-sm font-medium">Phone</span>
-                    <span className="col-span-2 text-sm">{formattedPhone}</span>
-                  </div>
-                  {variables.dob && (
-                    <div className="grid grid-cols-3 items-center gap-4">
-                      <span className="text-sm font-medium">DOB</span>
-                      <span className="col-span-2 text-sm">
-                        {String(variables.dob)}
-                      </span>
-                    </div>
-                  )}
-                  {variables.email && (
-                    <div className="grid grid-cols-3 items-center gap-4">
-                      <span className="text-sm font-medium">Email</span>
-                      <span className="col-span-2 text-sm">
-                        {String(variables.email)}
-                      </span>
-                    </div>
-                  )}
-                  {patient?.id && (
-                    <div className="mt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        asChild
-                        className="w-full"
-                      >
-                        <Link href={`/patients/${patient.id}`}>
-                          <User className="mr-2 h-4 w-4" />
-                          View Patient Profile
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        );
-      },
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.original.status;
-        let label = "Unknown";
-        let variant:
-          | "default"
-          | "destructive"
-          | "outline"
-          | "secondary"
-          | "success_outline"
-          | "success_solid" = "default";
-        let icon = <CircleIcon className="h-3 w-3" />;
-
-        if (status === "pending") {
-          label = "Pending";
-          variant = "outline";
-          icon = <CircleIcon className="h-3 w-3" />;
-        } else if (status === "calling") {
-          label = "Calling";
-          variant = "secondary";
-          icon = <PhoneIcon className="h-3 w-3" />;
-        } else if (status === "completed") {
-          label = "Completed";
-          variant = "success_solid";
-          icon = <CheckIcon className="h-3 w-3" />;
-        } else if (status === "failed") {
-          label = "Failed";
-          variant = "destructive";
-          icon = <XIcon className="h-3 w-3" />;
-        } else if (status === "skipped") {
-          label = "Skipped";
-          variant = "outline";
-          icon = <SkipForwardIcon className="h-3 w-3" />;
-        }
-
-        return (
-          <Badge variant={variant} className="flex w-fit items-center gap-1.5">
-            {icon}
-            {label}
-          </Badge>
-        );
-      },
-    },
-    {
-      accessorKey: "campaignVariables",
-      header: "Campaign Data",
-      cell: ({ row }) => {
-        const variables = row.original.variables || {};
-        const campaignFields =
-          runData?.campaign?.config?.variables?.campaign?.fields || [];
-
-        // Get campaign variable keys from campaign configuration
-        const campaignKeys = campaignFields.map((field) => field.key);
-
-        // Filter variables to only include campaign variables using the campaign configuration
-        let campaignVars = [];
-
-        // If we have campaign keys from the configuration, use them to filter
-        if (campaignKeys.length > 0) {
-          campaignVars = Object.entries(variables).filter(([key]) =>
-            campaignKeys.includes(key),
-          );
-        } else {
-          // Fallback: filter out known patient-related keys
-          const patientKeys = [
-            "firstName",
-            "lastName",
-            "phoneNumber",
-            "primaryPhone",
-            "emrId",
-            "phone",
-            "dob",
-            "email",
-          ];
-          campaignVars = Object.entries(variables).filter(
-            ([key]) => !patientKeys.includes(key),
-          );
-        }
-
-        if (campaignVars.length === 0) {
-          return <span className="text-muted-foreground">No data</span>;
-        }
-
-        // Get a preview of the first few variables
-        const previewVars = campaignVars.slice(0, 2);
-        const hasMore = campaignVars.length > 2;
-
-        return (
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="flex cursor-pointer items-center gap-2">
-                <div>
-                  {previewVars.map(([key, value]) => {
-                    // Find the variable definition to get the label
-                    const varDef =
-                      campaignFields.find((v) => v.key === key) ||
-                      campaignVariables.find((v) => v.key === key);
-                    const label = varDef?.label || key;
-
-                    return (
-                      <div key={key} className="text-sm">
-                        <span className="font-medium">{label}:</span>{" "}
-                        <span>{String(value)}</span>
-                      </div>
-                    );
-                  })}
-                  {hasMore && (
-                    <div className="text-xs text-muted-foreground">
-                      + {campaignVars.length - 2} more fields
-                    </div>
-                  )}
-                </div>
-                <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground" />
-              </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium leading-none">Campaign Data</h4>
-                  <div className="text-sm text-muted-foreground">
-                    Campaign-specific variables for this row.
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  {campaignVars.map(([key, value]) => {
-                    // Find the variable definition to get the label
-                    const varDef =
-                      campaignFields.find((v) => v.key === key) ||
-                      campaignVariables.find((v) => v.key === key);
-                    const label = varDef?.label || key;
-
-                    return (
-                      <div
-                        key={key}
-                        className="grid grid-cols-3 items-center gap-4"
-                      >
-                        <span className="text-sm font-medium">{label}</span>
-                        <span className="col-span-2 text-sm">
-                          {String(value)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        );
-      },
-    },
-  ];
-
-  // Add main KPI column if it exists
-  if (mainKpiField) {
-    baseColumns.push({
-      accessorKey: "mainKpi",
-      header: mainKpiField.label,
-      cell: ({ row }) => {
-        const analysis = row.original.analysis || {};
-        const status = row.getValue("status") as RowStatus;
-
-        if (status === "pending" || status === "calling") {
-          return <span className="text-muted-foreground">Waiting...</span>;
-        }
-
-        if (status === "failed") {
-          return <span className="text-muted-foreground">Failed</span>;
-        }
-
-        if (!analysis) {
-          return <span className="text-muted-foreground">No data</span>;
-        }
-
-        // Get the value from the analysis data
-        const value = analysis[mainKpiField.key];
-
-        if (value === undefined) {
-          return <span>-</span>;
-        }
-
-        // Format the value based on type
-        if (
-          typeof value === "boolean" ||
-          value === "true" ||
-          value === "false"
-        ) {
-          const isPositive = value === true || value === "true";
-          return (
-            <Badge variant={isPositive ? "success_solid" : "neutral_solid"}>
-              {isPositive ? "Yes" : "No"}
-            </Badge>
-          );
-        }
-
-        return <span>{String(value)}</span>;
-      },
-    });
-  } else {
-    // Fallback to scheduled column if no main KPI exists
-    baseColumns.push({
-      accessorKey: "scheduledAt",
-      header: "Scheduled",
-      cell: ({ row }) => {
-        const date = row.original.variables?.scheduledDate;
-        const time = row.original.variables?.scheduledTime;
-
-        return (
-          <div>
-            <div className="font-medium">
-              {date ? String(date) : "Not scheduled"}
-            </div>
-            {time != null && time !== "" && (
-              <div className="text-xs text-muted-foreground">
-                {String(time)}
-              </div>
-            )}
-          </div>
-        );
-      },
-    });
+  // Format variable labels for display
+  function formatVariableLabel(key: string): string {
+    // Convert camelCase to Title Case with spaces
+    return key
+      .replace(/([A-Z])/g, " $1") // Insert a space before all capital letters
+      .replace(/^./, (str) => str.toUpperCase()) // Capitalize the first letter
+      .replace(/_/g, " ") // Replace underscores with spaces
+      .trim();
   }
 
-  // Create outcome and actions columns
-  const outcomeAndActionsColumns: ColumnDef<Row>[] = [
+  // Format variable values for display
+  function formatVariableValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return "—";
+    }
+
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+
+    if (typeof value === "boolean") {
+      return value ? "Yes" : "No";
+    }
+
+    return String(value);
+  }
+
+  // Helper function to get the main campaign variable to display
+  function getCampaignMainVariable(variables: Record<string, unknown>) {
+    // Priority list of variables to check
+    const priorityKeys = [
+      "appointmentType",
+      "appointment_type",
+      "appointmentDateTime",
+      "appointment_date_time",
+      "appointmentDate",
+      "appointment_date",
+      "procedure",
+      "procedureType",
+      "procedure_type",
+      "reason",
+      "reasonForVisit",
+      "reason_for_visit",
+    ];
+
+    // Check if any priority keys exist
+    for (const key of priorityKeys) {
+      if (
+        key in variables &&
+        variables[key] !== undefined &&
+        variables[key] !== null &&
+        variables[key] !== ""
+      ) {
+        return {
+          key,
+          value: `${formatVariableLabel(key)}: ${formatVariableValue(variables[key])}`,
+        };
+      }
+    }
+
+    // If no priority keys found, return the first non-empty field
+    for (const [key, value] of Object.entries(variables)) {
+      if (value !== undefined && value !== null && value !== "") {
+        return {
+          key,
+          value: `${formatVariableLabel(key)}: ${formatVariableValue(value)}`,
+        };
+      }
+    }
+
+    // If no fields found, return default
+    return {
+      key: "",
+      value: "No data",
+    };
+  }
+
+  // Fetch row data from the server - memoize to prevent infinite renders
+  const fetchData = useCallback(
+    async (isInitialLoad = false) => {
+      if (isInitialLoad) {
+        setIsLoading(true);
+      } else {
+        setIsRefetching(true);
+      }
+
+      try {
+        const data = await fetchRunRows({
+          runId,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
+          filter: searchQuery || undefined,
+        });
+
+        setRows((prev) => {
+          // If we have the same number of rows and the same IDs, merge the data instead of replacing
+          if (prev.length === data.rows.length && !isInitialLoad) {
+            return data.rows.map((newRow, index) => {
+              const prevRow = prev.find((r) => r.id === newRow.id);
+              if (prevRow) {
+                // Keep existing row reference if nothing changed to prevent re-renders
+                if (JSON.stringify(prevRow) === JSON.stringify(newRow)) {
+                  return prevRow;
+                }
+                return newRow;
+              }
+              return newRow;
+            });
+          }
+          // Otherwise just replace with the new data
+          return data.rows || [];
+        });
+
+        setTotalRows(data.pagination?.totalItems || 0);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching run rows:", err);
+        setError(
+          err instanceof Error ? err : new Error("Failed to fetch rows"),
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefetching(false);
+      }
+    },
+    [runId, pagination.pageIndex, pagination.pageSize, searchQuery],
+  );
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchData(true);
+  }, [fetchData, refreshKey]);
+
+  // Debounce search query changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchData(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchData]);
+
+  // Memoized event handlers to prevent recreation on each render
+  const handleCallStarted = useCallback((data) => {
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === data.rowId
+          ? {
+              ...row,
+              status: "calling" as RowStatus,
+              retellCallId: data.callId,
+              metadata: {
+                ...row.metadata,
+                lastCallTime: new Date().toISOString(),
+                callDispatched: true,
+              },
+            }
+          : row,
+      ),
+    );
+  }, []);
+
+  const handleCallCompleted = useCallback((data) => {
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === data.rowId
+          ? {
+              ...row,
+              status: data.status as RowStatus,
+              analysis: data.analysis || row.analysis,
+              metadata: {
+                ...row.metadata,
+                ...(data.metadata || {}),
+                completedAt: new Date().toISOString(),
+              },
+            }
+          : row,
+      ),
+    );
+  }, []);
+
+  const handleCallFailed = useCallback((data) => {
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === data.rowId
+          ? {
+              ...row,
+              status: "failed" as RowStatus,
+              error: data.error,
+              metadata: {
+                ...row.metadata,
+                lastError: data.error,
+                lastErrorAt: new Date().toISOString(),
+              },
+            }
+          : row,
+      ),
+    );
+  }, []);
+
+  // Set up real-time updates with Pusher
+  useRunEvents(
+    runId,
     {
-      id: "outcome",
-      header: "Call Outcome",
-      cell: ({ row }) => {
-        const analysis = row.original.analysis;
-        const status = row.getValue("status") as RowStatus;
+      onCallStarted: handleCallStarted,
+      onCallCompleted: handleCallCompleted,
+      onCallFailed: handleCallFailed,
+    },
+    { enabled: !!runId },
+  );
 
-        if (status === "pending" || status === "calling") {
-          return <span className="text-muted-foreground">Waiting...</span>;
-        }
+  // Refresh data periodically as a fallback - but don't re-render the entire table
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      fetchData(false); // Pass false to indicate this is a background refresh
+    }, 30000);
+    return () => clearInterval(refreshInterval);
+  }, [fetchData]);
 
-        if (status === "failed") {
+  // Get campaign variables from the run's campaign
+  const campaignVariables = useMemo(
+    () => runData?.campaign?.config?.variables?.campaign?.fields || [],
+    [runData?.campaign?.config?.variables?.campaign?.fields],
+  );
+
+  // Get campaign analysis fields and find the main KPI
+  const campaignAnalysisFields = useMemo(
+    () => runData?.campaign?.config?.analysis?.campaign?.fields || [],
+    [runData?.campaign?.config?.analysis?.campaign?.fields],
+  );
+
+  const mainKpiField = useMemo(
+    () => campaignAnalysisFields.find((field) => field.isMainKPI),
+    [campaignAnalysisFields],
+  );
+
+  // Define columns with memoization to prevent re-renders
+  const columns = useMemo(() => {
+    const cols: ColumnDef<Row>[] = [
+      {
+        accessorKey: "patient",
+        header: "Patient",
+        size: 220,
+        cell: ({ row }) => {
+          const patient = row.original.patient;
+          const variables = row.original.variables || {};
+
+          // Extract patient data from either the patient object or variables
+          const firstName = patient?.firstName || variables.firstName || "";
+          const lastName = patient?.lastName || variables.lastName || "";
+          const phoneNumber =
+            patient?.primaryPhone ||
+            variables.primaryPhone ||
+            variables.phoneNumber ||
+            variables.phone ||
+            "No phone";
+
+          const name =
+            firstName && lastName ? `${firstName} ${lastName}` : "Unknown";
+
+          const initials =
+            firstName && lastName
+              ? `${String(firstName).charAt(0)}${String(lastName).charAt(0)}`
+              : "?";
+
+          // Format the phone number for display
+          const formattedPhone = phoneNumber
+            ? formatPhoneDisplay(String(phoneNumber))
+            : "No phone";
+
+          return (
+            <div className="flex items-center gap-3">
+              <Avatar className="h-8 w-8 bg-primary/10">
+                <AvatarFallback className="text-sm font-medium text-primary/80">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <div className="font-medium">{name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {formattedPhone}
+                </div>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        size: 120,
+        cell: ({ row }) => {
+          const status = row.getValue("status") as RowStatus;
+
+          // Define status badges
+          const statusMap = {
+            pending: {
+              label: "Pending",
+              className: "bg-gray-100 text-gray-700",
+            },
+            calling: {
+              label: "Calling",
+              className: "bg-orange-100 text-orange-700",
+            },
+            completed: {
+              label: "Completed",
+              className: "bg-green-100 text-green-700",
+            },
+            failed: {
+              label: "Failed",
+              className: "bg-red-100 text-red-700",
+            },
+            skipped: {
+              label: "Skipped",
+              className: "bg-blue-100 text-blue-700",
+            },
+          };
+
+          const statusInfo = statusMap[status] || statusMap.pending;
+
+          // Show animated pulse for calling status
+          const isAnimated = status === "calling";
+
+          return (
+            <Badge
+              variant="outline"
+              className={cn(
+                "rounded-full border-0 px-2.5 py-0.5 font-normal",
+                statusInfo.className,
+                isAnimated && "animate-pulse",
+              )}
+            >
+              {statusInfo.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        accessorKey: "campaignData",
+        header: "Campaign Data",
+        size: 250,
+        cell: ({ row }) => {
+          const variables = row.original.variables || {};
+          const processedVariables = row.original.processedVariables || {};
+
+          // Combine all variables for display
+          const allVariables = { ...variables, ...processedVariables };
+
+          // Find the main campaign variable to display
+          // For example, look for appointment type or other important variable
+          const mainVar = getCampaignMainVariable(allVariables);
+
           return (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 text-red-500">
-                  <XCircle className="mr-1 h-3.5 w-3.5" />
-                  Error
-                </Button>
+                <div className="flex max-w-full cursor-pointer items-center">
+                  <div className="truncate text-sm">{mainVar.value}</div>
+                  <InfoIcon className="ml-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </div>
               </PopoverTrigger>
-              <PopoverContent className="w-80">
-                <div className="grid gap-2">
-                  <h4 className="font-medium">Error Details</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {row.original.error || "Unknown error"}
+              <PopoverContent className="w-96 p-0" align="start">
+                <div className="border-b border-border bg-muted/30 px-4 py-3">
+                  <h4 className="text-sm font-medium">Campaign Variables</h4>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Data variables for this call
                   </p>
+                </div>
+                <div className="max-h-[400px] overflow-y-auto p-4">
+                  {Object.entries(allVariables).length > 0 ? (
+                    <div className="grid gap-2">
+                      {Object.entries(allVariables).map(([key, value]) => (
+                        <div key={key} className="grid grid-cols-3 gap-2 py-1">
+                          <span className="text-sm font-medium">{key}</span>
+                          <span className="col-span-2 break-words text-sm">
+                            {formatVariableValue(value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      No campaign variables available
+                    </div>
+                  )}
                 </div>
               </PopoverContent>
             </Popover>
           );
-        }
+        },
+      },
+      // Add main KPI column or appointment confirmed column
+      mainKpiField
+        ? {
+            accessorKey: "mainKpi",
+            header: "Appt Confirmed",
+            size: 150,
+            cell: ({ row }) => {
+              const analysis = row.original.analysis;
 
-        if (!analysis) {
-          return <span className="text-muted-foreground">No data</span>;
-        }
+              if (!analysis) {
+                return (
+                  <span className="text-sm text-muted-foreground">No data</span>
+                );
+              }
 
-        // Try to find the main KPI in post call data
-        let outcome = "Unknown";
+              // Get the value from the analysis data
+              const value = analysis[mainKpiField.key];
 
-        // Common post-call fields to check
-        const fieldsToCheck = [
-          "appointment_confirmed",
-          "appointmentConfirmed",
-          "patient_reached",
-          "patientReached",
-        ];
+              if (value === undefined) {
+                return <span className="text-sm">-</span>;
+              }
 
-        for (const field of fieldsToCheck) {
-          if (field in analysis) {
-            const value = analysis[field];
-            outcome =
-              typeof value === "boolean"
-                ? value
-                  ? "Yes"
-                  : "No"
-                : String(value);
-            break;
+              // Format the value based on type
+              if (
+                typeof value === "boolean" ||
+                value === "true" ||
+                value === "false"
+              ) {
+                const isPositive = value === true || value === "true";
+                return (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "border-0 font-normal",
+                      isPositive
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 text-gray-700",
+                    )}
+                  >
+                    {isPositive ? "Yes" : "No"}
+                  </Badge>
+                );
+              }
+
+              return <span className="text-sm">{String(value)}</span>;
+            },
           }
-        }
+        : {
+            accessorKey: "appointmentConfirmed",
+            header: "Appt Confirmed",
+            size: 150,
+            cell: () => {
+              return (
+                <span className="text-sm text-muted-foreground">No data</span>
+              );
+            },
+          },
+      {
+        accessorKey: "outcome",
+        header: "Call Outcome",
+        size: 150,
+        cell: ({ row }) => {
+          const analysis = row.original.analysis;
+          const status = row.original.status;
 
-        return <span className="font-medium">{outcome}</span>;
+          if (status === "pending" || status === "calling") {
+            return (
+              <span className="text-sm text-muted-foreground">Waiting...</span>
+            );
+          }
+
+          if (status === "failed") {
+            return (
+              <Badge
+                variant="outline"
+                className="border-0 bg-red-100 font-normal text-red-700"
+              >
+                Failed
+              </Badge>
+            );
+          }
+
+          if (!analysis) {
+            return (
+              <span className="text-sm text-muted-foreground">No data</span>
+            );
+          }
+
+          // Try to find the main outcome
+          let outcomeText = "Unknown";
+
+          // Common post-call fields to check
+          const fieldsToCheck = [
+            "appointment_confirmed",
+            "appointmentConfirmed",
+            "patient_reached",
+            "patientReached",
+            "voicemail_left",
+            "voicemailLeft",
+            "successful",
+            "call_successful",
+          ];
+
+          // Check for boolean outcomes
+          for (const field of fieldsToCheck) {
+            if (field in analysis && typeof analysis[field] !== "undefined") {
+              const value = analysis[field];
+              const isPositive =
+                value === true || value === "true" || value === "yes";
+              outcomeText = isPositive ? "Successful" : "Unsuccessful";
+
+              // If the field is about voicemail, show special outcome
+              if (
+                field.includes("voicemail") &&
+                (value === true || value === "true" || value === "yes")
+              ) {
+                outcomeText = "Voicemail";
+              }
+
+              break;
+            }
+          }
+
+          // Check for string status outcomes
+          if (outcomeText === "Unknown" && "outcome" in analysis) {
+            outcomeText = String(analysis.outcome);
+          }
+
+          // Style the outcome appropriately
+          let badgeClass = "bg-gray-100 text-gray-700";
+
+          if (outcomeText.toLowerCase().includes("success")) {
+            badgeClass = "bg-green-100 text-green-700";
+          } else if (outcomeText.toLowerCase().includes("unsuccess")) {
+            badgeClass = "bg-red-100 text-red-700";
+          } else if (outcomeText.toLowerCase().includes("voicemail")) {
+            badgeClass = "bg-yellow-100 text-yellow-700";
+          }
+
+          return (
+            <Badge
+              variant="outline"
+              className={cn("border-0 font-normal", badgeClass)}
+            >
+              {outcomeText}
+            </Badge>
+          );
+        },
       },
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => {
-        return (
-          <div className="flex items-center justify-end gap-2">
-            {row.original.patientId && (
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/patients/${row.original.patientId}`}>
-                  <User className="h-4 w-4" />
-                  <span className="sr-only">View Patient</span>
-                </Link>
-              </Button>
-            )}
+      {
+        accessorKey: "actions",
+        header: "Actions",
+        size: 160,
+        cell: ({ row }) => {
+          const patientId = row.original.patientId;
+          const rowId = row.original.id;
+          const callId =
+            row.original.metadata?.lastCallId || row.original.retellCallId;
 
-            {row.original.retellCallId && (
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/calls?callId=${row.original.retellCallId}`}>
-                  <Phone className="h-4 w-4" />
-                  <span className="sr-only">View Call</span>
-                </Link>
-              </Button>
-            )}
+          // Create the call details URL - using search params as specified
+          const callDetailsUrl = callId
+            ? `/calls?runId=${runId}&rowId=${rowId}${callId ? `&callId=${callId}` : ""}`
+            : null;
 
-            <Button variant="ghost" size="sm">
-              <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">More</span>
-            </Button>
-          </div>
-        );
+          return (
+            <div className="flex items-center gap-2">
+              {patientId && (
+                <Link href={`/patients/${patientId}`}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                  >
+                    <User className="mr-1.5 h-3.5 w-3.5" />
+                    Patient
+                  </Button>
+                </Link>
+              )}
+              {callDetailsUrl && (
+                <Link href={callDetailsUrl}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                  >
+                    <Phone className="mr-1.5 h-3.5 w-3.5" />
+                    Details
+                  </Button>
+                </Link>
+              )}
+            </div>
+          );
+        },
       },
-    },
-  ];
+    ];
 
-  // Combine all columns
-  const columns: ColumnDef<Row>[] = [
-    ...baseColumns,
-    ...outcomeAndActionsColumns,
-  ];
+    return cols as ColumnDef<Row>[];
+  }, [mainKpiField, runId]);
 
-  // Create a table instance
+  // Memoize pagination state to prevent infinite re-renders
+  const paginationState = useMemo(
+    () => ({
+      pageIndex: pagination.pageIndex,
+      pageSize: pagination.pageSize,
+    }),
+    [pagination.pageIndex, pagination.pageSize],
+  );
+
+  // Memoize pagination handlers
+  const handlePaginationChange = useCallback((updater) => {
+    setPagination(updater);
+  }, []);
+
+  const handlePreviousPage = useCallback(() => {
+    setPagination((prev) => ({
+      ...prev,
+      pageIndex: Math.max(0, prev.pageIndex - 1),
+    }));
+  }, []);
+
+  const handleNextPage = useCallback(() => {
+    setPagination((prev) => ({
+      ...prev,
+      pageIndex: prev.pageIndex + 1,
+    }));
+  }, []);
+
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  const handleRefreshClick = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
+  // Create a table instance with memoized options
   const table = useReactTable({
     data: rows,
-    columns: columns,
+    columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     state: {
-      pagination: {
-        pageIndex: pagination.pageIndex,
-        pageSize: pagination.pageSize,
-      },
+      pagination: paginationState,
     },
-    onPaginationChange: setPagination,
+    onPaginationChange: handlePaginationChange,
     manualPagination: true,
-    pageCount: paginationData?.totalPages || 0,
+    defaultColumn: {
+      size: 150,
+    },
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      {/* Search and refresh controls */}
+      <div className="mb-4 flex items-center justify-between">
         <div className="flex w-full max-w-sm items-center space-x-2">
           <Input
             placeholder="Search rows..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
             className="h-9"
           />
           <Button
             variant="outline"
             size="sm"
-            className="h-9 px-2"
-            onClick={() => {
-              void refetch();
-            }}
+            className="flex aspect-square h-9 items-center justify-center p-0"
+            onClick={handleRefreshClick}
+            disabled={isLoading || isRefetching}
           >
-            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                (isLoading || isRefetching) && "animate-spin",
+              )}
+            />
             <span className="sr-only">Refresh</span>
           </Button>
         </div>
-        <div className="flex items-center space-x-2">
-          <Select
-            value={filter || "all"}
-            onValueChange={(value) =>
-              setFilter(value === "all" ? undefined : value)
-            }
-          >
-            <SelectTrigger className="h-9 w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="calling">Calling</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-              <SelectItem value="skipped">Skipped</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
-      <Table>
-        <TableHeader>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center">
-                <div className="flex items-center justify-center">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading...
-                </div>
-              </TableCell>
-            </TableRow>
-          ) : rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center">
-                No rows found
-              </TableCell>
-            </TableRow>
-          ) : (
-            table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                data-state={row.getIsSelected() && "selected"}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+      {/* Table container with overflow handling */}
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="relative">
+          {/* Table wrapper with controlled overflow */}
+          <div className="w-full overflow-x-auto">
+            <Table className="w-full border-collapse">
+              <TableHeader className="bg-muted/50">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow
+                    key={headerGroup.id}
+                    className="hover:bg-transparent"
+                  >
+                    {headerGroup.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className="h-10 px-4 text-xs font-medium text-muted-foreground"
+                        style={{
+                          width: header.getSize(),
+                          minWidth: header.getSize(),
+                        }}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
                 ))}
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-
-      {paginationData && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            Showing {rows.length} of {paginationData.totalItems} rows
-          </div>
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <p className="text-sm font-medium">Rows per page</p>
-              <Select
-                value={pagination.pageSize.toString()}
-                onValueChange={(value) => {
-                  setPagination({
-                    ...pagination,
-                    pageIndex: 0,
-                    pageSize: Number(value),
-                  });
-                }}
-              >
-                <SelectTrigger className="h-8 w-[70px]">
-                  <SelectValue placeholder={pagination.pageSize.toString()} />
-                </SelectTrigger>
-                <SelectContent>
-                  {[10, 20, 30, 40, 50].map((pageSize) => (
-                    <SelectItem key={pageSize} value={pageSize.toString()}>
-                      {pageSize}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setPagination({
-                    ...pagination,
-                    pageIndex: Math.max(0, pagination.pageIndex - 1),
-                  });
-                }}
-                disabled={pagination.pageIndex === 0}
-              >
-                Previous
-              </Button>
-              <div className="text-sm font-medium">
-                Page {pagination.pageIndex + 1} of{" "}
-                {paginationData.totalPages || 1}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setPagination({
-                    ...pagination,
-                    pageIndex: Math.min(
-                      paginationData.totalPages - 1,
-                      pagination.pageIndex + 1,
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  // Show skeletons during initial loading
+                  Array.from({ length: pagination.pageSize }).map(
+                    (_, index) => (
+                      <TableRow
+                        key={`skeleton-${index}`}
+                        className="hover:bg-muted/30"
+                      >
+                        <TableCell className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="h-8 w-8 rounded-full" />
+                            <div className="space-y-2">
+                              <Skeleton className="h-4 w-24" />
+                              <Skeleton className="h-3 w-16" />
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-6 w-20 rounded-full" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-4 w-36" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-6 w-16" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-6 w-24" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <Skeleton className="h-8 w-20" />
+                            <Skeleton className="h-8 w-20" />
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     ),
-                  });
-                }}
-                disabled={
-                  pagination.pageIndex === paginationData.totalPages - 1 ||
-                  paginationData.totalPages === 0
-                }
+                  )
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columns.length}
+                      className="h-24 text-center"
+                    >
+                      No rows found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id} className="hover:bg-muted/30">
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className="border-b border-border/50 px-4 py-3"
+                          style={{
+                            width: cell.column.getSize(),
+                            minWidth: cell.column.getSize(),
+                          }}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Background refetch indicator */}
+          {isRefetching && !isLoading && (
+            <div className="absolute right-2 top-2">
+              <Badge
+                variant="outline"
+                className="border border-border bg-white"
               >
-                Next
-              </Button>
+                <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                Updating...
+              </Badge>
+            </div>
+          )}
+        </div>
+
+        {/* Pagination footer */}
+        {totalRows > 0 && (
+          <div className="flex items-center justify-between border-t border-border p-4">
+            <div className="text-xs text-muted-foreground">
+              Showing{" "}
+              {Math.min(
+                rows.length,
+                1 + pagination.pageIndex * pagination.pageSize,
+              )}{" "}
+              to{" "}
+              {Math.min(
+                totalRows,
+                (pagination.pageIndex + 1) * pagination.pageSize,
+              )}{" "}
+              of {totalRows} rows
+            </div>
+            <div className="flex items-center">
+              <div className="flex items-center space-x-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePreviousPage}
+                  disabled={
+                    pagination.pageIndex === 0 || isLoading || isRefetching
+                  }
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="mx-2 text-xs font-medium">
+                  Page {pagination.pageIndex + 1} of{" "}
+                  {Math.ceil(totalRows / pagination.pageSize) || 1}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNextPage}
+                  disabled={
+                    pagination.pageIndex ===
+                      Math.ceil(totalRows / pagination.pageSize) - 1 ||
+                    totalRows === 0 ||
+                    isLoading ||
+                    isRefetching
+                  }
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

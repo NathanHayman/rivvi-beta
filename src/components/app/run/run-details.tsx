@@ -2,6 +2,7 @@
 
 // src/components/runs/run-details.tsx
 import { format, formatDistance } from "date-fns";
+import { debounce } from "lodash";
 import {
   BarChart3,
   Calendar,
@@ -16,14 +17,17 @@ import {
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRun, useRunRows } from "@/hooks/use-runs";
+import { useRun } from "@/hooks/runs/use-runs";
+import { useOrganizationEvents } from "@/hooks/use-pusher";
+import { useRunEvents } from "@/hooks/use-run-events";
 import { TCampaign, TRun } from "@/types/db";
 import { RunRowsTable } from "../../tables/run-rows-table";
 
@@ -51,6 +55,10 @@ type RunMetadata = {
     connected: number;
     converted: number;
   };
+  metadata?: VariationMetadataType;
+  comparison?: ComparisonType;
+  summary?: string;
+  diffData?: DiffDataType;
 };
 
 // Define a type for the metadata structure
@@ -478,80 +486,255 @@ function VariationMetadata({
 
 export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [run, setRun] = useState<TRun>(initialRun);
+  const [metrics, setMetrics] = useState<RunMetadata | null>(
+    initialRun.metadata as RunMetadata | null,
+  );
+  const { startRun, pauseRun, isStartingRun, isPausingRun, refetch } = useRun(
+    initialRun.id,
+  );
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const runId = initialRun.id;
+  const orgId = initialRun.orgId;
 
-  // Use the useRun hook for real-time updates and actions
-  const {
-    run: updatedRun,
-    startRun,
-    pauseRun,
-    isStartingRun,
-    isPausingRun,
-  } = useRun(initialRun.id);
+  // Add counts state to replace useRunRows data
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
 
-  // Use the useRunRows hook to get the actual row data
-  const { rows, counts } = useRunRows(initialRun.id);
+  // Add a debounced refresh function to avoid too many refreshes
+  const debouncedRefetch = useCallback(
+    debounce(() => {
+      refetch().finally(() => setIsRefreshing(false));
+    }, 1000),
+    [refetch],
+  );
 
-  // Use the most up-to-date run data, falling back to the initial data if needed
-  const run = updatedRun || initialRun;
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    debouncedRefetch();
+  }, [debouncedRefetch]);
 
-  // Type-safe metadata
-  const metadata = run.metadata as RunMetadata & {
-    summary?: string;
-    metadata?: VariationMetadataType;
-    comparison?: ComparisonType;
-    diffData?: DiffDataType;
-  };
+  // Initialize useCallback for start and pause functions
+  const handleStartRun = useCallback(async () => {
+    const success = await startRun();
+    if (success) {
+      toast.success("Run started successfully");
+      setRun((prev) => ({
+        ...prev,
+        status: "running",
+      }));
+    } else {
+      toast.error("Failed to start run");
+    }
+  }, [startRun]);
 
-  // Extract variation data if available
-  const variationMetadata = metadata?.metadata;
-  const comparisonData = metadata?.comparison;
-  const summaryText = metadata?.summary;
-  const diffData = metadata?.diffData;
+  const handlePauseRun = useCallback(async () => {
+    const success = await pauseRun();
+    if (success) {
+      toast.success("Run paused successfully");
+      setRun((prev) => ({
+        ...prev,
+        status: "paused",
+      }));
+    } else {
+      toast.error("Failed to pause run");
+    }
+  }, [pauseRun]);
 
-  // Optimistic state updates
-  const [optimisticStatus, setOptimisticStatus] = useState<string | null>(null);
+  // Add Pusher event listeners for real-time updates
+  useRunEvents(
+    runId,
+    {
+      onCallStarted: useCallback(
+        (data) => {
+          console.log("Call started:", data);
+          // Use debounced refresh instead of setTimeout
+          handleRefresh();
+        },
+        [handleRefresh],
+      ),
 
-  // Get the actual status (optimistic or real)
-  const status = optimisticStatus || run.status;
+      onCallCompleted: useCallback(
+        (data) => {
+          console.log("Call completed:", data);
+          // Update metrics in real-time
+          if (metrics) {
+            setMetrics((prev) => {
+              if (!prev || !prev.calls) return prev;
+
+              const updatedCalls = { ...prev.calls };
+              // Decrease pending count
+              if (updatedCalls.pending > 0) {
+                updatedCalls.pending -= 1;
+              }
+              // Increase the appropriate status count
+              if (data.status === "completed") {
+                updatedCalls.completed = (updatedCalls.completed || 0) + 1;
+              } else if (data.status === "failed") {
+                updatedCalls.failed = (updatedCalls.failed || 0) + 1;
+              } else if (data.status === "voicemail") {
+                updatedCalls.voicemail = (updatedCalls.voicemail || 0) + 1;
+              }
+
+              return { ...prev, calls: updatedCalls };
+            });
+          }
+
+          // Use debounced refresh
+          handleRefresh();
+        },
+        [handleRefresh, metrics],
+      ),
+
+      onCallFailed: useCallback(
+        (data) => {
+          console.log("Call failed:", data);
+          // Update metrics in real-time using functional update
+          setMetrics((prev) => {
+            if (!prev || !prev.calls) return prev;
+
+            return {
+              ...prev,
+              calls: {
+                ...prev.calls,
+                pending: Math.max(0, prev.calls.pending - 1),
+                failed: (prev.calls.failed || 0) + 1,
+              },
+            };
+          });
+
+          // Use debounced refresh
+          handleRefresh();
+        },
+        [handleRefresh],
+      ),
+
+      onMetricsUpdated: useCallback((data) => {
+        console.log("Metrics updated:", data);
+        // Update metrics from the event data directly
+        setMetrics(data.metrics as unknown as RunMetadata);
+      }, []),
+
+      onRunPaused: useCallback((data) => {
+        console.log("Run paused:", data);
+        // Update run status to paused
+        setRun((prev) => ({
+          ...prev,
+          status: "paused",
+          metadata: {
+            ...prev.metadata,
+            pausedAt: data.pausedAt,
+            pauseReason: data.reason,
+          },
+        }));
+      }, []),
+
+      // Use the properly defined event handler
+      onRunStatusChanged: useCallback((data) => {
+        console.log("Run status changed:", data);
+        setRun((prev) => ({
+          ...prev,
+          status: data.status,
+          updatedAt: new Date(data.updatedAt),
+        }));
+      }, []),
+    },
+    { enabled: !!runId },
+  );
+
+  // Also listen to org-level events
+  useOrganizationEvents(
+    orgId,
+    {
+      onRunUpdated: (data) => {
+        if (data.runId === runId) {
+          console.log("Run updated at org level:", data);
+          // Only update if the status or metadata has changed
+          setRun((prev) => {
+            // Check if data is actually different before updating
+            const statusChanged = prev.status !== data.status;
+            const metadataChanged =
+              data.metadata &&
+              JSON.stringify(prev.metadata) !==
+                JSON.stringify({ ...prev.metadata, ...data.metadata });
+
+            if (statusChanged || metadataChanged) {
+              return {
+                ...prev,
+                status: data.status as TRun["status"],
+                metadata: {
+                  ...prev.metadata,
+                  ...(data.metadata || {}),
+                },
+              };
+            }
+            return prev; // Return unchanged state if nothing has changed
+          });
+        }
+      },
+      onCallUpdated: (data) => {
+        if (data.runId === runId) {
+          console.log("Call updated at org level:", data);
+          // Debounce the refresh to prevent too many API calls
+          setTimeout(handleRefresh, 1000);
+        }
+      },
+    },
+    { enabled: !!orgId },
+  );
 
   // Calculate stats from metadata
-  const totalRows = metadata?.rows?.total || 0;
-  const invalidRows = metadata?.rows?.invalid || 0;
+  const totalRows = metrics?.rows?.total || 0;
+  const invalidRows = metrics?.rows?.invalid || 0;
   const validRows = totalRows - invalidRows;
 
   // Use the actual row counts from the database if available
-  const totalCalls = counts?.total || metadata?.calls?.total || 0;
-  const completedCalls = counts?.completed || metadata?.calls?.completed || 0;
-  const failedCalls = counts?.failed || metadata?.calls?.failed || 0;
-  const callingCalls = counts?.calling || metadata?.calls?.calling || 0;
-  const pendingCalls = counts?.pending || metadata?.calls?.pending || 0;
+  const totalCalls = counts?.total || metrics?.calls?.total || 0;
+  const completedCalls = counts?.completed || metrics?.calls?.completed || 0;
+  const failedCalls = counts?.failed || metrics?.calls?.failed || 0;
+  const callingCalls = counts?.calling || metrics?.calls?.calling || 0;
+  const pendingCalls = counts?.pending || metrics?.calls?.pending || 0;
 
-  // These values might not be in counts, so use metadata
-  const voicemailCalls = metadata?.calls?.voicemail || 0;
-  const connectedCalls = metadata?.calls?.connected || 0;
-  const convertedCalls = metadata?.calls?.converted || 0;
+  // These values might not be in counts, so use metrics
+  const voicemailCalls = metrics?.calls?.voicemail || 0;
+  const connectedCalls = metrics?.calls?.connected || 0;
+  const convertedCalls = metrics?.calls?.converted || 0;
 
   // Update run metadata if counts are available
   useEffect(() => {
     if (counts && JSON.stringify(counts) !== "{}") {
-      // Only update if we have actual counts data
-      const updatedMetadata = {
-        ...metadata,
-        calls: {
-          ...metadata?.calls,
-          total: counts.total,
-          completed: counts.completed,
-          failed: counts.failed,
-          calling: counts.calling,
-          pending: counts.pending,
-          skipped: counts.skipped || 0,
-        },
-      };
+      // Only update if we have actual counts data AND if the values are different
+      const currentCallsTotal = metrics?.calls?.total || 0;
+      const currentCallsCompleted = metrics?.calls?.completed || 0;
+      const currentCallsFailed = metrics?.calls?.failed || 0;
+      const currentCallsCalling = metrics?.calls?.calling || 0;
+      const currentCallsPending = metrics?.calls?.pending || 0;
 
-      // This is just for display purposes, we're not actually updating the database
-      run.metadata = updatedMetadata as typeof run.metadata;
+      // Check if we need to update by comparing with current values
+      if (
+        counts.total !== currentCallsTotal ||
+        counts.completed !== currentCallsCompleted ||
+        counts.failed !== currentCallsFailed ||
+        counts.calling !== currentCallsCalling ||
+        counts.pending !== currentCallsPending
+      ) {
+        // Only update if values have changed
+        const updatedMetrics = {
+          ...metrics,
+          calls: {
+            ...metrics?.calls,
+            total: counts.total,
+            completed: counts.completed,
+            failed: counts.failed,
+            calling: counts.calling,
+            pending: counts.pending,
+          },
+        };
+
+        // Properly update metrics using setState instead of direct mutation
+        setMetrics(updatedMetrics);
+      }
     }
-  }, [counts]);
+  }, [counts]); // Only depend on counts changing
 
   const callProgress =
     totalCalls > 0
@@ -565,34 +748,11 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
 
   // Determine if run is actionable (can be started or paused)
   const canStart =
-    status === "ready" ||
-    status === "paused" ||
-    status === "scheduled" ||
-    status === "draft";
-  const canPause = status === "running";
-
-  // Log the current status and button visibility conditions
-  console.log("Run status:", status);
-  console.log("Can start:", canStart);
-  console.log("Can pause:", canPause);
-
-  // Handle start run
-  const handleStartRun = async () => {
-    setOptimisticStatus("running");
-    const success = await startRun();
-    if (!success) {
-      setOptimisticStatus(null);
-    }
-  };
-
-  // Handle pause run
-  const handlePauseRun = async () => {
-    setOptimisticStatus("paused");
-    const success = await pauseRun();
-    if (!success) {
-      setOptimisticStatus(null);
-    }
-  };
+    run.status === "ready" ||
+    run.status === "paused" ||
+    run.status === "scheduled" ||
+    run.status === "draft";
+  const canPause = run.status === "running";
 
   // Loading state
   const isLoading = isStartingRun || isPausingRun;
@@ -647,11 +807,11 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
             {formatDistance(new Date(run.createdAt), new Date(), {
               addSuffix: true,
             })}
-            {metadata?.run?.startTime && (
+            {metrics?.run?.startTime && (
               <>
                 {" "}
                 • Started{" "}
-                {formatDistance(new Date(metadata.run.startTime), new Date(), {
+                {formatDistance(new Date(metrics.run.startTime), new Date(), {
                   addSuffix: true,
                 })}
               </>
@@ -661,11 +821,11 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
 
         <div className="flex items-center gap-2">
           <Badge
-            variant={getStatusBadgeVariant(status) as any}
+            variant={getStatusBadgeVariant(run.status) as any}
             className="flex items-center gap-1.5"
           >
-            {getStatusIcon(status)}
-            {status.charAt(0).toUpperCase() + status.slice(1)}
+            {getStatusIcon(run.status)}
+            {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
           </Badge>
 
           {/* Always show buttons for debugging */}
@@ -673,7 +833,7 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
             variant="default"
             size="sm"
             onClick={handleStartRun}
-            disabled={isLoading || (!canStart && status !== "draft")}
+            disabled={isLoading || (!canStart && run.status !== "draft")}
           >
             {isLoading && isStartingRun ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -833,15 +993,16 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
                     </div>
                   )}
 
-                  {metadata?.run?.duration !== undefined && (
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm">Run Duration</p>
-                      <p className="text-sm font-medium">
-                        {Math.floor(metadata.run.duration / 60)} min{" "}
-                        {metadata.run.duration % 60} sec
-                      </p>
-                    </div>
-                  )}
+                  {metrics?.run?.duration !== undefined &&
+                    typeof metrics?.run?.duration === "number" && (
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm">Run Duration</p>
+                        <p className="text-sm font-medium">
+                          {Math.floor(metrics.run.duration / 60)} min{" "}
+                          {Math.floor(metrics.run.duration % 60)} sec
+                        </p>
+                      </div>
+                    )}
                 </div>
               </CardContent>
             </Card>
@@ -851,19 +1012,17 @@ export function RunDetails({ run: initialRun, campaign }: RunDetailsProps) {
         <TabsContent value="data">
           <Card>
             <CardContent className="pt-6">
-              <RunRowsTable runId={run.id} />
+              <RunRowsTable runId={initialRun.id} />
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="variation">
           <div>
-            {variationMetadata || comparisonData || summaryText || diffData ? (
+            {metrics?.metadata || metrics?.comparison ? (
               <VariationMetadata
-                metadata={variationMetadata}
-                comparison={comparisonData}
-                summary={summaryText}
-                diffData={diffData}
+                metadata={metrics?.metadata}
+                comparison={metrics?.comparison}
               />
             ) : (
               <Card>

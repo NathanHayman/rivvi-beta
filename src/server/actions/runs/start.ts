@@ -25,7 +25,7 @@ export async function startRun(data: unknown) {
     }
 
     // Revalidate run page
-    revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
+    revalidatePath(`/campaigns/[campaignId]/runs/[runId]`, "page");
 
     return result.data;
   } catch (error) {
@@ -52,7 +52,7 @@ export async function pauseRun(data: unknown) {
     }
 
     // Revalidate run page
-    revalidatePath(`/campaigns/[campaignId]/runs/${runId}`);
+    revalidatePath(`/campaigns/[campaignId]/runs/[runId]`, "page");
 
     return result.data;
   } catch (error) {

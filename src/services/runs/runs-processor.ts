@@ -1,7 +1,13 @@
 // src/services/runs/run-processor.ts
 
-import { triggerEvent } from "@/lib/pusher-server";
+import {
+  triggerEvent,
+  triggerRowStatusUpdate,
+  triggerRunStatusChange,
+  triggerRunUpdate,
+} from "@/lib/pusher-server";
 import { createRetellCall } from "@/lib/retell/retell-client-safe";
+import type { RowStatus } from "@/server/db/schema"; // Import the RowStatus type
 import {
   calls,
   campaignTemplates,
@@ -13,7 +19,7 @@ import {
 import { patientService } from "@/services/patients";
 import { createId } from "@paralleldrive/cuid2";
 import { toZonedTime } from "date-fns-tz";
-import { and, asc, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 
 export class RunProcessor {
   private db;
@@ -179,9 +185,6 @@ export class RunProcessor {
     try {
       console.log(`Starting run ${runId} for org ${orgId}`);
 
-      // Clear any existing schedule
-      this.clearScheduledRun(runId);
-
       // Get run details
       const [run] = await this.db
         .select()
@@ -189,7 +192,12 @@ export class RunProcessor {
         .where(and(eq(runs.id, runId), eq(runs.orgId, orgId)));
 
       if (!run) {
-        throw new Error(`Run ${runId} not found`);
+        throw new Error(`Run ${runId} not found for org ${orgId}`);
+      }
+
+      if (run.status === "completed") {
+        console.log(`Run ${runId} is already completed`);
+        return;
       }
 
       if (run.status === "running") {
@@ -197,39 +205,80 @@ export class RunProcessor {
         return;
       }
 
-      // Check if the run has data to process
-      const [{ value: rowCount }] = await this.db
-        .select({ value: sql`COUNT(*)` })
-        .from(rows)
-        .where(eq(rows.runId, runId));
+      // Get campaign for agent ID
+      const [campaign] = await this.db
+        .select()
+        .from(campaigns)
+        .where(eq(campaigns.id, run.campaignId));
 
-      if (Number(rowCount) === 0) {
-        console.warn(`Run ${runId} has no rows to process`);
+      if (!campaign) {
+        throw new Error(
+          `Campaign ${run.campaignId} not found for run ${runId}`,
+        );
+      }
 
-        // Update run with warning
-        await this.db
-          .update(runs)
-          .set({
-            status: "failed",
-            metadata: {
-              ...run.metadata,
-              run: {
-                ...run.metadata?.run,
-                error: "Run has no data to process",
-                errorTime: new Date().toISOString(),
-              },
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(runs.id, runId));
+      // Get template to access agent ID
+      const [template] = await this.db
+        .select()
+        .from(campaignTemplates)
+        .where(eq(campaignTemplates.id, campaign.templateId));
 
-        await triggerEvent(`org-${orgId}`, "run-updated", {
-          runId,
-          status: "failed",
-          // error: "Run has no data to process",
-        });
+      if (!template) {
+        throw new Error(
+          `Template ${campaign.templateId} not found for campaign ${campaign.id}`,
+        );
+      }
 
-        return;
+      // ENHANCEMENT: Verify webhook configuration for agent
+      try {
+        console.log(
+          `Verifying webhook configuration for agent ${template.agentId}`,
+        );
+
+        // Import Retell client functions
+        const { getAgentComplete, updateAgentWebhooks } = await import(
+          "@/lib/retell/retell-client-safe"
+        );
+
+        // Get the current agent configuration to verify webhooks
+        const agentData = await getAgentComplete(template.agentId);
+
+        // Get base URL for webhooks
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ||
+          process.env.VERCEL_URL ||
+          "http://localhost:3000";
+
+        // Check if webhooks are configured correctly
+        const needsUpdate =
+          !agentData.combined.webhook_url ||
+          !agentData.combined.webhook_url.includes(
+            `/api/webhooks/retell/${orgId}/post-call`,
+          );
+
+        if (needsUpdate) {
+          console.log(`Updating webhook URLs for agent ${template.agentId}`);
+
+          // Update webhooks
+          await updateAgentWebhooks(template.agentId, orgId, campaign.id, {
+            baseUrl,
+            setInbound: true,
+            setPostCall: true,
+          });
+
+          console.log(
+            `Successfully updated webhooks for agent ${template.agentId}`,
+          );
+        } else {
+          console.log(
+            `Webhook URLs are already correctly configured for agent ${template.agentId}`,
+          );
+        }
+      } catch (webhookError) {
+        // Log but don't fail the run
+        console.error(
+          `Warning: Failed to verify webhook configuration: ${webhookError}`,
+        );
       }
 
       // Make sure all rows are in the correct initial state
@@ -280,69 +329,48 @@ export class RunProcessor {
         );
       }
 
-      // Update run status to running with timestamp
-      const startTime = new Date().toISOString();
-      const updatedMetadata = {
-        ...run.metadata,
-        run: {
-          ...(run.metadata?.run || {}),
-          startTime: run.metadata?.run?.startTime || startTime,
-          restartCount: ((run.metadata?.run as any)?.restartCount || 0) + 1,
-          lastStartTime: startTime,
-        },
-      };
-
+      // Update run status to running
       await this.db
         .update(runs)
         .set({
           status: "running",
-          metadata: updatedMetadata,
           updatedAt: new Date(),
+          metadata: {
+            ...run.metadata,
+            run: {
+              ...(run.metadata?.run || {}),
+              startTime: new Date().toISOString(),
+            },
+          },
         })
         .where(eq(runs.id, runId));
 
-      // Send real-time update
-      await triggerEvent(`org-${orgId}`, "run-updated", {
-        runId,
-        status: "running",
-        metadata: updatedMetadata,
-      });
+      // Trigger real-time updates
+      try {
+        // Send both org-level and run-level updates
+        await triggerRunUpdate(orgId, runId, "running", {
+          run: {
+            ...(run.metadata?.run || {}),
+            startTime: new Date().toISOString(),
+          },
+        });
 
-      // Start processing the run
-      this.processRun(runId, orgId).catch((err) => {
-        console.error(`Error processing run ${runId}:`, err);
+        await triggerRunStatusChange(runId, "running");
+        console.log(`Sent real-time updates for run ${runId} start`);
+      } catch (pusherError) {
+        console.error(
+          `Error sending real-time updates for run ${runId}:`,
+          pusherError,
+        );
+        // Continue processing even if Pusher update fails
+      }
+
+      // Process run in the background
+      this.processRun(runId, orgId).catch((error) => {
+        console.error(`Error processing run ${runId}:`, error);
       });
     } catch (error) {
       console.error(`Error starting run ${runId}:`, error);
-
-      // Try to update run status to failed
-      try {
-        await this.db
-          .update(runs)
-          .set({
-            status: "failed",
-            metadata: {
-              run: {
-                error: error instanceof Error ? error.message : String(error),
-                errorTime: new Date().toISOString(),
-              },
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(runs.id, runId));
-
-        await triggerEvent(`org-${orgId}`, "run-updated", {
-          runId,
-          status: "failed",
-          // error: error instanceof Error ? error.message : String(error),
-        });
-      } catch (updateErr) {
-        console.error(
-          `Failed to update run ${runId} status to failed:`,
-          updateErr,
-        );
-      }
-
       throw error;
     }
   }
@@ -518,31 +546,76 @@ export class RunProcessor {
    */
   async markRowAsCalling(row: any) {
     try {
+      console.log(
+        `Attempting to mark row ${row.id} as calling from status: ${row.status}`,
+      );
+
+      // First verify the row is in pending status before attempting update
+      const [currentRow] = await this.db
+        .select()
+        .from(rows)
+        .where(eq(rows.id, row.id));
+
+      if (!currentRow) {
+        console.warn(`Row ${row.id} not found, cannot mark as calling`);
+        return null;
+      }
+
+      if (currentRow.status !== "pending") {
+        console.log(
+          `Row ${row.id} is not in pending state (current: ${currentRow.status}), skipping`,
+        );
+        return null;
+      }
+
       // Simplified atomic update - no transaction needed
       const updatedRows = await this.db
         .update(rows)
         .set({
           status: "calling",
           updatedAt: new Date(),
+          callAttempts: (row.callAttempts || 0) + 1,
           metadata: {
             ...row.metadata,
-            lastProcessAttempt: new Date().toISOString(),
-            processorId: this.processorId,
-            claimedAt: new Date().toISOString(),
+            lastCallTime: new Date().toISOString(),
           },
         })
-        .where(and(eq(rows.id, row.id), eq(rows.status, "pending")))
+        .where(eq(rows.id, row.id))
         .returning();
 
-      if (!updatedRows || updatedRows.length === 0) {
-        console.log(`Row ${row.id} is no longer pending, skipping`);
-        return null;
+      // Send real-time update via Pusher
+      if (updatedRows.length > 0) {
+        const updatedRow = updatedRows[0];
+
+        try {
+          // Trigger row status update event
+          await triggerRowStatusUpdate(
+            updatedRow.runId,
+            updatedRow.id,
+            "calling",
+            {
+              lastCallTime: new Date().toISOString(),
+              callAttempts: updatedRow.callAttempts || 1,
+            },
+          );
+          console.log(`Sent real-time update for row ${updatedRow.id}`);
+        } catch (pusherError) {
+          console.error(
+            `Error sending real-time update for row ${updatedRow.id}:`,
+            pusherError,
+          );
+          // Continue processing even if Pusher update fails
+        }
+
+        return updatedRows[0];
       }
 
-      return updatedRows[0];
-    } catch (error) {
-      console.error(`Failed to mark row ${row.id} as calling:`, error);
+      // If we get here, no rows were updated
+      console.log(`No rows updated for id ${row.id}`);
       return null;
+    } catch (error) {
+      console.error(`Error updating row ${row.id} status:`, error);
+      throw error;
     }
   }
 
@@ -803,7 +876,7 @@ export class RunProcessor {
         console.log(`Starting to process batch of ${pendingRows.length} rows`);
 
         // Track batch success rate for dynamic batch sizing
-        let successfulCalls = 0;
+        let successCount = 0;
         let failedCalls = 0;
 
         for (const row of pendingRows) {
@@ -970,6 +1043,7 @@ export class RunProcessor {
 
             // Create call in Retell with enhanced context and error handling
             console.log(`Starting call to ${phone} for row ${row.id}`);
+
             const retellCall = await createRetellCall({
               toNumber: String(phone),
               fromNumber: organization.phone || "",
@@ -988,23 +1062,150 @@ export class RunProcessor {
             // Update last call time for rate limiting
             this.lastCallTimes.set(runId, Date.now());
 
+            // Log the complete Retell response for diagnostics
+            console.log(
+              `Retell API response for row ${row.id}:`,
+              JSON.stringify(retellCall, null, 2),
+            );
+
             if (!retellCall.ok || !retellCall.call_id) {
-              throw new Error(
-                `Failed to create Retell call: ${retellCall.error || "Unknown error"}`,
+              // If call creation fails, update row status back to pending for retry later
+
+              // Check if there might be a successful call despite the error response
+              // Sometimes the Retell API might return an error but still create the call
+              console.warn(
+                `Call creation reported failure for row ${row.id}, checking if call was actually created...`,
               );
+
+              // Wait a moment to allow any webhook callbacks to arrive
+              await this.delay(3000);
+
+              // Check if we've received any webhooks for this call in the interim
+              // This lookup would need to be implemented based on your webhook handling logic
+              try {
+                const [existingCall] = await this.db
+                  .select()
+                  .from(calls)
+                  .where(
+                    and(
+                      eq(calls.rowId, row.id),
+                      eq(calls.runId, runId),
+                      gt(calls.createdAt, new Date(Date.now() - 60000)), // Created in the last minute
+                    ),
+                  )
+                  .limit(1);
+
+                if (existingCall) {
+                  console.log(
+                    `Found existing call ${existingCall.id} for row ${row.id}, considering call as successful despite error`,
+                  );
+
+                  // Update row with retell call id if present
+                  await this.db
+                    .update(rows)
+                    .set({
+                      status: "calling",
+                      updatedAt: new Date(),
+                      callAttempts: (row.callAttempts || 0) + 1,
+                      retellCallId: existingCall.retellCallId,
+                      metadata: {
+                        ...row.metadata,
+                        lastCallTime: new Date().toISOString(),
+                        retellCallId: existingCall.retellCallId,
+                        callDispatched: true,
+                        dispatchedAt: new Date().toISOString(),
+                        retellError:
+                          retellCall.error ||
+                          "Unknown error but call was created",
+                      },
+                    })
+                    .where(eq(rows.id, row.id));
+
+                  // Continue with next row since we found a successful call
+                  successCount++;
+                  continue;
+                }
+              } catch (checkError) {
+                console.error(
+                  `Error checking for existing call for row ${row.id}:`,
+                  checkError,
+                );
+                // Fall through to standard error handling
+              }
+
+              // Standard error handling if we didn't find an existing call
+              await this.db
+                .update(rows)
+                .set({
+                  status: "pending", // Reset to pending so it can be retried
+                  updatedAt: new Date(),
+                  metadata: {
+                    ...row.metadata,
+                    lastError: `Failed to create Retell call: ${retellCall.error || "Unknown error"}`,
+                    lastErrorAt: new Date().toISOString(),
+                  },
+                })
+                .where(eq(rows.id, row.id));
+
+              console.error(
+                `Error dispatching call for row ${row.id}: Failed to create Retell call: ${retellCall.error || "Unknown error"}`,
+              );
+              continue; // Skip to next row instead of throwing, which would stop the entire process
             }
 
             console.log(`Retell call created with ID: ${retellCall.call_id}`);
 
-            // Update row with call ID
-            await this.db
+            // Make sure row status remains as "calling" and update with retellCallId
+            const updatedRowResult = await this.db
               .update(rows)
               .set({
+                status: "calling", // Explicitly ensure status is "calling"
                 retellCallId: retellCall.call_id,
                 updatedAt: new Date(),
                 callAttempts: (row.callAttempts || 0) + 1,
+                metadata: {
+                  ...row.metadata,
+                  lastCallTime: new Date().toISOString(),
+                  retellCallId: retellCall.call_id,
+                  callDispatched: true, // Flag to indicate call was dispatched
+                  dispatchedAt: new Date().toISOString(),
+                },
               })
-              .where(eq(rows.id, row.id));
+              .where(eq(rows.id, row.id))
+              .returning();
+
+            // Verify row update was successful
+            if (!updatedRowResult || updatedRowResult.length === 0) {
+              console.warn(
+                `Failed to update row ${row.id} status after dispatching call. This may cause duplicate calls.`,
+              );
+
+              // Force re-update as last resort
+              try {
+                await this.db
+                  .update(rows)
+                  .set({
+                    status: "calling",
+                    updatedAt: new Date(),
+                    metadata: {
+                      ...row.metadata,
+                      forceUpdated: true,
+                      forceUpdatedAt: new Date().toISOString(),
+                      retellCallId: retellCall.call_id,
+                    },
+                  })
+                  .where(eq(rows.id, row.id));
+              } catch (finalError) {
+                console.error(
+                  `Critical: Failed to force-update row ${row.id} status:`,
+                  finalError,
+                );
+              }
+            } else {
+              console.log(
+                `Successfully updated row ${row.id} to "calling" state with Retell call ID ${retellCall.call_id}`,
+              );
+            }
 
             // Create call record with enhanced tracking
             const [newCall] = await this.db
@@ -1070,7 +1271,7 @@ export class RunProcessor {
             );
 
             // Track batch success for dynamic sizing
-            successfulCalls++;
+            successCount++;
             consecutiveErrors = 0;
           } catch (error) {
             console.error(`Error dispatching call for row ${row.id}:`, error);
@@ -1172,7 +1373,7 @@ export class RunProcessor {
 
         // After batch processing, adjust batch size based on success rate
         if (pendingRows.length > 0) {
-          const successRate = successfulCalls / pendingRows.length;
+          const successRate = successCount / pendingRows.length;
 
           if (successRate >= 0.9) {
             // If 90%+ success, consider increasing batch size
@@ -1194,6 +1395,34 @@ export class RunProcessor {
         if (Date.now() - lastStuckRowCheck > 60000) {
           await this.checkForStuckRows(runId);
           lastStuckRowCheck = Date.now();
+        }
+
+        // Monitor calls in progress to detect webhook failures
+        await this.monitorCallsInProgress(runId);
+
+        // Check if run is complete
+        const [{ value: activeRowCount }] = await this.db
+          .select({
+            value: sql`COUNT(*)`,
+          })
+          .from(rows)
+          .where(
+            and(
+              eq(rows.runId, runId),
+              or(eq(rows.status, "pending"), eq(rows.status, "calling")),
+            ),
+          );
+
+        const pendingRowCount = Number(activeRowCount);
+        console.log(
+          `No remaining rows, completing run ${runId} with ${pendingRowCount} active rows`,
+        );
+
+        if (pendingRowCount === 0) {
+          console.log(`No remaining rows, completing run ${runId}`);
+          // Update run to completed
+          await this.completeRun(runId, orgId);
+          processing = false;
         }
       }
     } catch (error) {
@@ -1319,6 +1548,8 @@ export class RunProcessor {
         metadata: updatedMetadata,
       });
 
+      await triggerRunStatusChange(runId, "completed");
+
       console.log(`Run ${runId} marked as completed successfully`);
     } catch (error) {
       console.error(`Error completing run ${runId}:`, error);
@@ -1331,138 +1562,75 @@ export class RunProcessor {
    */
   async incrementMetric(runId: string, metricPath: string): Promise<void> {
     try {
-      // Get run
-      const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
+      // Skip if no run ID
+      if (!runId) return;
 
-      if (!run) {
-        throw new Error(`Run ${runId} not found`);
-      }
-
-      // Parse path (e.g., 'calls.completed')
-      const parts = metricPath.split(".") as string[];
-
-      // Create a deep copy of metadata to avoid mutation issues
-      const metadata = JSON.parse(JSON.stringify(run.metadata || {})) as Record<
-        string,
-        any
-      >;
-
-      // Navigate to the correct part of the object
-      let current: Record<string, any> = metadata;
-
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i] as string;
-        if (!current[part]) {
-          current[part] = {};
-        }
-        current = current[part] as Record<string, any>;
-      }
-
-      // Increment the metric
-      const lastPart = parts[parts.length - 1] as string;
-      current[lastPart] = ((current[lastPart] as number) || 0) + 1;
-
-      // Update run metadata with optimistic concurrency control
-      const result = await this.db
-        .update(runs)
-        .set({
-          metadata: metadata as any,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(runs.id, runId),
-            // Only update if the updated_at timestamp matches what we read
-            eq(runs.updatedAt, run.updatedAt),
-          ),
-        )
-        .returning({ updatedAt: runs.updatedAt });
-
-      // If update failed due to concurrency, retry once with fresh data
-      if (result.length === 0) {
-        console.log(
-          `Concurrency conflict when updating metric ${metricPath} for run ${runId}, retrying...`,
-        );
-
-        // Get fresh run data
-        const [freshRun] = await this.db
-          .select()
-          .from(runs)
-          .where(eq(runs.id, runId));
-
-        if (!freshRun) {
-          throw new Error(`Run ${runId} not found on retry`);
-        }
-
-        // Create a deep copy of fresh metadata
-        const freshMetadata = JSON.parse(
-          JSON.stringify(freshRun.metadata || {}),
-        ) as Record<string, any>;
-
-        // Navigate to the correct part of the object
-        let freshCurrent: Record<string, any> = freshMetadata;
-
-        for (let i = 0; i < parts.length - 1; i++) {
-          const part = parts[i] as string;
-          if (!freshCurrent[part]) {
-            freshCurrent[part] = {};
-          }
-          freshCurrent = freshCurrent[part] as Record<string, any>;
-        }
-
-        // Increment the metric
-        const freshLastPart = parts[parts.length - 1] as string;
-        freshCurrent[freshLastPart] =
-          ((freshCurrent[freshLastPart] as number) || 0) + 1;
-
-        // Update with fresh data
-        await this.db
-          .update(runs)
-          .set({
-            metadata: freshMetadata as any,
-            updatedAt: new Date(),
-          })
-          .where(eq(runs.id, runId));
-      }
-
-      // Send real-time update with debounce to avoid flooding
+      // Use debounce to avoid too many DB operations
       const debounceKey = `${runId}-${metricPath}`;
-
-      if (!this.metricUpdateTimeouts.has(debounceKey)) {
-        this.metricUpdateTimeouts.set(
-          debounceKey,
-          setTimeout(async () => {
-            this.metricUpdateTimeouts.delete(debounceKey);
-
-            try {
-              // Get latest run metadata for the update
-              const [latestRun] = await this.db
-                .select()
-                .from(runs)
-                .where(eq(runs.id, runId));
-
-              if (latestRun) {
-                await triggerEvent(`run-${runId}`, "metrics-updated", {
-                  runId,
-                  metrics: latestRun.metadata,
-                  // metricPath,
-                });
-              }
-            } catch (pusherError) {
-              console.error(
-                `Error sending metric update for ${runId}:`,
-                pusherError,
-              );
-            }
-          }, 1000), // Debounce for 1 second
-        );
+      if (this.debounceTimeouts.has(debounceKey)) {
+        clearTimeout(this.debounceTimeouts.get(debounceKey)!);
       }
-    } catch (error) {
-      console.error(
-        `Error incrementing metric ${metricPath} for run ${runId}:`,
-        error,
+
+      this.debounceTimeouts.set(
+        debounceKey,
+        setTimeout(async () => {
+          try {
+            // Get the latest run record
+            const [run] = await this.db
+              .select()
+              .from(runs)
+              .where(eq(runs.id, runId));
+
+            if (!run) return;
+
+            // Create a deep copy of metadata to avoid reference issues
+            const metadata = structuredClone(run.metadata || {});
+
+            // Initialize metrics if not present
+            if (!metadata.metrics) {
+              metadata.metrics = {};
+            }
+
+            // Create nested path in metrics object
+            const parts = metricPath.split(".");
+            let current = metadata.metrics;
+
+            // Navigate to the correct nested location
+            for (let i = 0; i < parts.length - 1; i++) {
+              const part = parts[i];
+              if (!current[part]) {
+                current[part] = {};
+              }
+              current = current[part];
+            }
+
+            // Increment the metric
+            const lastPart = parts[parts.length - 1] as string;
+            current[lastPart] = ((current[lastPart] as number) || 0) + 1;
+
+            // Update run metadata with optimistic concurrency control
+            await this.db
+              .update(runs)
+              .set({
+                metadata,
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, runId));
+
+            // Emit metrics update event
+            await triggerEvent(`run-${runId}`, "metrics-updated", {
+              runId,
+              metrics: metadata.metrics,
+            });
+          } catch (error) {
+            console.error(`Error incrementing metric ${metricPath}:`, error);
+          } finally {
+            this.debounceTimeouts.delete(debounceKey);
+          }
+        }, 500),
       );
-      // Don't throw to avoid disrupting the call flow
+    } catch (error) {
+      console.error(`Error scheduling metric increment:`, error);
     }
   }
 
@@ -1473,7 +1641,7 @@ export class RunProcessor {
     try {
       console.log(`Checking for stuck rows in run ${runId}`);
 
-      // Find rows that have been in "calling" state for more than 10 minutes
+      // Find rows that have been in "calling" state for more than 5 minutes (reduced from 10)
       const stuckRows = await this.db
         .select()
         .from(rows)
@@ -1481,8 +1649,8 @@ export class RunProcessor {
           and(
             eq(rows.runId, runId),
             eq(rows.status, "calling"),
-            // Check if updatedAt is more than 10 minutes ago
-            sql`${rows.updatedAt} < NOW() - INTERVAL '10 minutes'`,
+            // Check if updatedAt is more than 5 minutes ago (reduced time window)
+            sql`${rows.updatedAt} < NOW() - INTERVAL '5 minutes'`,
           ),
         );
 
@@ -1491,9 +1659,48 @@ export class RunProcessor {
           `Found ${stuckRows.length} rows stuck in "calling" state for run ${runId}`,
         );
 
+        // Track detailed information about stuck rows
+        const stuckDetails = stuckRows.map((row) => ({
+          id: row.id,
+          updatedAt: row.updatedAt,
+          minutesStuck: Math.floor(
+            (Date.now() - row.updatedAt.getTime()) / (60 * 1000),
+          ),
+          retellCallId: row.retellCallId,
+          metadata: row.metadata,
+        }));
+
+        console.log(
+          "Stuck row details:",
+          JSON.stringify(stuckDetails, null, 2),
+        );
+
         // Reset these rows to "pending" state
         for (const row of stuckRows) {
-          await this.db
+          // Get any calls associated with this row
+          const rowCalls = await this.db
+            .select()
+            .from(calls)
+            .where(
+              and(
+                eq(calls.rowId, row.id),
+                eq(calls.runId, runId),
+                or(
+                  eq(calls.status, "pending"),
+                  eq(calls.status, "in-progress"),
+                ),
+              ),
+            );
+
+          // Log any active calls for this row
+          if (rowCalls.length > 0) {
+            console.log(
+              `Row ${row.id} has ${rowCalls.length} active calls that may need to be checked with Retell API`,
+            );
+          }
+
+          // Reset the row status
+          const updateResult = await this.db
             .update(rows)
             .set({
               status: "pending",
@@ -1503,15 +1710,171 @@ export class RunProcessor {
                 ...row.metadata,
                 stuckInCalling: true,
                 resetTime: new Date().toISOString(),
+                resetCount: ((row.metadata?.resetCount || 0) as number) + 1,
+                previousResetTime: row.metadata?.resetTime,
               },
             })
-            .where(eq(rows.id, row.id));
+            .where(eq(rows.id, row.id))
+            .returning();
 
-          console.log(`Reset stuck row ${row.id} to "pending" state`);
+          // Verify the update
+          if (updateResult && updateResult.length > 0) {
+            console.log(
+              `Reset stuck row ${row.id} to "pending" state successfully`,
+            );
+
+            // Update run metrics
+            await this.incrementMetric(runId, "rows.reset_from_stuck");
+          } else {
+            console.warn(`Failed to reset stuck row ${row.id}`);
+          }
         }
+
+        // Send an event to notify about the stuck rows (using metrics-updated)
+        await triggerEvent(`run-${runId}`, "metrics-updated", {
+          runId,
+          metrics: {
+            rows: {
+              reset: {
+                count: stuckRows.length,
+                lastResetAt: new Date().toISOString(),
+              },
+            },
+          },
+        });
       }
     } catch (error) {
       console.error(`Error checking for stuck rows in run ${runId}:`, error);
+    }
+  }
+
+  /**
+   * Monitor calls in progress and detect if webhook updates aren't happening properly
+   */
+  private async monitorCallsInProgress(runId: string): Promise<void> {
+    try {
+      console.log(`Monitoring calls in progress for run ${runId}`);
+
+      // Get all rows in "calling" state
+      const callingRows = await this.db
+        .select()
+        .from(rows)
+        .where(and(eq(rows.runId, runId), eq(rows.status, "calling")));
+
+      if (callingRows.length === 0) {
+        console.log(`No rows in 'calling' state for run ${runId}`);
+        return;
+      }
+
+      console.log(
+        `Found ${callingRows.length} rows in 'calling' state for run ${runId}`,
+      );
+
+      // Get all calls for these rows to see their status
+      const callIds = callingRows
+        .filter((row) => row.retellCallId)
+        .map((row) => row.retellCallId);
+
+      if (callIds.length === 0) {
+        console.log(`No Retell call IDs found for rows in 'calling' state`);
+        return;
+      }
+
+      // Find calls that are completed but rows are still in calling state
+      const completedCalls = await this.db
+        .select()
+        .from(calls)
+        .where(
+          and(
+            eq(calls.runId, runId),
+            inArray(calls.retellCallId, callIds),
+            or(
+              eq(calls.status, "completed"),
+              eq(calls.status, "failed"),
+              eq(calls.status, "voicemail"),
+              eq(calls.status, "no-answer"),
+            ),
+          ),
+        );
+
+      if (completedCalls.length === 0) {
+        console.log(
+          `No completed calls found with rows still in 'calling' state`,
+        );
+        return;
+      }
+
+      console.log(
+        `Found ${completedCalls.length} completed calls with rows still in 'calling' state - webhook updates may have failed`,
+      );
+
+      // Update the rows that should have been updated by webhooks
+      for (const call of completedCalls) {
+        if (!call.rowId) continue;
+
+        console.log(
+          `Fixing row ${call.rowId} stuck in 'calling' state - call ${call.id} (${call.retellCallId}) is already ${call.status}`,
+        );
+
+        // Get the current row
+        const [row] = await this.db
+          .select()
+          .from(rows)
+          .where(eq(rows.id, call.rowId));
+
+        if (!row || row.status !== "calling") {
+          console.log(
+            `Row ${call.rowId} is no longer in 'calling' state, skipping`,
+          );
+          continue;
+        }
+
+        // Map call status to row status
+        let rowStatus: RowStatus;
+        switch (call.status) {
+          case "completed":
+            rowStatus = "completed";
+            break;
+          case "failed":
+            rowStatus = "failed";
+            break;
+          case "voicemail":
+          case "no-answer":
+            rowStatus = "completed"; // Count voicemail as completed
+            break;
+          default:
+            rowStatus = "failed"; // Fallback
+        }
+
+        // Update the row status
+        await this.db
+          .update(rows)
+          .set({
+            status: rowStatus,
+            updatedAt: new Date(),
+            metadata: {
+              ...row.metadata,
+              manuallyFixed: true,
+              fixedAt: new Date().toISOString(),
+              previousStatus: row.status,
+              fixReason: "Webhook update failed - fixed by monitoring",
+              callStatus: call.status,
+            },
+          })
+          .where(eq(rows.id, call.rowId));
+
+        console.log(
+          `Fixed row ${call.rowId} by setting status to ${rowStatus} (call status: ${call.status})`,
+        );
+
+        // Update metrics
+        await this.incrementMetric(runId, `calls.${rowStatus}`);
+      }
+    } catch (error) {
+      console.error(
+        `Error monitoring calls in progress for run ${runId}:`,
+        error,
+      );
     }
   }
 }

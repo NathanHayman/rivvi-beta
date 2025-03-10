@@ -81,6 +81,7 @@ export type PusherChannels = {
       status: string;
       patientId?: string;
       runId?: string;
+      direction?: "inbound" | "outbound";
       metadata?: Record<string, unknown>;
       analysis?: Record<string, unknown>;
       insights?: Record<string, unknown>;
@@ -91,6 +92,9 @@ export type PusherChannels = {
       fromNumber: string;
       toNumber: string;
       retellCallId: string;
+      isReturnCall?: boolean;
+      campaignId?: string;
+      hotSwapPerformed?: boolean;
       time: string;
     };
   };
@@ -106,6 +110,7 @@ export type PusherChannels = {
       rowId: string;
       callId: string;
       status: string;
+      direction?: "inbound" | "outbound";
       metadata?: Record<string, unknown>;
       analysis?: Record<string, unknown>;
       insights?: Record<string, unknown>;
@@ -113,6 +118,24 @@ export type PusherChannels = {
     "call-failed": { rowId: string; error: string };
     "metrics-updated": { runId: string; metrics: Record<string, unknown> };
     "run-paused": { reason: string; pausedAt: string };
+    "run-status-changed": {
+      status:
+        | "draft"
+        | "processing"
+        | "ready"
+        | "running"
+        | "paused"
+        | "completed"
+        | "failed"
+        | "scheduled";
+      updatedAt: string;
+    };
+    "row-updated": {
+      rowId: string;
+      status: string;
+      updatedAt: string;
+      metadata?: Record<string, unknown>;
+    };
   };
 
   // Campaign-level channels
@@ -122,6 +145,7 @@ export type PusherChannels = {
       callId: string;
       status: string;
       patientId?: string;
+      direction?: "inbound" | "outbound";
       analysis?: Record<string, unknown>;
       insights?: Record<string, unknown>;
     };
@@ -177,17 +201,34 @@ export async function triggerRunUpdate(
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await pusherServer.trigger(`org-${orgId}`, "run-updated", {
-      runId,
-      status,
-      metadata,
-    });
+    const pusherInstance = createPusherInstance();
+    if (!pusherInstance) {
+      console.error("Pusher not configured. Unable to trigger event.");
+      return;
+    }
 
-    console.log(
-      `Triggered run-updated event for run ${runId} (status: ${status})`,
-    );
+    // Send update to both organization channel and run-specific channel
+    await Promise.all([
+      triggerEvent(`org-${orgId}`, "run-updated", {
+        runId,
+        status,
+        metadata,
+      }),
+      triggerEvent(`run-${runId}`, "run-status-changed", {
+        status: status as
+          | "draft"
+          | "processing"
+          | "ready"
+          | "running"
+          | "paused"
+          | "completed"
+          | "failed"
+          | "scheduled",
+        updatedAt: new Date().toISOString(),
+      }),
+    ]);
   } catch (error) {
-    console.error(`Error triggering run update for ${runId}:`, error);
+    console.error("Error triggering run update event:", error);
   }
 }
 
@@ -195,15 +236,72 @@ export async function triggerRunUpdate(
  * Helper to trigger call events with proper typing and error handling
  */
 export async function triggerCallEvent(
+  orgId: string,
   runId: string,
   eventType: "call-started" | "call-completed" | "call-failed",
   data: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await pusherServer.trigger(`run-${runId}`, eventType, data);
-    console.log(`Triggered ${eventType} event for run ${runId}`);
+    const pusherInstance = createPusherInstance();
+    if (!pusherInstance) {
+      console.error("Pusher not configured. Unable to trigger event.");
+      return;
+    }
+
+    // Ensure we have the right properties for each event type
+    if (eventType === "call-started") {
+      await triggerEvent(`run-${runId}`, eventType, {
+        rowId: data.rowId as string,
+        callId: data.callId as string,
+        variables: data.variables as Record<string, unknown>,
+      });
+    } else if (eventType === "call-completed") {
+      await triggerEvent(`run-${runId}`, eventType, {
+        rowId: data.rowId as string,
+        callId: data.callId as string,
+        status: data.status as string,
+        direction: (data.direction as "inbound" | "outbound") || "outbound",
+        metadata: data.metadata as Record<string, unknown>,
+        analysis: data.analysis as Record<string, unknown>,
+        insights: data.insights as Record<string, unknown>,
+      });
+
+      // Also send to org-level channel for broader awareness
+      await triggerEvent(`org-${orgId}`, "call-updated", {
+        callId: data.callId as string,
+        status: (data.status as string) || "completed",
+        patientId: data.patientId as string,
+        runId,
+        direction: (data.direction as "inbound" | "outbound") || "outbound",
+        metadata: data.metadata as Record<string, unknown>,
+        analysis: data.analysis as Record<string, unknown>,
+        insights: data.insights as Record<string, unknown>,
+      });
+
+      // Also send to campaign channel if campaignId is available
+      if (data.campaignId) {
+        await triggerEvent(
+          `campaign-${data.campaignId as string}`,
+          "call-completed",
+          {
+            callId: data.callId as string,
+            status: (data.status as string) || "completed",
+            patientId: data.patientId as string,
+            direction: (data.direction as "inbound" | "outbound") || "outbound",
+            analysis: data.analysis as Record<string, unknown>,
+            insights: data.insights as Record<string, unknown>,
+          },
+        );
+      }
+    } else if (eventType === "call-failed") {
+      // For call-failed, we need different properties
+      await triggerEvent(`run-${runId}`, eventType, {
+        rowId: data.rowId as string,
+        error: data.error as string,
+      });
+    }
   } catch (error) {
-    console.error(`Error triggering call event for run ${runId}:`, error);
+    console.error("Error triggering call event:", error);
   }
 }
 
@@ -323,5 +421,59 @@ export async function getChannelUsers(
   } catch (error) {
     console.error(`Error getting users for channel ${channel}:`, error);
     return [];
+  }
+}
+
+// New function to trigger run status changes
+export async function triggerRunStatusChange(
+  runId: string,
+  status:
+    | "draft"
+    | "processing"
+    | "ready"
+    | "running"
+    | "paused"
+    | "completed"
+    | "failed"
+    | "scheduled",
+): Promise<void> {
+  try {
+    const pusherInstance = createPusherInstance();
+    if (!pusherInstance) {
+      console.error("Pusher not configured. Unable to trigger event.");
+      return;
+    }
+
+    await triggerEvent(`run-${runId}`, "run-status-changed", {
+      status,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error triggering run status change event:", error);
+  }
+}
+
+// New function for triggering row status updates
+export async function triggerRowStatusUpdate(
+  runId: string,
+  rowId: string,
+  status: string,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const pusherInstance = createPusherInstance();
+    if (!pusherInstance) {
+      console.error("Pusher not configured. Unable to trigger event.");
+      return;
+    }
+
+    await triggerEvent(`run-${runId}`, "row-updated", {
+      rowId,
+      status,
+      updatedAt: new Date().toISOString(),
+      metadata,
+    });
+  } catch (error) {
+    console.error("Error triggering row status update event:", error);
   }
 }

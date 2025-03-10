@@ -622,6 +622,7 @@ export const createRetellCall = async (params: {
         throw new Error("RETELL_API_KEY is not defined");
       }
 
+      console.log("[Retell] Creating call to:", params.toNumber);
       const response = await fetch(`${RETELL_BASE_URL}/create-phone-call`, {
         method: "POST",
         headers: {
@@ -637,16 +638,76 @@ export const createRetellCall = async (params: {
         }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Retell API error (${response.status}): ${errorText}`);
+      // Log full response for debugging
+      const responseText = await response.text();
+      console.log("[Retell] API Response:", response.status, responseText);
+
+      let responseData;
+      try {
+        // Try to parse the response as JSON
+        responseData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("[Retell] Failed to parse response as JSON:", parseError);
+
+        // If we can't parse as JSON but the response was successful, return a basic success object
+        if (response.ok) {
+          console.log(
+            "[Retell] Response was OK but not valid JSON, creating fallback response",
+          );
+          return {
+            ok: true,
+            call_id: params.metadata?.rowId || "unknown", // Use rowId as fallback
+            message: "Call initiated successfully (non-JSON response)",
+            raw_response: responseText,
+          };
+        }
+
+        throw new Error(
+          `Retell API error (${response.status}): ${responseText}`,
+        );
       }
 
-      return await response.json();
+      // Format response in a consistent way with ok/call_id pattern
+      if (!response.ok) {
+        console.error("[Retell] API error response:", responseData);
+        return {
+          ok: false,
+          error:
+            responseData.message ||
+            responseData.error ||
+            `Error ${response.status}`,
+          details: responseData,
+        };
+      }
+
+      // Check if response has expected format
+      if (!responseData.call_id) {
+        console.warn("[Retell] Response missing call_id:", responseData);
+
+        // If response has id instead of call_id, map it
+        if (responseData.id) {
+          console.log("[Retell] Using 'id' field as 'call_id'");
+          return {
+            ok: true,
+            call_id: responseData.id,
+            ...responseData,
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        call_id: responseData.call_id,
+        ...responseData,
+      };
     }
   } catch (error) {
-    console.error("Error creating Retell call:", error);
-    throw new Error("Failed to create Retell call");
+    console.error("[Retell] Error creating call:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      call_id: null,
+    };
   }
 };
 

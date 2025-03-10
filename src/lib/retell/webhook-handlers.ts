@@ -13,9 +13,15 @@ import {
 import { patientService } from "@/services/patients";
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, or, sql } from "drizzle-orm";
+import { isError } from "../service-result";
 
 // Types for Retell webhook payloads
-export type RetellCallStatus = "registered" | "ongoing" | "ended" | "error";
+export type RetellCallStatus =
+  | "registered"
+  | "ongoing"
+  | "ended"
+  | "error"
+  | "voicemail";
 export type RowStatus =
   | "pending"
   | "calling"
@@ -82,6 +88,8 @@ function getStatus(
   type: "call" | "row",
   status: RetellCallStatus,
 ): CallStatus | RowStatus {
+  console.log(`[STATUS CONVERSION] Converting ${status} to ${type} status`);
+
   if (type === "call") {
     switch (status) {
       case "registered":
@@ -92,7 +100,12 @@ function getStatus(
         return "completed";
       case "error":
         return "failed";
+      case "voicemail":
+        return "voicemail";
       default:
+        console.log(
+          `[WARNING] Unknown call status: ${status}, defaulting to pending`,
+        );
         return "pending";
     }
   } else {
@@ -105,7 +118,13 @@ function getStatus(
         return "completed";
       case "error":
         return "failed";
+      case "voicemail":
+        // For row status, treat voicemail as completed
+        return "completed";
       default:
+        console.log(
+          `[WARNING] Unknown row status: ${status}, defaulting to pending`,
+        );
         return "pending";
     }
   }
@@ -222,7 +241,7 @@ export async function handleInboundWebhook(
           orgId,
         });
 
-        if (patientResult.error) {
+        if (isError(patientResult)) {
           console.error(
             "[INBOUND WEBHOOK] Error creating patient:",
             patientResult.error,
@@ -564,6 +583,26 @@ export async function handlePostCallWebhook(
 ) {
   console.log(
     `[WEBHOOK] Post-call webhook received for org ${orgId}, campaign ${campaignId || "unknown"}`,
+  );
+
+  // Add detailed logging of the call data
+  console.log(
+    `[WEBHOOK] Call details - ID: ${payload.call_id}, Status: ${payload.call_status}`,
+  );
+  if (payload.metadata) {
+    console.log(
+      `[WEBHOOK] Call metadata:`,
+      JSON.stringify(payload.metadata, null, 2),
+    );
+    if (payload.metadata.rowId) {
+      console.log(`[WEBHOOK] Associated row ID: ${payload.metadata.rowId}`);
+    }
+    if (payload.metadata.runId) {
+      console.log(`[WEBHOOK] Associated run ID: ${payload.metadata.runId}`);
+    }
+  }
+  console.log(
+    `[WEBHOOK] Call direction: ${payload.direction}, Duration: ${payload.duration_ms}ms`,
   );
 
   try {
@@ -915,34 +954,120 @@ export async function handlePostCallWebhook(
       console.log(`[WEBHOOK] Updating associated row ${rowId}`);
 
       try {
-        await db
-          .update(rows)
-          .set({
-            status: getStatus("row", callStatus as RetellCallStatus),
-            error:
-              callStatus === "failed"
-                ? disconnectionReason || "Call failed"
-                : null,
-            analysis: processedAnalysis,
-            metadata: {
-              ...(call.metadata && typeof call.metadata === "object"
-                ? call.metadata
-                : {}),
-              campaignId: originalCampaignId || null,
-              callCompleted: callStatus === "completed",
-              callInsights: extractCallInsights({
-                transcript: payload?.transcript || call.transcript,
-                analysis: processedAnalysis,
-              }),
-              lastUpdated: new Date().toISOString(),
-              // For inbound calls, mark it as a return call
-              isReturnCall: direction === "inbound",
-            },
-            updatedAt: new Date(),
-          })
+        // Get the current row status before updating
+        const [currentRow] = await db
+          .select()
+          .from(rows)
           .where(eq(rows.id, rowId));
 
-        console.log(`[WEBHOOK] Row ${rowId} updated with call results`);
+        if (currentRow) {
+          console.log(
+            `[WEBHOOK] Current row status: ${currentRow.status}, updating to: ${getStatus("row", callStatus as RetellCallStatus)}`,
+          );
+        }
+
+        // Robust update with better error handling and diagnostics
+        try {
+          const rowStatus = getStatus("row", callStatus as RetellCallStatus);
+
+          // Perform update with explicit WHERE clause to ensure we're updating the correct row
+          const result = await db
+            .update(rows)
+            .set({
+              status: rowStatus,
+              error:
+                callStatus === "failed"
+                  ? disconnectionReason || "Call failed"
+                  : null,
+              analysis: processedAnalysis,
+              patientId: patientId, // Add this to make sure it's included in the update
+              metadata: {
+                ...(currentRow?.metadata &&
+                typeof currentRow.metadata === "object"
+                  ? currentRow.metadata
+                  : {}),
+                campaignId: originalCampaignId || null,
+                callCompleted: callStatus === "completed",
+                callInsights: extractCallInsights({
+                  transcript: payload?.transcript || call.transcript,
+                  analysis: processedAnalysis,
+                }),
+                lastUpdated: new Date().toISOString(),
+                // For inbound calls, mark it as a return call
+                isReturnCall: direction === "inbound",
+                // Add debugging info
+                webhookProcessed: true,
+                webhookTimestamp: new Date().toISOString(),
+                previousStatus: currentRow?.status || "unknown",
+              },
+              updatedAt: new Date(),
+            } as any) // Use type assertion to avoid linter errors
+            .where(eq(rows.id, rowId));
+
+          // Verify the update was successful
+          const [updatedRow] = await db
+            .select()
+            .from(rows)
+            .where(eq(rows.id, rowId));
+
+          console.log(
+            `[WEBHOOK] Row ${rowId} update result: Status changed from ${currentRow?.status || "unknown"} to ${updatedRow?.status}. Expected status: ${rowStatus}`,
+          );
+
+          // Force re-check if status didn't update as expected
+          if (updatedRow && updatedRow.status !== rowStatus) {
+            console.warn(
+              `[WEBHOOK] Row status update failed! Expected ${rowStatus} but got ${updatedRow.status}. Attempting force update...`,
+            );
+
+            // Force update with extra diagnostics
+            await db
+              .update(rows)
+              .set({
+                status: rowStatus,
+                metadata: {
+                  ...updatedRow.metadata,
+                  forceUpdated: true,
+                  statusUpdateAttempts:
+                    ((updatedRow.metadata?.statusUpdateAttempts ||
+                      0) as number) + 1,
+                },
+              } as any) // Use type assertion to avoid linter errors
+              .where(eq(rows.id, rowId));
+
+            // Verify force update
+            const [forceUpdatedRow] = await db
+              .select()
+              .from(rows)
+              .where(eq(rows.id, rowId));
+
+            console.log(
+              `[WEBHOOK] Force update result: ${forceUpdatedRow?.status === rowStatus ? "SUCCESS" : "FAILED"}`,
+            );
+          }
+        } catch (updateError) {
+          console.error(
+            `[WEBHOOK] Critical error updating row ${rowId}:`,
+            updateError,
+          );
+
+          // Last resort attempt
+          try {
+            await db
+              .update(rows)
+              .set({
+                status: getStatus("row", callStatus as RetellCallStatus),
+                error: "Error updating row in webhook handler",
+                updatedAt: new Date(),
+              } as any) // Use type assertion to avoid linter errors
+              .where(eq(rows.id, rowId));
+          } catch (finalError) {
+            console.error(
+              `[WEBHOOK] Final attempt to update row ${rowId} failed:`,
+              finalError,
+            );
+          }
+        }
       } catch (error) {
         console.error("[WEBHOOK] Error updating row:", error);
       }
