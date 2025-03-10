@@ -39,7 +39,7 @@ async function CampaignsData() {
   return (
     <CampaignsTable
       initialCampaigns={formattedCampaigns}
-      totalCount={formattedCampaigns.length}
+      totalCount={formattedCampaigns?.length}
     />
   );
 }

@@ -230,7 +230,7 @@ export function CampaignsTable({
   ];
 
   const table = useReactTable<Campaign>({
-    data: data,
+    data: filteredCampaigns,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
