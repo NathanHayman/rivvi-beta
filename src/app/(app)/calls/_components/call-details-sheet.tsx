@@ -94,9 +94,15 @@ export function CallDetailsSheet() {
 
   // Close the sheet and return to the calls list
   const handleClose = () => {
+    // Preserve all existing search parameters except callId
     const params = new URLSearchParams(searchParams.toString());
     params.delete("callId");
-    router.push(`${pathname}?${params.toString()}`);
+
+    // Keep the URL clean if there are no remaining params
+    const newPath = params.toString()
+      ? `${pathname}?${params.toString()}`
+      : pathname;
+    router.replace(newPath, { scroll: false });
   };
 
   // If no callId, don't render anything
@@ -105,13 +111,16 @@ export function CallDetailsSheet() {
   return (
     <Sheet open={!!callId} onOpenChange={(open) => !open && handleClose()}>
       <SheetContent
-        className="w-full p-0 sm:max-w-md md:max-w-xl lg:max-w-2xl"
+        className="w-full overflow-hidden p-0 sm:max-w-md md:max-w-xl lg:max-w-2xl"
         side="right"
       >
         <div className="flex h-full flex-col">
-          <SheetHeader className="border-b">
+          <SheetHeader className="border-b px-6 py-4">
             <div className="flex items-center justify-between">
-              <SheetTitle className="">Call Details</SheetTitle>
+              <SheetTitle className="text-lg">Call Details</SheetTitle>
+              <Button variant="ghost" size="sm" onClick={handleClose}>
+                Close
+              </Button>
             </div>
           </SheetHeader>
 

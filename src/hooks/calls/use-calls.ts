@@ -32,52 +32,95 @@ export function useCalls(filters: GetCallsParams): CallsHookReturn {
   } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
+  const [isRefetching, setIsRefetching] = useState<boolean>(false);
 
   // Debounce the search parameter to prevent excessive fetching
-  const [debouncedSearch] = useDebounce(filters.search, 500);
+  const [debouncedSearch] = useDebounce(filters.search, 300);
 
-  // Memoize the fetch function to avoid recreating it on every render
-  const fetchCalls = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // Fetch calls with current filters
+  const fetchCalls = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) {
+        setIsLoading(true);
+      } else {
+        setIsRefetching(true);
+      }
+      setError(null);
 
-    try {
-      const result = await getCalls({
-        limit: filters.limit || 20,
-        offset: filters.offset || 0,
-        status: filters.status,
-        direction: filters.direction,
-        search: debouncedSearch,
-        patientId: filters.patientId,
-        campaignId: filters.campaignId,
-      });
+      try {
+        // Prepare date parameters
+        const startDate =
+          filters.startDate instanceof Date
+            ? filters.startDate.toISOString()
+            : filters.startDate;
 
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error("Failed to fetch calls"));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    filters.limit,
-    filters.offset,
-    filters.status,
-    filters.direction,
-    debouncedSearch,
-    filters.patientId,
-    filters.campaignId,
-  ]);
+        const endDate =
+          filters.endDate instanceof Date
+            ? filters.endDate.toISOString()
+            : filters.endDate;
 
-  // Fetch data when filters change
+        const result = await getCalls({
+          limit: filters.limit || 10,
+          offset: filters.offset || 0,
+          status: filters.status,
+          direction: filters.direction,
+          search: debouncedSearch,
+          patientId: filters.patientId,
+          campaignId: filters.campaignId,
+          startDate,
+          endDate,
+        });
+
+        setData(result);
+      } catch (err) {
+        console.error("Error fetching calls:", err);
+        setError(
+          err instanceof Error ? err : new Error("Failed to fetch calls"),
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefetching(false);
+      }
+    },
+    [
+      filters.limit,
+      filters.offset,
+      filters.status,
+      filters.direction,
+      debouncedSearch,
+      filters.patientId,
+      filters.campaignId,
+      filters.startDate,
+      filters.endDate,
+    ],
+  );
+
+  // Fetch data immediately when filters change
   useEffect(() => {
-    fetchCalls();
+    // If we're just changing the search query, we'll show a different loading state
+    // to avoid replacing the entire table with a spinner
+    const isOnlySearchChange =
+      debouncedSearch !== undefined &&
+      debouncedSearch !== data?.calls[0]?.searchQuery;
+
+    fetchCalls(!isOnlySearchChange);
+  }, [fetchCalls, debouncedSearch]);
+
+  // Set up auto-refresh every 30 seconds for real-time updates
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      // Use the refetch method that doesn't show the full loading state
+      fetchCalls(false);
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
   }, [fetchCalls]);
 
   return {
     data,
-    isLoading,
+    isLoading: isLoading || (isRefetching && !data), // Only show loading if we don't have any data yet
     error,
-    refetch: fetchCalls,
+    refetch: () => fetchCalls(false),
   };
 }
 
@@ -103,6 +146,7 @@ export function useCall(callId: string | null): CallHookReturn {
       const result = await getCall(callId);
       setData(result);
     } catch (err) {
+      console.error(`Error fetching call ${callId}:`, err);
       setError(
         err instanceof Error
           ? err
@@ -115,7 +159,16 @@ export function useCall(callId: string | null): CallHookReturn {
 
   useEffect(() => {
     fetchCall();
-  }, [fetchCall]);
+
+    // Set up auto-refresh for active calls
+    if (callId) {
+      const intervalId = setInterval(() => {
+        fetchCall();
+      }, 10000); // 10 seconds
+
+      return () => clearInterval(intervalId);
+    }
+  }, [fetchCall, callId]);
 
   return {
     data,

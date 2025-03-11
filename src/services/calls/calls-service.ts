@@ -74,11 +74,20 @@ export function createCallService(dbInstance = db) {
 
         // Add date range filters
         if (startDate) {
-          conditions = and(conditions, sql`${calls.createdAt} >= ${startDate}`);
+          // At this point, startDate should always be a string
+          if (typeof startDate === "string") {
+            conditions = and(
+              conditions,
+              sql`${calls.createdAt} >= ${startDate}`,
+            );
+          }
         }
 
         if (endDate) {
-          conditions = and(conditions, sql`${calls.createdAt} <= ${endDate}`);
+          // At this point, endDate should always be a string
+          if (typeof endDate === "string") {
+            conditions = and(conditions, sql`${calls.createdAt} <= ${endDate}`);
+          }
         }
 
         // Add search filter if provided

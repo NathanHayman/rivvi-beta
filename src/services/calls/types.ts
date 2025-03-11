@@ -104,8 +104,8 @@ export type GetCallsOptions = {
   direction?: string;
   orgId: string;
   search?: string;
-  startDate?: Date;
-  endDate?: Date;
+  startDate?: Date | string;
+  endDate?: Date | string;
   campaignId?: string;
 };
 

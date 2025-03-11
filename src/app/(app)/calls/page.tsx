@@ -6,7 +6,7 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { getCalls } from "@/server/actions/calls/fetch";
+import { getCalls, GetCallsParams } from "@/server/actions/calls/fetch";
 import { Metadata } from "next";
 import { Suspense } from "react";
 import { CallDetailsSheet } from "./_components/call-details-sheet";
@@ -19,10 +19,10 @@ export const metadata: Metadata = {
 
 function CallsLoading() {
   return (
-    <div className="flex h-[400px] w-full items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary/30 border-t-primary"></div>
-        <p className="font-medium text-muted-foreground">Loading calls...</p>
+    <div className="flex h-[500px] w-full items-center justify-center">
+      <div className="flex flex-col items-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="mt-4 text-muted-foreground">Loading calls...</p>
       </div>
     </div>
   );
@@ -40,51 +40,79 @@ async function InitialCallsData({
     // Await searchParams before accessing its properties
     const params = await searchParams;
 
-    // Extract filter parameters
-    const limit = params?.limit ? parseInt(params.limit as string, 10) : 10; // Changed default to 10
+    // Extract filter parameters with proper parsing
+    const limit = params?.limit ? parseInt(params.limit as string, 10) : 10;
     const offset = params?.offset ? parseInt(params.offset as string, 10) : 0;
-    const status = params?.status as string | undefined;
-    const direction = params?.direction as string | undefined;
-    const search = params?.search as string | undefined;
-    const campaignId = params?.campaignId as string | undefined;
-    const dateRange = params?.dateRange as string | undefined;
+
+    // Ensure we're parsing strings properly
+    const status =
+      typeof params?.status === "string" ? params.status : undefined;
+    const direction =
+      typeof params?.direction === "string" ? params.direction : undefined;
+    const search =
+      typeof params?.search === "string" ? params.search : undefined;
+    const campaignId =
+      typeof params?.campaignId === "string" ? params.campaignId : undefined;
+    const dateRange =
+      typeof params?.dateRange === "string" ? params.dateRange : undefined;
 
     // Handle date range filter
-    let startDate: Date | undefined;
-    let endDate: Date | undefined;
+    let startDate: string | undefined;
+    let endDate: string | undefined;
 
     if (dateRange) {
       const now = new Date();
 
       switch (dateRange) {
         case "today":
-          startDate = new Date(now);
-          startDate.setHours(0, 0, 0, 0);
+          const todayStart = new Date(now);
+          todayStart.setHours(0, 0, 0, 0);
+          startDate = todayStart.toISOString();
+          break;
+        case "yesterday":
+          const yesterdayStart = new Date(now);
+          yesterdayStart.setDate(now.getDate() - 1);
+          yesterdayStart.setHours(0, 0, 0, 0);
+          startDate = yesterdayStart.toISOString();
+
+          const yesterdayEnd = new Date(now);
+          yesterdayEnd.setDate(now.getDate() - 1);
+          yesterdayEnd.setHours(23, 59, 59, 999);
+          endDate = yesterdayEnd.toISOString();
           break;
         case "week":
-          startDate = new Date(now);
-          startDate.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
-          startDate.setHours(0, 0, 0, 0);
+          const weekStart = new Date(now);
+          weekStart.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
+          weekStart.setHours(0, 0, 0, 0);
+          startDate = weekStart.toISOString();
           break;
         case "month":
-          startDate = new Date(now);
-          startDate.setDate(1); // Start of month
-          startDate.setHours(0, 0, 0, 0);
+          const monthStart = new Date(now);
+          monthStart.setDate(1); // Start of month
+          monthStart.setHours(0, 0, 0, 0);
+          startDate = monthStart.toISOString();
           break;
       }
     }
 
-    // Fetch the first batch of calls using server action with filters
-    const initialData = await getCalls({
+    // Ensure parameters are properly defined before sending to the server action
+    const callParams: GetCallsParams = {
       limit,
       offset,
-      status,
-      direction,
-      search,
-      campaignId,
-      startDate,
-      endDate,
-    });
+    };
+
+    if (status && status !== "all") callParams.status = status;
+    if (direction && direction !== "all") callParams.direction = direction;
+    if (search) callParams.search = search;
+    if (campaignId && campaignId !== "all") callParams.campaignId = campaignId;
+    if (startDate) callParams.startDate = startDate;
+    if (endDate) callParams.endDate = endDate;
+
+    // Log what parameters we're sending
+    console.log("Fetching initial calls data with params:", callParams);
+
+    // Fetch the first batch of calls using server action with filters
+    const initialData = await getCalls(callParams);
 
     return <CallsTable initialData={initialData} callIdToView={callIdToView} />;
   } catch (error) {
@@ -109,11 +137,12 @@ export default async function Calls({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Await searchParams before accessing its properties
-  const params = await searchParams;
-
-  // Get the callId from the search params if it exists
-  const callIdToView = params.callId as string | undefined;
+  // Extract callId if present (for the detail view)
+  const searchParamsResolved = await searchParams;
+  const callIdToView =
+    typeof searchParamsResolved?.callId === "string"
+      ? searchParamsResolved.callId
+      : undefined;
 
   return (
     <AppPage>
@@ -127,9 +156,10 @@ export default async function Calls({
           <Suspense fallback={<CallsLoading />}>
             <InitialCallsData
               callIdToView={callIdToView}
-              searchParams={params}
+              searchParams={searchParamsResolved}
             />
           </Suspense>
+
           <CallDetailsSheet />
         </AppContent>
       </AppBody>

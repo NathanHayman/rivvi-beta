@@ -21,6 +21,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -35,12 +36,12 @@ import {
   CircleAlert,
   Clock,
   ExternalLink,
-  Loader2,
   MoreHorizontal,
   Phone,
   PhoneCall,
   PhoneIncoming,
   PhoneOutgoing,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import Link from "next/link";
@@ -123,8 +124,10 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
   const [pagination, setPagination] = useState({
     pageIndex: 0,
-    pageSize: 10, // Changed to 10 for better visual design
+    pageSize: 10,
   });
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Extract filters from URL search params
   const status = searchParams.get("status") || undefined;
@@ -140,7 +143,22 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
   });
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch] = useDebounce(searchQuery, 500);
+  const [debouncedSearch] = useDebounce(searchQuery, 300);
+
+  // Sync URL params when they change
+  useEffect(() => {
+    setFilters({
+      status: searchParams.get("status") || undefined,
+      direction: searchParams.get("direction") || undefined,
+      campaignId: searchParams.get("campaignId") || undefined,
+      dateRange: searchParams.get("dateRange") || undefined,
+    });
+
+    const newSearchQuery = searchParams.get("search") || "";
+    if (newSearchQuery !== searchQuery) {
+      setSearchQuery(newSearchQuery);
+    }
+  }, [searchParams, searchQuery]);
 
   // Function to reset filters
   const resetFilters = () => {
@@ -151,12 +169,22 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
       dateRange: undefined,
     });
 
+    setSearchQuery("");
+
     // Reset URL params
     const url = new URL(window.location.href);
-    url.searchParams.delete("status");
-    url.searchParams.delete("direction");
-    url.searchParams.delete("campaignId");
-    url.searchParams.delete("dateRange");
+
+    // Explicitly delete all filter params
+    const filterParams = [
+      "status",
+      "direction",
+      "campaignId",
+      "dateRange",
+      "search",
+    ];
+    filterParams.forEach((param) => {
+      url.searchParams.delete(param);
+    });
 
     // Keep the callId if it exists
     const callId = searchParams.get("callId");
@@ -164,7 +192,18 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
       url.searchParams.set("callId", callId);
     }
 
-    router.replace(url.pathname + url.search);
+    // Preserve pagination params
+    const limit = searchParams.get("limit");
+    if (limit) {
+      url.searchParams.set("limit", limit);
+    }
+
+    const offset = searchParams.get("offset");
+    if (offset) {
+      url.searchParams.set("offset", offset);
+    }
+
+    router.replace(`${pathname}${url.search}`, { scroll: false });
   };
 
   // Process date range filter
@@ -173,10 +212,19 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
     const now = new Date();
     let startDate = new Date();
+    let endDate: Date | undefined = undefined;
 
     switch (dateRange) {
       case "today":
         startDate.setHours(0, 0, 0, 0);
+        break;
+      case "yesterday":
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setDate(now.getDate() - 1);
+        endDate.setHours(23, 59, 59, 999);
         break;
       case "week":
         startDate.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
@@ -190,11 +238,32 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         return {};
     }
 
-    return { startDate };
+    return { startDate, endDate };
   }, [dateRange]);
 
+  // Handle search input
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+
+    // Update URL with search parameter
+    const url = new URL(window.location.href);
+    if (value) {
+      url.searchParams.set("search", value);
+    } else {
+      url.searchParams.delete("search");
+    }
+
+    // Preserve other params
+    if (selectedCallId) {
+      url.searchParams.set("callId", selectedCallId);
+    }
+
+    router.replace(url.pathname + url.search);
+  };
+
   // Use our custom hook for fetching data
-  const { data, isLoading, error } = useCalls({
+  const { data, isLoading, error, refetch } = useCalls({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
     status: filters.status,
@@ -204,20 +273,38 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     ...getDateRangeFilter(),
   });
 
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refetch();
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
+
   // Use initialData until we have data from the hook
   const displayData = data || initialData;
 
   // Handle row click to view call details
-  const handleRowClick = (callId: string) => {
-    // Update URL without triggering navigation
+  const handleRowClick = (callId: string, event: React.MouseEvent) => {
+    // Check if the click occurred on a button, link or other interactive element
+    const target = event.target as HTMLElement;
+    const isClickableElement = target.closest(
+      "button, a, select, input, .data-table-no-click",
+    );
+
+    // Don't trigger row click if clicking on an interactive element
+    if (isClickableElement) {
+      return;
+    }
+
+    // Update URL preserving other search parameters
     const url = new URL(window.location.href);
     url.searchParams.set("callId", callId);
-    router.replace(url.pathname + url.search);
+    router.replace(url.pathname + url.search, { scroll: false });
 
     setSelectedCallId(callId);
   };
 
-  // Update URL when pagination or filters change
+  // Update URL when pagination changes
   useEffect(() => {
     const url = new URL(window.location.href);
 
@@ -228,44 +315,23 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
       (pagination.pageIndex * pagination.pageSize).toString(),
     );
 
-    // Set filter params
-    if (filters.status) {
-      url.searchParams.set("status", filters.status);
-    } else {
-      url.searchParams.delete("status");
+    // Preserve search params and callId
+    if (searchQuery) {
+      url.searchParams.set("search", searchQuery);
     }
 
-    if (filters.direction) {
-      url.searchParams.set("direction", filters.direction);
-    } else {
-      url.searchParams.delete("direction");
-    }
-
-    if (filters.campaignId) {
-      url.searchParams.set("campaignId", filters.campaignId);
-    } else {
-      url.searchParams.delete("campaignId");
-    }
-
-    if (filters.dateRange) {
-      url.searchParams.set("dateRange", filters.dateRange);
-    } else {
-      url.searchParams.delete("dateRange");
-    }
-
-    // Preserve callId if present
     if (selectedCallId) {
       url.searchParams.set("callId", selectedCallId);
     }
 
-    router.replace(url.pathname + url.search);
-  }, [pagination, filters, router, pathname, selectedCallId]);
+    router.replace(url.pathname + url.search, { scroll: false });
+  }, [pagination, router, pathname, selectedCallId, searchQuery]);
 
-  // Format phone number
+  // Format phone number for display
   const formatPhoneNumber = (phone: string) => {
     if (!phone) return "N/A";
 
-    // Basic formatting for US numbers - adjust as needed
+    // Basic formatting for US numbers
     if (phone.length === 10) {
       return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
     }
@@ -279,9 +345,9 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
   // Format duration in mm:ss
   const formatDuration = (seconds: number | null) => {
-    if (!seconds) return "-";
+    if (seconds === null || seconds === undefined) return "-";
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
@@ -295,13 +361,19 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         return (
           <div className="flex items-center gap-2">
             {direction === "inbound" ? (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-50 dark:bg-yellow-900/30">
-                <PhoneIncoming className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
-              </div>
+              <>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-50 dark:bg-yellow-900/30">
+                  <PhoneIncoming className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                </div>
+                <span className="text-sm font-medium">Inbound</span>
+              </>
             ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-900/30">
-                <PhoneOutgoing className="h-4 w-4 text-violet-600 dark:text-violet-500" />
-              </div>
+              <>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-900/30">
+                  <PhoneOutgoing className="h-4 w-4 text-violet-600 dark:text-violet-500" />
+                </div>
+                <span className="text-sm font-medium">Outbound</span>
+              </>
             )}
           </div>
         );
@@ -437,7 +509,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
           row.original.relatedOutboundCallId;
 
         return (
-          <div className="max-w-[180px]">
+          <div className="max-w-[200px]">
             <div className="truncate text-sm font-medium">{campaign.name}</div>
             <div className="mt-1 flex flex-wrap gap-1">
               {mainKpiField && (
@@ -513,7 +585,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         return (
           <Badge
             variant={badgeVariant as BadgeProps["variant"]}
-            className="flex items-center gap-1 px-2 py-1"
+            className="flex w-fit items-center gap-1 px-2 py-1"
           >
             <StatusIcon className="h-3 w-3" />
             {statusLabel}
@@ -555,9 +627,12 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
             variant="ghost"
             size="icon"
             asChild
-            className="h-8 w-8 rounded-full"
+            className="data-table-no-click h-8 w-8 rounded-full"
           >
-            <Link href={`/calls?callId=${row.original.id}`}>
+            <Link
+              href={`/calls?callId=${row.original.id}`}
+              className="data-table-no-click"
+            >
               <MoreHorizontal className="h-4 w-4" />
               <span className="sr-only">View details</span>
             </Link>
@@ -576,22 +651,37 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col items-start justify-between gap-4 md:flex-row">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <CallsTableFilters />
 
-        <div className="relative w-full md:w-72">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search by name or phone..."
-            className="w-full pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        <div className="flex w-full gap-2 lg:w-auto">
+          <div className="relative flex-1 lg:w-72">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search by name or phone..."
+              className="w-full pl-9"
+              value={searchQuery}
+              onChange={handleSearchChange}
+            />
+          </div>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isLoading || isRefreshing}
+            className="h-9 w-9 flex-shrink-0"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            <span className="sr-only">Refresh</span>
+          </Button>
         </div>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden border shadow-sm">
         <CardContent className="p-0">
           {error ? (
             <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
@@ -606,17 +696,14 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
               <Button
                 variant="outline"
                 className="mt-6"
-                onClick={() => window.location.reload()}
+                onClick={handleRefresh}
               >
-                Refresh Page
+                Retry
               </Button>
             </div>
           ) : isLoading && !displayData?.calls.length ? (
-            <div className="flex h-[300px] w-full items-center justify-center p-8">
-              <div className="flex flex-col items-center">
-                <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
-                <p className="text-muted-foreground">Loading calls data...</p>
-              </div>
+            <div className="p-4">
+              <CallsTableSkeleton />
             </div>
           ) : displayData?.calls.length === 0 ? (
             <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
@@ -632,180 +719,257 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
             </div>
           ) : (
             <>
-              <DataTable
-                columns={columns}
-                data={displayData?.calls || []}
-                onRowClick={(row) => handleRowClick(row.id)}
-                // className="border-b"
-                rowClassName={(row) => {
-                  const status = row?.original?.status;
-                  if (status === "in-progress") {
-                    return "bg-yellow-50";
-                  }
-                  return "";
-                }}
-              />
+              <div className="overflow-x-auto">
+                <DataTable
+                  columns={columns}
+                  data={displayData?.calls || []}
+                  onRowClick={(row, event) => handleRowClick(row.id, event)}
+                  rowClassName={(row) => {
+                    const status = row?.original?.status;
+                    let className = "";
+
+                    // Status-based styling
+                    if (status === "in-progress") {
+                      className += "bg-yellow-50 dark:bg-yellow-900/20 ";
+                    } else if (status === "completed") {
+                      className +=
+                        "hover:bg-green-50 dark:hover:bg-green-900/10 ";
+                    }
+
+                    // Add general hover effect
+                    className += "hover:bg-accent/50 ";
+
+                    return className.trim();
+                  }}
+                />
+              </div>
 
               {/* Custom Enhanced Pagination */}
-              <div className="px-2 py-4">
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={() =>
-                          setPagination((prev) => ({
-                            ...prev,
-                            pageIndex: Math.max(0, prev.pageIndex - 1),
-                          }))
-                        }
-                        className={
-                          currentPage === 1
-                            ? "pointer-events-none opacity-50"
-                            : ""
-                        }
-                      />
-                    </PaginationItem>
-
-                    {/* First page */}
-                    {currentPage > 3 && (
-                      <PaginationItem>
-                        <PaginationLink
-                          onClick={() =>
-                            setPagination((prev) => ({ ...prev, pageIndex: 0 }))
-                          }
-                          isActive={currentPage === 1}
-                        >
-                          1
-                        </PaginationLink>
-                      </PaginationItem>
-                    )}
-
-                    {/* Ellipsis for start */}
-                    {currentPage > 4 && (
-                      <PaginationItem>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    )}
-
-                    {/* Previous page if not first */}
-                    {currentPage > 1 && currentPage <= totalPages && (
-                      <PaginationItem>
-                        <PaginationLink
-                          onClick={() =>
-                            setPagination((prev) => ({
-                              ...prev,
-                              pageIndex: prev.pageIndex - 1,
-                            }))
-                          }
-                        >
-                          {currentPage - 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    )}
-
-                    {/* Current page */}
-                    <PaginationItem>
-                      <PaginationLink isActive>{currentPage}</PaginationLink>
-                    </PaginationItem>
-
-                    {/* Next page if not last */}
-                    {currentPage < totalPages && (
-                      <PaginationItem>
-                        <PaginationLink
-                          onClick={() =>
-                            setPagination((prev) => ({
-                              ...prev,
-                              pageIndex: prev.pageIndex + 1,
-                            }))
-                          }
-                        >
-                          {currentPage + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    )}
-
-                    {/* Ellipsis for end */}
-                    {currentPage < totalPages - 3 && (
-                      <PaginationItem>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    )}
-
-                    {/* Last page */}
-                    {totalPages > 1 && currentPage < totalPages - 2 && (
-                      <PaginationItem>
-                        <PaginationLink
-                          onClick={() =>
-                            setPagination((prev) => ({
-                              ...prev,
-                              pageIndex: totalPages - 1,
-                            }))
-                          }
-                        >
-                          {totalPages}
-                        </PaginationLink>
-                      </PaginationItem>
-                    )}
-
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={() =>
-                          setPagination((prev) => ({
-                            ...prev,
-                            pageIndex: Math.min(
-                              totalPages - 1,
-                              prev.pageIndex + 1,
-                            ),
-                          }))
-                        }
-                        className={
-                          currentPage === totalPages
-                            ? "pointer-events-none opacity-50"
-                            : ""
-                        }
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-
-                {/* Page size and record info */}
-                <div className="mt-4 flex items-center justify-between px-2">
-                  <div className="text-sm text-muted-foreground">
-                    Showing{" "}
-                    {Math.min(
-                      pagination.pageSize,
-                      displayData?.calls.length || 0,
-                    )}{" "}
-                    of {displayData.totalCount} calls
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      Rows per page:
+              <div className="border-t bg-background px-4 py-4">
+                <div className="flex flex-col-reverse items-center justify-between gap-4 sm:flex-row">
+                  {/* Page size and record info */}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>
+                      Showing{" "}
+                      {Math.min(
+                        pagination.pageSize,
+                        displayData?.calls.length || 0,
+                      )}{" "}
+                      of {displayData.totalCount} calls
                     </span>
-                    <select
-                      className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
-                      value={pagination.pageSize}
-                      onChange={(e) => {
-                        setPagination((prev) => ({
-                          pageIndex: 0, // Reset to first page when changing page size
-                          pageSize: Number(e.target.value),
-                        }));
-                      }}
-                    >
-                      {[5, 10, 20, 50, 100].map((size) => (
-                        <option key={size} value={size}>
-                          {size}
-                        </option>
-                      ))}
-                    </select>
+
+                    <span className="mx-2">|</span>
+
+                    <div className="flex items-center gap-2">
+                      <span>Rows per page:</span>
+                      <select
+                        className="data-table-no-click h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
+                        value={pagination.pageSize}
+                        onChange={(e) => {
+                          setPagination((prev) => ({
+                            pageIndex: 0, // Reset to first page when changing page size
+                            pageSize: Number(e.target.value),
+                          }));
+                        }}
+                      >
+                        {[5, 10, 20, 50, 100].map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+
+                  {/* Pagination controls */}
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() =>
+                            setPagination((prev) => ({
+                              ...prev,
+                              pageIndex: Math.max(0, prev.pageIndex - 1),
+                            }))
+                          }
+                          className={cn(
+                            "data-table-no-click",
+                            currentPage === 1 &&
+                              "pointer-events-none opacity-50",
+                          )}
+                        />
+                      </PaginationItem>
+
+                      {/* First page */}
+                      {currentPage > 3 && (
+                        <PaginationItem>
+                          <PaginationLink
+                            onClick={() =>
+                              setPagination((prev) => ({
+                                ...prev,
+                                pageIndex: 0,
+                              }))
+                            }
+                            isActive={currentPage === 1}
+                            className="data-table-no-click"
+                          >
+                            1
+                          </PaginationLink>
+                        </PaginationItem>
+                      )}
+
+                      {/* Ellipsis for start */}
+                      {currentPage > 4 && (
+                        <PaginationItem>
+                          <PaginationEllipsis className="data-table-no-click" />
+                        </PaginationItem>
+                      )}
+
+                      {/* Previous page if not first */}
+                      {currentPage > 1 && currentPage <= totalPages && (
+                        <PaginationItem>
+                          <PaginationLink
+                            onClick={() =>
+                              setPagination((prev) => ({
+                                ...prev,
+                                pageIndex: prev.pageIndex - 1,
+                              }))
+                            }
+                            className="data-table-no-click"
+                          >
+                            {currentPage - 1}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )}
+
+                      {/* Current page */}
+                      <PaginationItem>
+                        <PaginationLink
+                          isActive
+                          className="data-table-no-click"
+                        >
+                          {currentPage}
+                        </PaginationLink>
+                      </PaginationItem>
+
+                      {/* Next page if not last */}
+                      {currentPage < totalPages && (
+                        <PaginationItem>
+                          <PaginationLink
+                            onClick={() =>
+                              setPagination((prev) => ({
+                                ...prev,
+                                pageIndex: prev.pageIndex + 1,
+                              }))
+                            }
+                            className="data-table-no-click"
+                          >
+                            {currentPage + 1}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )}
+
+                      {/* Ellipsis for end */}
+                      {currentPage < totalPages - 3 && (
+                        <PaginationItem>
+                          <PaginationEllipsis className="data-table-no-click" />
+                        </PaginationItem>
+                      )}
+
+                      {/* Last page */}
+                      {totalPages > 1 && currentPage < totalPages - 2 && (
+                        <PaginationItem>
+                          <PaginationLink
+                            onClick={() =>
+                              setPagination((prev) => ({
+                                ...prev,
+                                pageIndex: totalPages - 1,
+                              }))
+                            }
+                            className="data-table-no-click"
+                          >
+                            {totalPages}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() =>
+                            setPagination((prev) => ({
+                              ...prev,
+                              pageIndex: Math.min(
+                                totalPages - 1,
+                                prev.pageIndex + 1,
+                              ),
+                            }))
+                          }
+                          className={cn(
+                            "data-table-no-click",
+                            currentPage === totalPages &&
+                              "pointer-events-none opacity-50",
+                          )}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
                 </div>
               </div>
             </>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// Add missing utility function
+function cn(...classes: string[]) {
+  return classes.filter(Boolean).join(" ");
+}
+
+// Add skeleton loading state for better UX
+function CallsTableSkeleton() {
+  return (
+    <div className="w-full animate-pulse">
+      <div className="mb-4 grid grid-cols-7 gap-4 pb-2">
+        {/* Header */}
+        {Array(7)
+          .fill(0)
+          .map((_, i) => (
+            <div key={i} className="h-6 rounded bg-muted"></div>
+          ))}
+      </div>
+
+      {/* Rows */}
+      {Array(5)
+        .fill(0)
+        .map((_, rowIdx) => (
+          <div
+            key={rowIdx}
+            className="mb-4 grid grid-cols-7 gap-4 border-b pb-4"
+          >
+            {Array(7)
+              .fill(0)
+              .map((_, colIdx) => (
+                <div key={colIdx} className="flex items-center">
+                  {colIdx === 1 ? (
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-8 w-8 rounded-full" />
+                      <div>
+                        <Skeleton className="mb-1 h-4 w-32" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                    </div>
+                  ) : colIdx === 3 ? (
+                    <Skeleton className="h-6 w-24 rounded-full" />
+                  ) : (
+                    <Skeleton className="h-6 w-full max-w-32 rounded" />
+                  )}
+                </div>
+              ))}
+          </div>
+        ))}
     </div>
   );
 }

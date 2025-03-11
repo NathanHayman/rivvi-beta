@@ -30,7 +30,7 @@ interface DataTableProps<TData, TValue> {
   };
   searchable?: boolean;
   onSearch?: (query: string) => void;
-  onRowClick?: (row: TData) => void;
+  onRowClick?: (row: TData, event: React.MouseEvent) => void;
   rowClassName?: (row: TData) => string;
   emptyState?: ReactNode;
 }
@@ -129,7 +129,7 @@ export function DataTable<TData, TValue>({
                   className={`cursor-pointer ${
                     rowClassName ? rowClassName(row.original) : ""
                   }`}
-                  onClick={() => onRowClick && onRowClick(row.original)}
+                  onClick={(e) => onRowClick && onRowClick(row.original, e)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
