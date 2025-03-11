@@ -149,10 +149,11 @@ async function InitialCallsData({
 export default async function Calls({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const params = await searchParams;
   // Extract callId for the detail view
-  const callIdParam = searchParams?.callId;
+  const callIdParam = params?.callId;
   const callIdToView =
     typeof callIdParam === "string"
       ? callIdParam
@@ -172,7 +173,7 @@ export default async function Calls({
           <Suspense fallback={<CallsLoading />}>
             <InitialCallsData
               callIdToView={callIdToView}
-              searchParams={searchParams}
+              searchParams={params}
             />
           </Suspense>
 
