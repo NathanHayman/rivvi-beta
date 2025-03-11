@@ -5,7 +5,6 @@ import {
   RunCreateFormProps,
 } from "@/components/forms/create-run-form/form";
 import { CreateRunAction } from "@/components/modals/actions/create-run";
-import { TriggerSheet } from "@/components/modals/trigger-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -161,12 +160,6 @@ export function CampaignDetails({
               <BarChart3 className="mr-1.5 h-4 w-4" />
               <span>Analytics</span>
             </Link>
-            <TriggerSheet
-              buttonText="Create Run"
-              form={<RunCreateForm {...initialConfig} />}
-              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
-              title="Create Run"
-            />
             <CreateRunAction
               type="modal"
               form={<RunCreateForm {...initialConfig} />}

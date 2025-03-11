@@ -35,6 +35,7 @@ export const rowStatusEnum = pgEnum("row_status", [
   "completed",
   "failed",
   "skipped",
+  "callback",
 ]);
 
 export const callDirectionEnum = pgEnum("call_direction", [
@@ -88,7 +89,8 @@ export type RowStatus =
   | "calling"
   | "completed"
   | "failed"
-  | "skipped";
+  | "skipped"
+  | "callback";
 
 export type CallDirection = "inbound" | "outbound";
 

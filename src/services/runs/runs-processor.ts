@@ -1016,7 +1016,8 @@ export class RunProcessor {
               ...row.variables,
 
               // Add run-specific variables
-              custom_prompt: run.customPrompt || undefined,
+              // custom_prompt: run.customPrompt || undefined,
+              isMinor: row.variables.isMinor || false,
               organization_name: organization.name,
               campaign_name: campaign.name,
               retry_count: row.retryCount || 0,

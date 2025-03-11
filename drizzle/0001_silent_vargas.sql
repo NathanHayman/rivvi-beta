@@ -1,0 +1,1 @@
+ALTER TYPE "row_status" ADD VALUE 'callback';

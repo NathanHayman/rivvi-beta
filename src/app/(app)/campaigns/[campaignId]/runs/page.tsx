@@ -9,7 +9,7 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { TriggerSheet } from "@/components/modals/trigger-sheet";
+import { CreateRunAction } from "@/components/modals/actions/create-run";
 import { RunsTable } from "@/components/tables/runs-table";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { getCampaignAnalytics } from "@/server/actions/runs/analytics";
@@ -93,11 +93,12 @@ export default async function CampaignRunsPage({ params }: PageProps) {
           className=""
           title={`${campaign?.campaign?.name || "Campaign"} - Runs`}
           buttons={
-            <TriggerSheet
-              buttonText="Create Run"
+            <CreateRunAction
+              type="modal"
               form={<RunCreateForm {...runData} />}
-              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
               title="Create Run"
+              buttonText="Create Run"
+              buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
             />
           }
         />
@@ -107,6 +108,7 @@ export default async function CampaignRunsPage({ params }: PageProps) {
             campaignId={campaignId}
             campaignName={campaign?.campaign?.name || "Campaign"}
             analytics={analytics}
+            initialConfig={runData}
           />
         </AppContent>
       </AppBody>

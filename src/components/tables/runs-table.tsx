@@ -45,10 +45,15 @@ import { cn } from "@/lib/utils";
 import { getRuns } from "@/server/actions/runs/fetch";
 import { pauseRun, startRun } from "@/server/actions/runs/start";
 import { formatDistance } from "date-fns";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 // Import types
 import { CampaignAnalytics } from "@/services/analytics/types";
+import {
+  RunCreateForm,
+  RunCreateFormProps,
+} from "../forms/create-run-form/form";
+import { CreateRunAction } from "../modals/actions/create-run";
 
 export type RunsTableProps = {
   campaignId: string;
@@ -56,6 +61,7 @@ export type RunsTableProps = {
   limit?: number;
   runs?: any[];
   analytics?: CampaignAnalytics;
+  initialConfig: RunCreateFormProps;
 };
 
 export function RunsTable({
@@ -64,10 +70,9 @@ export function RunsTable({
   limit = 10,
   runs: initialRuns,
   analytics,
+  initialConfig,
 }: RunsTableProps) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
 
   const [runs, setRuns] = useState<any[]>(initialRuns || []);
   const [isLoading, setIsLoading] = useState(!initialRuns);
@@ -347,16 +352,13 @@ export function RunsTable({
               <p className="mb-2 text-sm text-muted-foreground">
                 No runs created yet
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  router.push(`/campaigns/${campaignId}/create-run`)
-                }
-              >
-                <Calendar className="mr-1.5 h-4 w-4" />
-                Create Run
-              </Button>
+              <CreateRunAction
+                type="modal"
+                form={<RunCreateForm {...initialConfig} />}
+                title="Create Run"
+                buttonText="Create Run"
+                buttonIcon={<Calendar className="mr-1.5 h-4 w-4" />}
+              />
             </div>
           ) : (
             <div className="border-0">

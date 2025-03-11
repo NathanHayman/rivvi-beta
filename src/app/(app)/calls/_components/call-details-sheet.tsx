@@ -32,6 +32,7 @@ import {
   PieChart,
   User,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // Define the call type based on the API response
@@ -320,14 +321,10 @@ function CallDetailsContent({ callId }: { callId: string }) {
                   className="h-8 gap-1.5 text-xs"
                   asChild
                 >
-                  <a
-                    href={`/patients/${call.patient.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <Link href={`/patients/${call.patient.id}`}>
                     View Profile
                     <ExternalLink className="h-3 w-3" />
-                  </a>
+                  </Link>
                 </Button>
               )}
             </div>
@@ -348,14 +345,12 @@ function CallDetailsContent({ callId }: { callId: string }) {
                     className="h-8 gap-1.5 text-xs"
                     asChild
                   >
-                    <a
-                      href={`/campaigns/${call.campaign.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Link
+                      href={`/campaigns/${call.campaign.id}/runs/${call.run?.id}`}
                     >
-                      View Campaign
+                      View Run
                       <ExternalLink className="h-3 w-3" />
-                    </a>
+                    </Link>
                   </Button>
                 )}
               </div>

@@ -1,26 +1,11 @@
+// src/app/(app)/calls/_components/calls-table.tsx
 "use client";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge, BadgeProps } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -42,18 +27,17 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   RefreshCw,
-  Search,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { useDebounce } from "use-debounce";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CallsTableFilters } from "./calls-table-filters";
+import { CallsTablePagination } from "./calls-table-pagination";
+import { CallsTableSearch } from "./calls-table-search";
 
-// Define the call type based on the schema
+// Define Call Type
 type Call = {
   id: string;
-  agentId: string;
   direction: "inbound" | "outbound";
   status:
     | "pending"
@@ -74,14 +58,7 @@ type Call = {
     firstName: string;
     lastName: string;
     patientHash: string;
-    dob?: string;
-    isMinor?: boolean;
     primaryPhone?: string;
-    secondaryPhone?: string;
-    externalIds?: Record<string, string>;
-    metadata?: Record<string, unknown>;
-    createdAt?: string | Date;
-    updatedAt?: string | Date;
   } | null;
   campaignId?: string | null;
   campaign?: {
@@ -118,103 +95,49 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // Parse pagination params from URL
+  const paramLimit = searchParams.get("limit");
+  const paramOffset = searchParams.get("offset");
+
+  // State for UI
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(
     callIdToView || null,
   );
 
+  // Pagination state with defaults from URL
   const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: 10,
+    pageIndex: paramOffset
+      ? Math.floor(
+          parseInt(paramOffset, 10) /
+            (paramLimit ? parseInt(paramLimit, 10) : 10),
+        )
+      : 0,
+    pageSize: paramLimit ? parseInt(paramLimit, 10) : 10,
   });
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Extract filters from URL search params
-  const status = searchParams.get("status") || undefined;
-  const direction = searchParams.get("direction") || undefined;
-  const campaignId = searchParams.get("campaignId") || undefined;
-  const dateRange = searchParams.get("dateRange") || undefined;
-
-  const [filters, setFilters] = useState({
-    status,
-    direction,
-    campaignId,
-    dateRange,
-  });
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch] = useDebounce(searchQuery, 300);
-
-  // Sync URL params when they change
-  useEffect(() => {
-    setFilters({
+  // Extract current filters from URL
+  const currentFilters = useMemo(
+    () => ({
       status: searchParams.get("status") || undefined,
       direction: searchParams.get("direction") || undefined,
       campaignId: searchParams.get("campaignId") || undefined,
       dateRange: searchParams.get("dateRange") || undefined,
-    });
+      search: searchParams.get("search") || undefined,
+    }),
+    [searchParams],
+  );
 
-    const newSearchQuery = searchParams.get("search") || "";
-    if (newSearchQuery !== searchQuery) {
-      setSearchQuery(newSearchQuery);
-    }
-  }, [searchParams, searchQuery]);
-
-  // Function to reset filters
-  const resetFilters = () => {
-    setFilters({
-      status: undefined,
-      direction: undefined,
-      campaignId: undefined,
-      dateRange: undefined,
-    });
-
-    setSearchQuery("");
-
-    // Reset URL params
-    const url = new URL(window.location.href);
-
-    // Explicitly delete all filter params
-    const filterParams = [
-      "status",
-      "direction",
-      "campaignId",
-      "dateRange",
-      "search",
-    ];
-    filterParams.forEach((param) => {
-      url.searchParams.delete(param);
-    });
-
-    // Keep the callId if it exists
-    const callId = searchParams.get("callId");
-    if (callId) {
-      url.searchParams.set("callId", callId);
-    }
-
-    // Preserve pagination params
-    const limit = searchParams.get("limit");
-    if (limit) {
-      url.searchParams.set("limit", limit);
-    }
-
-    const offset = searchParams.get("offset");
-    if (offset) {
-      url.searchParams.set("offset", offset);
-    }
-
-    router.replace(`${pathname}${url.search}`, { scroll: false });
-  };
-
-  // Process date range filter
-  const getDateRangeFilter = useCallback(() => {
-    if (!dateRange || dateRange === "all") return {};
+  // Process date range filter once
+  const dateRangeFilter = useMemo(() => {
+    if (!currentFilters.dateRange || currentFilters.dateRange === "all")
+      return {};
 
     const now = new Date();
     let startDate = new Date();
     let endDate: Date | undefined = undefined;
 
-    switch (dateRange) {
+    switch (currentFilters.dateRange) {
       case "today":
         startDate.setHours(0, 0, 0, 0);
         break;
@@ -239,96 +162,98 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     }
 
     return { startDate, endDate };
-  }, [dateRange]);
+  }, [currentFilters.dateRange]);
 
-  // Handle search input
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchQuery(value);
-
-    // Update URL with search parameter
-    const url = new URL(window.location.href);
-    if (value) {
-      url.searchParams.set("search", value);
-    } else {
-      url.searchParams.delete("search");
-    }
-
-    // Preserve other params
-    if (selectedCallId) {
-      url.searchParams.set("callId", selectedCallId);
-    }
-
-    router.replace(url.pathname + url.search);
-  };
-
-  // Use our custom hook for fetching data
+  // Use the custom hook for data fetching with memoized parameters
   const { data, isLoading, error, refetch } = useCalls({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
-    status: filters.status,
-    direction: filters.direction,
-    campaignId: filters.campaignId,
-    search: debouncedSearch,
-    ...getDateRangeFilter(),
+    status: currentFilters.status,
+    direction: currentFilters.direction,
+    campaignId: currentFilters.campaignId,
+    search: currentFilters.search,
+    ...dateRangeFilter,
   });
 
-  // Manual refresh function
-  const handleRefresh = async () => {
+  // Memoized display data
+  const displayData = useMemo(() => data || initialData, [data, initialData]);
+
+  // Manual refresh with debounce to prevent excessive refreshes
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return; // Prevent multiple refreshes
+
     setIsRefreshing(true);
     await refetch();
-    setTimeout(() => setIsRefreshing(false), 500);
-  };
 
-  // Use initialData until we have data from the hook
-  const displayData = data || initialData;
+    // Reset the refreshing state after a minimum delay to prevent flicker
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, [refetch, isRefreshing]);
 
   // Handle row click to view call details
-  const handleRowClick = (callId: string, event: React.MouseEvent) => {
-    // Check if the click occurred on a button, link or other interactive element
-    const target = event.target as HTMLElement;
-    const isClickableElement = target.closest(
-      "button, a, select, input, .data-table-no-click",
+  const handleRowClick = useCallback(
+    (callId: string, event: React.MouseEvent) => {
+      // Don't trigger row click if clicking on a button, link or other interactive element
+      const target = event.target as HTMLElement;
+      const isClickableElement = target.closest(
+        "button, a, select, input, .data-table-no-click",
+      );
+
+      if (isClickableElement) return;
+
+      // Update URL with callId while preserving other search parameters
+      const newParams = new URLSearchParams(searchParams.toString());
+      newParams.set("callId", callId);
+
+      router.replace(`${pathname}?${newParams.toString()}`, { scroll: false });
+      setSelectedCallId(callId);
+    },
+    [router, pathname, searchParams],
+  );
+
+  // Reset filters callback
+  const resetFilters = useCallback(() => {
+    // Create new params from current, removing filter params
+    const newParams = new URLSearchParams();
+
+    // Copy over non-filter params
+    const paramsToKeep = ["limit", "offset", "callId"];
+    paramsToKeep.forEach((param) => {
+      const value = searchParams.get(param);
+      if (value) newParams.set(param, value);
+    });
+
+    // Update URL with cleaned params
+    router.replace(
+      `${pathname}${newParams.toString() ? `?${newParams.toString()}` : ""}`,
+      {
+        scroll: false,
+      },
     );
+  }, [router, pathname, searchParams]);
 
-    // Don't trigger row click if clicking on an interactive element
-    if (isClickableElement) {
-      return;
-    }
-
-    // Update URL preserving other search parameters
-    const url = new URL(window.location.href);
-    url.searchParams.set("callId", callId);
-    router.replace(url.pathname + url.search, { scroll: false });
-
-    setSelectedCallId(callId);
-  };
-
-  // Update URL when pagination changes
+  // Update URL when pagination changes (but not on initial render)
   useEffect(() => {
-    const url = new URL(window.location.href);
-
-    // Set pagination params
-    url.searchParams.set("limit", pagination.pageSize.toString());
-    url.searchParams.set(
+    const params = new URLSearchParams(searchParams);
+    params.set("limit", pagination.pageSize.toString());
+    params.set(
       "offset",
       (pagination.pageIndex * pagination.pageSize).toString(),
     );
 
-    // Preserve search params and callId
-    if (searchQuery) {
-      url.searchParams.set("search", searchQuery);
+    // Only update URL if pagination actually changed
+    const currentLimit = searchParams.get("limit");
+    const currentOffset = searchParams.get("offset");
+
+    if (
+      currentLimit !== pagination.pageSize.toString() ||
+      currentOffset !== (pagination.pageIndex * pagination.pageSize).toString()
+    ) {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }
+  }, [pagination, router, pathname, searchParams]);
 
-    if (selectedCallId) {
-      url.searchParams.set("callId", selectedCallId);
-    }
-
-    router.replace(url.pathname + url.search, { scroll: false });
-  }, [pagination, router, pathname, selectedCallId, searchQuery]);
-
-  // Format phone number for display
-  const formatPhoneNumber = (phone: string) => {
+  // Helper to format phone number for display
+  const formatPhoneNumber = useCallback((phone: string) => {
     if (!phone) return "N/A";
 
     // Basic formatting for US numbers
@@ -341,310 +266,287 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     }
 
     return phone;
-  };
+  }, []);
 
   // Format duration in mm:ss
-  const formatDuration = (seconds: number | null) => {
+  const formatDuration = useCallback((seconds: number | null) => {
     if (seconds === null || seconds === undefined) return "-";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
+  }, []);
 
-  // Define columns for the data table
-  const columns: ColumnDef<Call>[] = [
-    {
-      accessorKey: "direction",
-      header: "Direction",
-      cell: ({ row }) => {
-        const direction = row.getValue("direction") as Call["direction"];
-        return (
-          <div className="flex items-center gap-2">
-            {direction === "inbound" ? (
-              <>
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-50 dark:bg-yellow-900/30">
-                  <PhoneIncoming className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
-                </div>
-                <span className="text-sm font-medium">Inbound</span>
-              </>
-            ) : (
-              <>
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-900/30">
-                  <PhoneOutgoing className="h-4 w-4 text-violet-600 dark:text-violet-500" />
-                </div>
-                <span className="text-sm font-medium">Outbound</span>
-              </>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "patient",
-      header: "Patient",
-      cell: ({ row }) => {
-        const patient = row.original.patient;
-
-        if (!patient) {
+  // Memoized columns definition to prevent rerenders
+  const columns = useMemo<ColumnDef<Call>[]>(
+    () => [
+      {
+        accessorKey: "direction",
+        header: "Direction",
+        cell: ({ row }) => {
+          const direction = row.getValue("direction") as Call["direction"];
           return (
-            <div className="flex items-center gap-3">
-              <Avatar>
-                <AvatarFallback className="bg-muted">?</AvatarFallback>
-              </Avatar>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm text-muted-foreground">Unknown</span>
-              </div>
+            <div className="flex items-center gap-2">
+              {direction === "inbound" ? (
+                <>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-50 dark:bg-yellow-900/30">
+                    <PhoneIncoming className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                  </div>
+                  <span className="text-sm font-medium">Inbound</span>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-900/30">
+                    <PhoneOutgoing className="h-4 w-4 text-violet-600 dark:text-violet-500" />
+                  </div>
+                  <span className="text-sm font-medium">Outbound</span>
+                </>
+              )}
             </div>
           );
-        }
+        },
+      },
+      {
+        accessorKey: "patient",
+        header: "Patient",
+        cell: ({ row }) => {
+          const patient = row.original.patient;
 
-        const initials = `${patient.firstName?.[0] || ""}${
-          patient.lastName?.[0] || ""
-        }`.toUpperCase();
-
-        const name = `${patient.firstName} ${patient.lastName}`;
-        const formattedPhone = formatPhoneNumber(patient.primaryPhone || "");
-
-        return (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex cursor-pointer items-center gap-3">
-                  <Avatar className="border">
-                    <AvatarFallback className="bg-primary/10 text-primary">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">{name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {formattedPhone}
-                    </span>
-                  </div>
+          if (!patient) {
+            return (
+              <div className="flex items-center gap-3">
+                <Avatar>
+                  <AvatarFallback className="bg-muted">?</AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-muted-foreground">Unknown</span>
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" align="start" className="w-80 p-0">
-                <Card className="border-0 shadow-none">
-                  <CardHeader className="p-3 pb-2">
-                    <CardTitle className="text-base">Patient Details</CardTitle>
-                    <CardDescription className="text-xs">
-                      More information about {name}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-2 p-3 pt-0">
-                    <div className="grid grid-cols-3 items-center gap-4">
-                      <span className="text-xs font-medium">Phone</span>
-                      <span className="col-span-2 text-xs">
+              </div>
+            );
+          }
+
+          const initials = `${patient.firstName?.[0] || ""}${
+            patient.lastName?.[0] || ""
+          }`.toUpperCase();
+
+          const name = `${patient.firstName} ${patient.lastName}`;
+          const formattedPhone = formatPhoneNumber(patient.primaryPhone || "");
+
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex cursor-pointer items-center gap-3">
+                    <Avatar className="border">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{name}</span>
+                      <span className="text-xs text-muted-foreground">
                         {formattedPhone}
                       </span>
                     </div>
-                    {patient.dob && (
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" align="start" className="w-80 p-0">
+                  <div className="rounded-md border p-3">
+                    <div className="mb-2 text-base font-medium">{name}</div>
+                    <div className="grid gap-1 text-sm">
                       <div className="grid grid-cols-3 items-center gap-4">
-                        <span className="text-xs font-medium">DOB</span>
+                        <span className="text-xs font-medium">Phone</span>
                         <span className="col-span-2 text-xs">
-                          {patient.dob}
+                          {formattedPhone}
                         </span>
                       </div>
-                    )}
-                    {patient.externalIds &&
-                      Object.keys(patient.externalIds).length > 0 && (
-                        <div className="grid grid-cols-3 items-center gap-4">
-                          <span className="text-xs font-medium">
-                            External IDs
-                          </span>
-                          <div className="col-span-2">
-                            {Object.entries(patient.externalIds).map(
-                              ([key, value]) => (
-                                <div key={key} className="text-xs">
-                                  <span className="font-medium">{key}:</span>{" "}
-                                  {value}
-                                </div>
-                              ),
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    <div className="mt-2 flex justify-end">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
-                        asChild
-                      >
-                        <Link href={`/patients/${patient.id}`} prefetch={false}>
-                          View Profile
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </Button>
+                      <div className="mt-2 flex justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5 text-xs"
+                          asChild
+                        >
+                          <Link
+                            href={`/patients/${patient.id}`}
+                            prefetch={false}
+                          >
+                            View Profile
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        </Button>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        );
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        },
       },
-    },
-    {
-      accessorKey: "campaign",
-      header: "Campaign",
-      cell: ({ row }) => {
-        const campaign = row.original.campaign;
+      {
+        accessorKey: "campaign",
+        header: "Campaign",
+        cell: ({ row }) => {
+          const campaign = row.original.campaign;
 
-        if (!campaign) {
-          return <span className="text-sm text-muted-foreground">-</span>;
-        }
+          if (!campaign) {
+            return <span className="text-sm text-muted-foreground">-</span>;
+          }
 
-        // Find main KPI if available
-        const mainKpiField = campaign.config?.analysis?.campaign?.fields?.find(
-          (field) => field.isMainKPI,
-        );
+          // Find main KPI if available
+          const mainKpiField =
+            campaign.config?.analysis?.campaign?.fields?.find(
+              (field) => field.isMainKPI,
+            );
 
-        const mainKpiValue = mainKpiField
-          ? row.original.analysis?.[mainKpiField.key]
-          : null;
+          const mainKpiValue = mainKpiField
+            ? row.original.analysis?.[mainKpiField.key]
+            : null;
 
-        const hasCallback =
-          row.original.direction === "inbound" &&
-          row.original.relatedOutboundCallId;
+          const hasCallback =
+            row.original.direction === "inbound" &&
+            row.original.relatedOutboundCallId;
 
-        return (
-          <div className="max-w-[200px]">
-            <div className="truncate text-sm font-medium">{campaign.name}</div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {mainKpiField && (
-                <Badge
-                  variant="blue_solid_outline"
-                  className="px-1.5 py-0 text-xs font-normal"
-                >
-                  {mainKpiField.label}:{" "}
-                  {typeof mainKpiValue === "boolean"
-                    ? mainKpiValue
-                      ? "Yes"
-                      : "No"
-                    : mainKpiValue || "N/A"}
-                </Badge>
-              )}
-              {hasCallback && (
-                <Badge
-                  variant="yellow_solid_outline"
-                  className="px-1.5 py-0 text-xs font-normal"
-                >
-                  Callback
-                </Badge>
-              )}
+          return (
+            <div className="max-w-[200px]">
+              <div className="truncate text-sm font-medium">
+                {campaign.name}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {mainKpiField && (
+                  <Badge
+                    variant="blue_solid_outline"
+                    className="px-1.5 py-0 text-xs font-normal"
+                  >
+                    {mainKpiField.label}:{" "}
+                    {typeof mainKpiValue === "boolean"
+                      ? mainKpiValue
+                        ? "Yes"
+                        : "No"
+                      : mainKpiValue || "N/A"}
+                  </Badge>
+                )}
+                {hasCallback && (
+                  <Badge
+                    variant="yellow_solid_outline"
+                    className="px-1.5 py-0 text-xs font-normal"
+                  >
+                    Callback
+                  </Badge>
+                )}
+              </div>
             </div>
-          </div>
-        );
+          );
+        },
       },
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as Call["status"];
-        const call = row.original;
-        const hasAnalysisData =
-          call.analysis && Object.keys(call.analysis).length > 0;
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const status = row.getValue("status") as Call["status"];
+          const call = row.original;
+          const hasAnalysisData =
+            call.analysis && Object.keys(call.analysis).length > 0;
 
-        // If the call has analysis data but status is still "in-progress",
-        // we should display it as "completed" instead
-        const displayStatus =
-          status === "in-progress" && hasAnalysisData ? "completed" : status;
+          // If the call has analysis data but status is still "in-progress",
+          // we should display it as "completed" instead
+          const displayStatus =
+            status === "in-progress" && hasAnalysisData ? "completed" : status;
 
-        let StatusIcon = Clock;
-        let badgeVariant = "neutral_solid";
-        let statusLabel = "";
+          let StatusIcon = Clock;
+          let badgeVariant: any = "neutral_solid";
+          let statusLabel = "";
 
-        if (displayStatus === "pending") {
-          StatusIcon = Clock;
-          badgeVariant = "yellow_solid";
-          statusLabel = "Pending";
-        } else if (displayStatus === "in-progress") {
-          StatusIcon = PhoneCall;
-          badgeVariant = "blue_solid";
-          statusLabel = "In Progress";
-        } else if (displayStatus === "completed") {
-          StatusIcon = Check;
-          badgeVariant = "success_solid";
-          statusLabel = "Completed";
-        } else if (displayStatus === "failed") {
-          StatusIcon = CircleAlert;
-          badgeVariant = "failure_solid";
-          statusLabel = "Failed";
-        } else if (displayStatus === "voicemail") {
-          StatusIcon = Phone;
-          badgeVariant = "violet_solid";
-          statusLabel = "Voicemail";
-        } else if (displayStatus === "no-answer") {
-          StatusIcon = CircleAlert;
-          badgeVariant = "neutral_solid";
-          statusLabel = "No Answer";
-        }
+          if (displayStatus === "pending") {
+            StatusIcon = Clock;
+            badgeVariant = "yellow_solid";
+            statusLabel = "Pending";
+          } else if (displayStatus === "in-progress") {
+            StatusIcon = PhoneCall;
+            badgeVariant = "blue_solid";
+            statusLabel = "In Progress";
+          } else if (displayStatus === "completed") {
+            StatusIcon = Check;
+            badgeVariant = "success_solid";
+            statusLabel = "Completed";
+          } else if (displayStatus === "failed") {
+            StatusIcon = CircleAlert;
+            badgeVariant = "failure_solid";
+            statusLabel = "Failed";
+          } else if (displayStatus === "voicemail") {
+            StatusIcon = Phone;
+            badgeVariant = "violet_solid";
+            statusLabel = "Voicemail";
+          } else if (displayStatus === "no-answer") {
+            StatusIcon = CircleAlert;
+            badgeVariant = "neutral_solid";
+            statusLabel = "No Answer";
+          }
 
-        return (
-          <Badge
-            variant={badgeVariant as BadgeProps["variant"]}
-            className="flex w-fit items-center gap-1 px-2 py-1"
-          >
-            <StatusIcon className="h-3 w-3" />
-            {statusLabel}
-          </Badge>
-        );
-      },
-    },
-    {
-      accessorKey: "date",
-      header: "Date & Time",
-      cell: ({ row }) => {
-        const date = new Date(row.original.createdAt);
-        return (
-          <div className="flex flex-col">
-            <span className="text-sm">{format(date, "MMM d, yyyy")}</span>
-            <span className="text-xs text-muted-foreground">
-              {format(date, "h:mm a")}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "duration",
-      header: "Duration",
-      cell: ({ row }) => {
-        const duration = row.original.duration;
-        return (
-          <div className="font-mono text-sm">{formatDuration(duration)}</div>
-        );
-      },
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => {
-        return (
-          <Button
-            variant="ghost"
-            size="icon"
-            asChild
-            className="data-table-no-click h-8 w-8 rounded-full"
-          >
-            <Link
-              href={`/calls?callId=${row.original.id}`}
-              className="data-table-no-click"
+          return (
+            <Badge
+              variant={badgeVariant}
+              className="flex w-fit items-center gap-1 px-2 py-1"
             >
-              <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">View details</span>
-            </Link>
-          </Button>
-        );
+              <StatusIcon className="h-3 w-3" />
+              {statusLabel}
+            </Badge>
+          );
+        },
       },
-    },
-  ];
+      {
+        accessorKey: "date",
+        header: "Date & Time",
+        cell: ({ row }) => {
+          const date = new Date(row.original.createdAt);
+          return (
+            <div className="flex flex-col">
+              <span className="text-sm">{format(date, "MMM d, yyyy")}</span>
+              <span className="text-xs text-muted-foreground">
+                {format(date, "h:mm a")}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "duration",
+        header: "Duration",
+        cell: ({ row }) => {
+          const duration = row.original.duration;
+          return (
+            <div className="font-mono text-sm">{formatDuration(duration)}</div>
+          );
+        },
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => {
+          return (
+            <Button
+              variant="ghost"
+              size="icon"
+              asChild
+              className="data-table-no-click h-8 w-8 rounded-full"
+            >
+              <Link
+                href={`/calls?callId=${row.original.id}`}
+                className="data-table-no-click"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">View details</span>
+              </Link>
+            </Button>
+          );
+        },
+      },
+    ],
+    [formatDuration, formatPhoneNumber],
+  );
 
   // Calculate total pages for pagination
   const totalPages = Math.ceil(displayData.totalCount / pagination.pageSize);
-  const currentPage = pagination.pageIndex + 1;
 
   // Type check and convert the data to the required format
   const callsData = (displayData?.calls || []) as unknown as Call[];
@@ -655,16 +557,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         <CallsTableFilters />
 
         <div className="flex w-full gap-2 lg:w-auto">
-          <div className="relative flex-1 lg:w-72">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search by name or phone..."
-              className="w-full pl-9"
-              value={searchQuery}
-              onChange={handleSearchChange}
-            />
-          </div>
+          <CallsTableSearch />
 
           <Button
             variant="outline"
@@ -681,7 +574,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         </div>
       </div>
 
-      <Card className="overflow-hidden border shadow-sm">
+      <Card className="overflow-hidden shadow-sm">
         <CardContent className="p-0">
           {error ? (
             <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
@@ -722,18 +615,15 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
               <div className="overflow-x-auto">
                 <DataTable
                   columns={columns}
-                  data={displayData?.calls || []}
+                  data={callsData}
                   onRowClick={(row, event) => handleRowClick(row.id, event)}
                   rowClassName={(row) => {
-                    const status = row?.original?.status;
+                    const status = row.status;
                     let className = "";
 
                     // Status-based styling
                     if (status === "in-progress") {
-                      className += "bg-yellow-50 dark:bg-yellow-900/20 ";
-                    } else if (status === "completed") {
-                      className +=
-                        "hover:bg-green-50 dark:hover:bg-green-900/10 ";
+                      className += "bg-yellow-50/50 dark:bg-yellow-900/20 ";
                     }
 
                     // Add general hover effect
@@ -744,188 +634,31 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
                 />
               </div>
 
-              {/* Custom Enhanced Pagination */}
-              <div className="border-t bg-background px-4 py-4">
-                <div className="flex flex-col-reverse items-center justify-between gap-4 sm:flex-row">
-                  {/* Page size and record info */}
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>
-                      Showing{" "}
-                      {Math.min(
-                        pagination.pageSize,
-                        displayData?.calls.length || 0,
-                      )}{" "}
-                      of {displayData.totalCount} calls
-                    </span>
-
-                    <span className="mx-2">|</span>
-
-                    <div className="flex items-center gap-2">
-                      <span>Rows per page:</span>
-                      <select
-                        className="data-table-no-click h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
-                        value={pagination.pageSize}
-                        onChange={(e) => {
-                          setPagination((prev) => ({
-                            pageIndex: 0, // Reset to first page when changing page size
-                            pageSize: Number(e.target.value),
-                          }));
-                        }}
-                      >
-                        {[5, 10, 20, 50, 100].map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Pagination controls */}
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          onClick={() =>
-                            setPagination((prev) => ({
-                              ...prev,
-                              pageIndex: Math.max(0, prev.pageIndex - 1),
-                            }))
-                          }
-                          className={cn(
-                            "data-table-no-click",
-                            currentPage === 1 &&
-                              "pointer-events-none opacity-50",
-                          )}
-                        />
-                      </PaginationItem>
-
-                      {/* First page */}
-                      {currentPage > 3 && (
-                        <PaginationItem>
-                          <PaginationLink
-                            onClick={() =>
-                              setPagination((prev) => ({
-                                ...prev,
-                                pageIndex: 0,
-                              }))
-                            }
-                            isActive={currentPage === 1}
-                            className="data-table-no-click"
-                          >
-                            1
-                          </PaginationLink>
-                        </PaginationItem>
-                      )}
-
-                      {/* Ellipsis for start */}
-                      {currentPage > 4 && (
-                        <PaginationItem>
-                          <PaginationEllipsis className="data-table-no-click" />
-                        </PaginationItem>
-                      )}
-
-                      {/* Previous page if not first */}
-                      {currentPage > 1 && currentPage <= totalPages && (
-                        <PaginationItem>
-                          <PaginationLink
-                            onClick={() =>
-                              setPagination((prev) => ({
-                                ...prev,
-                                pageIndex: prev.pageIndex - 1,
-                              }))
-                            }
-                            className="data-table-no-click"
-                          >
-                            {currentPage - 1}
-                          </PaginationLink>
-                        </PaginationItem>
-                      )}
-
-                      {/* Current page */}
-                      <PaginationItem>
-                        <PaginationLink
-                          isActive
-                          className="data-table-no-click"
-                        >
-                          {currentPage}
-                        </PaginationLink>
-                      </PaginationItem>
-
-                      {/* Next page if not last */}
-                      {currentPage < totalPages && (
-                        <PaginationItem>
-                          <PaginationLink
-                            onClick={() =>
-                              setPagination((prev) => ({
-                                ...prev,
-                                pageIndex: prev.pageIndex + 1,
-                              }))
-                            }
-                            className="data-table-no-click"
-                          >
-                            {currentPage + 1}
-                          </PaginationLink>
-                        </PaginationItem>
-                      )}
-
-                      {/* Ellipsis for end */}
-                      {currentPage < totalPages - 3 && (
-                        <PaginationItem>
-                          <PaginationEllipsis className="data-table-no-click" />
-                        </PaginationItem>
-                      )}
-
-                      {/* Last page */}
-                      {totalPages > 1 && currentPage < totalPages - 2 && (
-                        <PaginationItem>
-                          <PaginationLink
-                            onClick={() =>
-                              setPagination((prev) => ({
-                                ...prev,
-                                pageIndex: totalPages - 1,
-                              }))
-                            }
-                            className="data-table-no-click"
-                          >
-                            {totalPages}
-                          </PaginationLink>
-                        </PaginationItem>
-                      )}
-
-                      <PaginationItem>
-                        <PaginationNext
-                          onClick={() =>
-                            setPagination((prev) => ({
-                              ...prev,
-                              pageIndex: Math.min(
-                                totalPages - 1,
-                                prev.pageIndex + 1,
-                              ),
-                            }))
-                          }
-                          className={cn(
-                            "data-table-no-click",
-                            currentPage === totalPages &&
-                              "pointer-events-none opacity-50",
-                          )}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              </div>
+              {/* Custom Pagination */}
+              <CallsTablePagination
+                currentPage={pagination.pageIndex + 1}
+                pageSize={pagination.pageSize}
+                totalPages={totalPages}
+                totalCount={displayData.totalCount}
+                onPageChange={(page) =>
+                  setPagination((prev) => ({
+                    ...prev,
+                    pageIndex: page - 1,
+                  }))
+                }
+                onPageSizeChange={(size) =>
+                  setPagination({
+                    pageIndex: 0,
+                    pageSize: size,
+                  })
+                }
+              />
             </>
           )}
         </CardContent>
       </Card>
     </div>
   );
-}
-
-// Add missing utility function
-function cn(...classes: string[]) {
-  return classes.filter(Boolean).join(" ");
 }
 
 // Add skeleton loading state for better UX

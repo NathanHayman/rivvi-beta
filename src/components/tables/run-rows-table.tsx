@@ -44,7 +44,13 @@ import { fetchRunRows } from "@/server/actions/runs/rows";
 import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
 
-type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
+type RowStatus =
+  | "pending"
+  | "calling"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "callback";
 
 // Row type definition based on your DB schema
 type Row = {
@@ -422,6 +428,10 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             skipped: {
               label: "Skipped",
               className: "bg-blue-100 text-blue-700",
+            },
+            callback: {
+              label: "Called Back",
+              className: "bg-purple-100 text-purple-700",
             },
           };
 

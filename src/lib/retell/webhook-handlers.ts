@@ -392,6 +392,7 @@ export async function handleInboundWebhook(
               phone: patient.primaryPhone || cleanPhone,
               previous_call_status: outreachEffort.resolutionStatus,
               campaign_name: campaignData?.name || "Unknown Campaign",
+              is_minor: rowData?.variables?.isMinor || false,
             };
 
             // Add variables from the outreach effort or row
@@ -555,12 +556,13 @@ export async function handleInboundWebhook(
                 previousOutboundTime: lastOutboundTime,
                 outreachEffortId: outreachEffort?.id,
               },
+              status: "callback", // Update status to reflect callback
               updatedAt: new Date(),
             } as any)
             .where(eq(rows.id, rowData.id));
 
           console.log(
-            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data (callback after ${originalStatus})`,
+            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data (callback after ${originalStatus}) and set status to 'callback'`,
           );
 
           // Update run statistics for inbound calls if we have a runId
@@ -1110,7 +1112,19 @@ export async function handlePostCallWebhook(
 
         // Robust update with better error handling and diagnostics
         try {
-          const rowStatus = getStatus("row", callStatus as RetellCallStatus);
+          // Determine the appropriate row status
+          let rowStatus;
+
+          // If this is an inbound callback, set status to "callback" regardless of call outcome
+          if (direction === "inbound" && call.outreachEffortId) {
+            rowStatus = "callback";
+            console.log(
+              `[WEBHOOK] Setting row status to 'callback' for inbound callback`,
+            );
+          } else {
+            // For non-callback calls, use the standard status mapping
+            rowStatus = getStatus("row", callStatus as RetellCallStatus);
+          }
 
           // Perform update with explicit WHERE clause to ensure we're updating the correct row
           const result = await db
@@ -1152,7 +1166,9 @@ export async function handlePostCallWebhook(
             } as any) // Use type assertion to avoid linter errors
             .where(eq(rows.id, rowId));
 
-          console.log(`[WEBHOOK] Row ${rowId} updated with call results`);
+          console.log(
+            `[WEBHOOK] Row ${rowId} updated with call results ${callStatus}`,
+          );
 
           // Now, handle outreach effort tracking
           if (direction === "outbound" && patientId) {

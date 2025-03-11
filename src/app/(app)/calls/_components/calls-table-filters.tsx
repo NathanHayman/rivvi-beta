@@ -1,3 +1,4 @@
+// src/app/(app)/calls/_components/calls-table-filters.tsx
 "use client";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,11 +34,11 @@ import { cn } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronDown, Filter, Loader2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-// Define the filter schema
+// Define the filter schema with improved typing
 const filterSchema = z.object({
   status: z
     .enum([
@@ -130,28 +131,45 @@ export function CallsTableFilters() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [activeFilterCount, setActiveFilterCount] = useState(0);
 
-  // Fetch campaigns for the dropdown
+  // Fetch campaigns for the dropdown with proper error handling
   const { data: campaignsData, isLoading: isLoadingCampaigns } = useCampaigns();
-  const [campaigns, setCampaigns] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
 
-  // Update campaigns when data is loaded
-  useEffect(() => {
-    if (campaignsData) {
-      // Extract campaigns from the data and sort by name
-      const campaignsList = (campaignsData || [])
-        .map((campaign: any) => ({
-          id: campaign.id,
-          name: campaign.name || "Unnamed Campaign",
-        }))
-        .sort((a: any, b: any) => a.name.localeCompare(b.name));
+  // Memoize campaigns to prevent unnecessary re-renders
+  const campaigns = useMemo(() => {
+    if (!campaignsData) return [];
 
-      setCampaigns(campaignsList);
-    }
+    // Extract and sort campaigns
+    return (campaignsData || [])
+      .map((campaign: any) => ({
+        id: campaign.id,
+        name: campaign.name || "Unnamed Campaign",
+      }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
   }, [campaignsData]);
+
+  // Count active filters for UI
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (searchParams.get("status") && searchParams.get("status") !== "all")
+      count++;
+    if (
+      searchParams.get("direction") &&
+      searchParams.get("direction") !== "all"
+    )
+      count++;
+    if (
+      searchParams.get("campaignId") &&
+      searchParams.get("campaignId") !== "all"
+    )
+      count++;
+    if (
+      searchParams.get("dateRange") &&
+      searchParams.get("dateRange") !== "all"
+    )
+      count++;
+    return count;
+  }, [searchParams]);
 
   // Initialize form with values from URL params
   const form = useForm<FilterValues>({
@@ -166,9 +184,9 @@ export function CallsTableFilters() {
     },
   });
 
-  // Count active filters and sync with URL when params change
+  // Sync form with URL params when they change
   useEffect(() => {
-    // Update form values from URL params
+    // Get current URL values
     const urlStatus = searchParams.get("status") as FilterValues["status"];
     const urlDirection = searchParams.get(
       "direction",
@@ -178,57 +196,50 @@ export function CallsTableFilters() {
       "dateRange",
     ) as FilterValues["dateRange"];
 
-    // Always set form values to match URL params or defaults
-    form.setValue("status", urlStatus || "all");
-    form.setValue("direction", urlDirection || "all");
-    form.setValue("campaignId", urlCampaignId || "all");
-    form.setValue("dateRange", urlDateRange || "all");
-
-    // Count active filters based on URL params
-    let count = 0;
-    if (urlStatus && urlStatus !== "all") count++;
-    if (urlDirection && urlDirection !== "all") count++;
-    if (urlCampaignId && urlCampaignId !== "all") count++;
-    if (urlDateRange && urlDateRange !== "all") count++;
-    setActiveFilterCount(count);
+    // Update form silently (without triggering onSubmit)
+    form.setValue("status", urlStatus || "all", { shouldDirty: false });
+    form.setValue("direction", urlDirection || "all", { shouldDirty: false });
+    form.setValue("campaignId", urlCampaignId || "all", { shouldDirty: false });
+    form.setValue("dateRange", urlDateRange || "all", { shouldDirty: false });
   }, [searchParams, form]);
 
-  // Handle form submission
+  // Handle form submission with improved URL parameter handling
   const onSubmit = useCallback(
     function onSubmit(values: FilterValues) {
-      // Create a new instance of URLSearchParams
-      const params = new URLSearchParams();
+      // Create a new URLSearchParams object from current params
+      const params = new URLSearchParams(searchParams.toString());
 
       // Only add non-default filter values to URL params
       if (values.status && values.status !== "all") {
         params.set("status", values.status);
+      } else {
+        params.delete("status");
       }
 
       if (values.direction && values.direction !== "all") {
         params.set("direction", values.direction);
+      } else {
+        params.delete("direction");
       }
 
       if (values.campaignId && values.campaignId !== "all") {
         params.set("campaignId", values.campaignId);
+      } else {
+        params.delete("campaignId");
       }
 
       if (values.dateRange && values.dateRange !== "all") {
         params.set("dateRange", values.dateRange);
+      } else {
+        params.delete("dateRange");
       }
 
-      // Preserve non-filter related params
-      const paramsToPreserve = ["callId", "limit", "offset", "search"];
-      paramsToPreserve.forEach((param) => {
-        const value = searchParams.get(param);
-        if (value) {
-          params.set(param, value);
-        }
-      });
-
-      // Update the URL
+      // Update the URL - this will trigger the data fetch via hooks
       router.replace(
         `${pathname}${params.toString() ? `?${params.toString()}` : ""}`,
-        { scroll: false },
+        {
+          scroll: false,
+        },
       );
 
       // Close the filter popover after applying
@@ -237,7 +248,7 @@ export function CallsTableFilters() {
     [router, pathname, searchParams],
   );
 
-  // Reset filters
+  // Reset filters with proper URL handling
   function resetFilters() {
     // Reset form values
     form.reset({
@@ -247,19 +258,10 @@ export function CallsTableFilters() {
       dateRange: "all",
     });
 
-    // Create a new URLSearchParams object
-    const params = new URLSearchParams();
+    // Create a new URLSearchParams object from current params
+    const params = new URLSearchParams(searchParams.toString());
 
-    // Preserve specific params we want to keep
-    const keepParams = ["callId", "limit", "offset", "search"];
-    keepParams.forEach((param) => {
-      const value = searchParams.get(param);
-      if (value) {
-        params.set(param, value);
-      }
-    });
-
-    // Explicitly delete filter params
+    // Delete filter params explicitly
     const filterParams = ["status", "direction", "campaignId", "dateRange"];
     filterParams.forEach((param) => {
       params.delete(param);
@@ -268,10 +270,12 @@ export function CallsTableFilters() {
     // Update the URL
     router.replace(
       `${pathname}${params.toString() ? `?${params.toString()}` : ""}`,
-      { scroll: false },
+      {
+        scroll: false,
+      },
     );
 
-    // Close the filter popover after resetting
+    // Close the filter popover
     setIsFiltersOpen(false);
   }
 
@@ -399,25 +403,22 @@ export function CallsTableFilters() {
     return filters;
   };
 
-  // Handle filter changes individually
+  // Handle individual filter changes with proper typing
   const handleFilterChange = (field: keyof FilterValues, value: string) => {
-    // Type assertion to ensure value is compatible with the FilterValues type
-    form.setValue(field, value as any);
+    // Properly typed update based on field type
+    let updatedValues: FilterValues = { ...form.getValues() };
 
-    // Get current values and create a properly typed updated object
-    const currentValues = form.getValues();
-
-    // Create a new object with updated field value
-    const updatedValues = { ...currentValues };
-
-    // Safely assign the new value based on field type
     if (field === "status") {
+      form.setValue("status", value as FilterValues["status"]);
       updatedValues.status = value as FilterValues["status"];
     } else if (field === "direction") {
+      form.setValue("direction", value as FilterValues["direction"]);
       updatedValues.direction = value as FilterValues["direction"];
     } else if (field === "campaignId") {
+      form.setValue("campaignId", value);
       updatedValues.campaignId = value;
     } else if (field === "dateRange") {
+      form.setValue("dateRange", value as FilterValues["dateRange"]);
       updatedValues.dateRange = value as FilterValues["dateRange"];
     }
 
@@ -462,7 +463,10 @@ export function CallsTableFilters() {
               </div>
 
               <Form {...form}>
-                <form className="space-y-4">
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => e.preventDefault()}
+                >
                   {/* Status Filter */}
                   <FormField
                     control={form.control}

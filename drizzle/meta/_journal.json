@@ -8,6 +8,13 @@
       "when": 1741649087958,
       "tag": "0000_petite_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1741722593170,
+      "tag": "0001_silent_vargas",
+      "breakpoints": true
     }
   ]
 }

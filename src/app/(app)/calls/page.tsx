@@ -17,6 +17,7 @@ export const metadata: Metadata = {
   description: "Manage and analyze your inbound and outbound calls.",
 };
 
+// Loading component
 function CallsLoading() {
   return (
     <div className="flex h-[500px] w-full items-center justify-center">
@@ -28,7 +29,7 @@ function CallsLoading() {
   );
 }
 
-// This server component fetches the initial data
+// This server component safely fetches the initial data
 async function InitialCallsData({
   callIdToView,
   searchParams,
@@ -37,24 +38,38 @@ async function InitialCallsData({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   try {
-    // Await searchParams before accessing its properties
-    const params = await searchParams;
+    // Parse filter parameters with proper validation
+    const limit = searchParams?.limit
+      ? parseInt(
+          Array.isArray(searchParams.limit)
+            ? searchParams.limit[0]
+            : searchParams.limit,
+          10,
+        ) || 10
+      : 10;
 
-    // Extract filter parameters with proper parsing
-    const limit = params?.limit ? parseInt(params.limit as string, 10) : 10;
-    const offset = params?.offset ? parseInt(params.offset as string, 10) : 0;
+    const offset = searchParams?.offset
+      ? parseInt(
+          Array.isArray(searchParams.offset)
+            ? searchParams.offset[0]
+            : searchParams.offset,
+          10,
+        ) || 0
+      : 0;
 
-    // Ensure we're parsing strings properly
-    const status =
-      typeof params?.status === "string" ? params.status : undefined;
-    const direction =
-      typeof params?.direction === "string" ? params.direction : undefined;
-    const search =
-      typeof params?.search === "string" ? params.search : undefined;
-    const campaignId =
-      typeof params?.campaignId === "string" ? params.campaignId : undefined;
-    const dateRange =
-      typeof params?.dateRange === "string" ? params.dateRange : undefined;
+    // Safely extract string parameters
+    const safeGetParam = (key: string): string | undefined => {
+      const value = searchParams?.[key];
+      if (!value) return undefined;
+      return Array.isArray(value) ? value[0] : value;
+    };
+
+    // Extract filter parameters
+    const status = safeGetParam("status");
+    const direction = safeGetParam("direction");
+    const search = safeGetParam("search");
+    const campaignId = safeGetParam("campaignId");
+    const dateRange = safeGetParam("dateRange");
 
     // Handle date range filter
     let startDate: string | undefined;
@@ -95,7 +110,7 @@ async function InitialCallsData({
       }
     }
 
-    // Ensure parameters are properly defined before sending to the server action
+    // Build params object only with defined values
     const callParams: GetCallsParams = {
       limit,
       offset,
@@ -108,15 +123,13 @@ async function InitialCallsData({
     if (startDate) callParams.startDate = startDate;
     if (endDate) callParams.endDate = endDate;
 
-    // Log what parameters we're sending
-    console.log("Fetching initial calls data with params:", callParams);
-
     // Fetch the first batch of calls using server action with filters
     const initialData = await getCalls(callParams);
 
     return <CallsTable initialData={initialData} callIdToView={callIdToView} />;
   } catch (error) {
     console.error("Error fetching initial calls data:", error);
+
     // If there's an error, pass empty data to the client component
     // which will handle the error state
     return (
@@ -132,17 +145,20 @@ async function InitialCallsData({
   }
 }
 
+// Main page component
 export default async function Calls({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Record<string, string | string[] | undefined>;
 }) {
-  // Extract callId if present (for the detail view)
-  const searchParamsResolved = await searchParams;
+  // Extract callId for the detail view
+  const callIdParam = searchParams?.callId;
   const callIdToView =
-    typeof searchParamsResolved?.callId === "string"
-      ? searchParamsResolved.callId
-      : undefined;
+    typeof callIdParam === "string"
+      ? callIdParam
+      : Array.isArray(callIdParam)
+        ? callIdParam[0]
+        : undefined;
 
   return (
     <AppPage>
@@ -156,7 +172,7 @@ export default async function Calls({
           <Suspense fallback={<CallsLoading />}>
             <InitialCallsData
               callIdToView={callIdToView}
-              searchParams={searchParamsResolved}
+              searchParams={searchParams}
             />
           </Suspense>
 
