@@ -1,6 +1,5 @@
 "use client";
 
-// src/components/dashboard/recent-calls-card.tsx
 import { formatDistance } from "date-fns";
 import {
   ArrowUpRight,

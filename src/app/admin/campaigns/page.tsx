@@ -1,4 +1,3 @@
-import { CampaignCreateSheet } from "@/components/app/campaign/campaign-create-sheet";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -6,11 +5,12 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { AdminCampaignsTable } from "@/components/tables/admin-campaigns-table";
+import { CampaignCreateSheet } from "@/components/modals/campaign-create-sheet";
 import { isError } from "@/lib/service-result";
 import { getAllCampaignsAdmin } from "@/server/actions/admin";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { AdminCampaignsTable } from "./_ui/admin-campaigns-table";
 
 export const metadata: Metadata = {
   title: "Campaigns - Rivvi",

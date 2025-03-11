@@ -1,3 +1,4 @@
+import { AdminRequestsTable } from "@/app/admin/requests/_ui/admin-requests-table";
 import { CampaignCreateForm } from "@/components/forms/campaign-create-form";
 import {
   AppBody,
@@ -7,7 +8,6 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
-import { CampaignRequestsTable } from "@/components/tables/campaign-requests-table";
 import { getAllCampaignRequestsAdmin } from "@/server/actions/admin/campaigns";
 import { Plus } from "lucide-react";
 import { Metadata } from "next";
@@ -39,7 +39,7 @@ async function CampaignRequestsContent() {
 
     // Return the table with the data
     return (
-      <CampaignRequestsTable
+      <AdminRequestsTable
         initialRequests={result.requests}
         totalCount={totalCount}
       />

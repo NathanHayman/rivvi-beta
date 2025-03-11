@@ -48,12 +48,12 @@ import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 
 // Import types
-import { CampaignAnalytics } from "@/services/analytics/types";
 import {
   RunCreateForm,
   RunCreateFormProps,
-} from "../forms/create-run-form/form";
-import { CreateRunAction } from "../modals/actions/create-run";
+} from "@/components/forms/create-run-form/form";
+import { CreateRunAction } from "@/components/modals/actions/create-run";
+import { CampaignAnalytics } from "@/services/analytics/types";
 
 export type RunsTableProps = {
   campaignId: string;

@@ -87,7 +87,7 @@ type CampaignRequestWithRelations = TCampaignRequest & {
   };
 };
 
-type CampaignRequestsTableProps = {
+type AdminRequestsTableProps = {
   initialRequests: CampaignRequestWithRelations[];
   totalCount: number;
 };
@@ -145,10 +145,10 @@ const StatusBadge = ({ status }: { status: CampaignRequestStatus }) => {
   }
 };
 
-export function CampaignRequestsTable({
+export function AdminRequestsTable({
   initialRequests,
   totalCount,
-}: CampaignRequestsTableProps) {
+}: AdminRequestsTableProps) {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [statusFilter, setStatusFilter] = useState<

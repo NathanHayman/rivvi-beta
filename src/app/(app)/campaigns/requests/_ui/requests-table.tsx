@@ -33,7 +33,7 @@ import { Check, Clock, ExternalLink, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function OrganizationCampaignRequestsTable() {
+export function RequestsTable() {
   const router = useRouter();
   const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);

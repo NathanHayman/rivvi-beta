@@ -1,4 +1,3 @@
-import { CampaignDetails } from "@/components/app/campaign/campaign-details";
 import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import {
   AppBody,
@@ -8,13 +7,24 @@ import {
 } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { getRuns } from "@/server/actions/runs";
+import { Metadata } from "next";
 import { Suspense } from "react";
+import {
+  CampaignDetails,
+  CampaignDetailsSkeleton,
+} from "./_ui/campaign-details";
 
 interface PageProps {
   params: Promise<{
     campaignId: string;
   }>;
 }
+
+export const metadata: Metadata = {
+  title: "Campaign Details - Rivvi",
+  description:
+    "Campaign details for Rivvi's human-like conversational AI for healthcare.",
+};
 
 export default async function CampaignPage({ params }: PageProps) {
   const { campaignId } = await params;
@@ -70,7 +80,7 @@ export default async function CampaignPage({ params }: PageProps) {
       />
       <AppBody maxWidth="max-w-screen-xl">
         <AppContent className="space-y-10">
-          <Suspense fallback={<div>Loading...</div>}>
+          <Suspense fallback={<CampaignDetailsSkeleton />}>
             <CampaignDetails
               campaignId={campaignId}
               initialData={campaignData}

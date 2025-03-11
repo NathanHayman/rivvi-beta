@@ -9,8 +9,8 @@ import {
 import { getCalls, GetCallsParams } from "@/server/actions/calls/fetch";
 import { Metadata } from "next";
 import { Suspense } from "react";
-import { CallDetailsSheet } from "./_components/call-details-sheet";
-import { CallsTable } from "./_components/calls-table";
+import { CallDetailsSheet } from "./_ui/call-details-sheet";
+import { CallsTable } from "./_ui/calls-table";
 
 export const metadata: Metadata = {
   title: "Call Center | Rivvi",

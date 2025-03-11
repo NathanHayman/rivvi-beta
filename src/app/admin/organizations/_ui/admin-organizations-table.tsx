@@ -61,7 +61,7 @@ interface OrganizationsTableProps {
   totalCount: number;
 }
 
-export function OrganizationsTable({
+export function AdminOrganizationsTable({
   organizations,
   totalCount,
 }: OrganizationsTableProps) {

@@ -8,6 +8,7 @@ import { useOrganizationMembers } from "@/hooks/organizations/use-organization";
 import { ZOrganization } from "@/types/zod";
 import { Edit, Phone, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
+
 interface OrganizationDetailsProps {
   organization: ZOrganization;
 }

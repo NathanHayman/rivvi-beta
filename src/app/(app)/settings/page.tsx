@@ -5,12 +5,12 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { MembersSettings } from "@/components/settings/members-settings";
-import { OrganizationSettings } from "@/components/settings/organization-settings";
 import { SkeletonCard } from "@/components/ui/skeleton-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { MembersSettings } from "./_ui/members-settings";
+import { OrganizationSettings } from "./_ui/organization-settings";
 
 export const metadata: Metadata = {
   title: "Settings - Rivvi",

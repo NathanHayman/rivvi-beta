@@ -7,10 +7,10 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { TriggerSheet } from "@/components/modals/trigger-sheet";
-import { OrganizationsTable } from "@/components/tables/organizations-table";
 import { getOrganizations } from "@/server/actions/admin";
 import { Plus } from "lucide-react";
 import { Suspense } from "react";
+import { AdminOrganizationsTable } from "./_ui/admin-organizations-table";
 
 async function OrganizationsContent() {
   const result = await getOrganizations({
@@ -24,7 +24,7 @@ async function OrganizationsContent() {
   }
 
   return (
-    <OrganizationsTable
+    <AdminOrganizationsTable
       organizations={result.organizations}
       totalCount={result.totalCount}
     />

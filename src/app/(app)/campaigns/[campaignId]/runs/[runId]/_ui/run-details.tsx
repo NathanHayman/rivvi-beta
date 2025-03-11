@@ -1,6 +1,5 @@
 "use client";
 
-// src/components/runs/run-details.tsx
 import { debounce } from "lodash";
 import {
   Calendar,
@@ -43,7 +42,7 @@ import { useOrganizationEvents } from "@/hooks/use-pusher";
 import { useRunEvents } from "@/hooks/use-run-events";
 import { formatDateDistance } from "@/lib/utils/date-utils";
 import { TCampaign, TRun } from "@/types/db";
-import { RunRowsTable } from "../../tables/run-rows-table";
+import { RunRowsTable } from "./run-rows-table";
 
 type RunDetailsProps = {
   run: TRun;

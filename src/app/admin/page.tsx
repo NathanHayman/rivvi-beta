@@ -1,3 +1,4 @@
+import { AdminOverview } from "@/app/admin/_ui/overview";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -6,7 +7,6 @@ import {
   AppPage,
   AppSpinner,
 } from "@/components/layout/shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDashboardStats } from "@/server/actions/admin";
 import { Metadata } from "next";
 import { Suspense } from "react";
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     "Overview of Rivvi's human-like conversational AI for healthcare.",
 };
 
-async function OverviewContent() {
+async function AdminOverviewContent() {
   const result = await getDashboardStats();
 
   if (!result) {
@@ -26,31 +26,10 @@ async function OverviewContent() {
 
   const { counts } = result;
 
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-      <Card>
-        <CardHeader>
-          <CardTitle>Total Campaigns</CardTitle>
-        </CardHeader>
-        <CardContent>{counts?.campaigns}</CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Total Organizations</CardTitle>
-        </CardHeader>
-        <CardContent>{counts?.organizations}</CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Total Calls</CardTitle>
-        </CardHeader>
-        <CardContent>{counts?.calls}</CardContent>
-      </Card>
-    </div>
-  );
+  return <AdminOverview counts={counts} />;
 }
 
-export default async function OverviewPage() {
+export default async function AdminOverviewPage() {
   return (
     <AppPage>
       <AppBreadcrumbs breadcrumbs={[{ title: "Overview", href: "/" }]} />
@@ -58,7 +37,7 @@ export default async function OverviewPage() {
         <AppHeader title="Overview" />
         <AppContent className="h-full">
           <Suspense fallback={<AppSpinner />}>
-            <OverviewContent />
+            <AdminOverviewContent />
           </Suspense>
         </AppContent>
       </AppBody>

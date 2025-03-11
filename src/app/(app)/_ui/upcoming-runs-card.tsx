@@ -1,6 +1,5 @@
 "use client";
 
-// src/components/dashboard/upcoming-runs-card.tsx
 import { formatDistanceToNow } from "date-fns";
 import { ArrowUpRight, Calendar, Pause, Play } from "lucide-react";
 import Link from "next/link";

@@ -1,7 +1,3 @@
-import {
-  CampaignDetails,
-  CampaignDetailsSkeleton,
-} from "@/components/app/campaign/campaign-details";
 import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import {
   AppBody,
@@ -17,6 +13,10 @@ import { Edit, Phone } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import {
+  AdminCampaignDetails,
+  AdminCampaignDetailsSkeleton,
+} from "./_ui/admin-campaign-details";
 
 interface PageProps {
   params: Promise<{
@@ -41,7 +41,7 @@ async function CampaignDetailsContent({ campaignId }: { campaignId: string }) {
   };
 
   return (
-    <CampaignDetails
+    <AdminCampaignDetails
       campaignId={campaignId}
       initialData={campaign.data}
       initialConfig={config}
@@ -81,7 +81,7 @@ export default async function CampaignDetailsPage({ params }: PageProps) {
           }
         />
         <AppContent>
-          <Suspense fallback={<CampaignDetailsSkeleton />}>
+          <Suspense fallback={<AdminCampaignDetailsSkeleton />}>
             <CampaignDetailsContent campaignId={campaignId} />
           </Suspense>
         </AppContent>

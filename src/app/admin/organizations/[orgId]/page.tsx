@@ -1,8 +1,4 @@
 import {
-  OrganizationDetails,
-  OrganizationDetailsSkeleton,
-} from "@/components/app/organization/organization-details";
-import {
   AppBody,
   AppBreadcrumbs,
   AppContent,
@@ -12,9 +8,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { getOrganization } from "@/server/actions/admin";
 import { Edit, Phone } from "lucide-react";
+import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import {
+  OrganizationDetails,
+  OrganizationDetailsSkeleton,
+} from "./_ui/organization-details";
+
+export const metadata: Metadata = {
+  title: "Organization Details - Rivvi",
+  description:
+    "Organization details for Rivvi's human-like conversational AI for healthcare.",
+};
 
 interface PageProps {
   params: Promise<{

@@ -1,9 +1,8 @@
-import { CampaignAnalytics } from "@/components/app/campaign/campaign-analytics";
-import { RunCreateFormProps } from "@/components/forms/create-run-form/form";
 import { AppBreadcrumbs, AppPage } from "@/components/layout/shell";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { CampaignAnalytics } from "./_ui/campaign-analytics";
 
 export const metadata: Metadata = {
   title: "Campaign Analytics - Rivvi",
@@ -24,14 +23,6 @@ export default async function CampaignAnalyticsPage({ params }: PageProps) {
   if (!campaign) {
     throw new Error(`Campaign with ID ${campaignId} not found`);
   }
-
-  const data: RunCreateFormProps = {
-    campaignId,
-    campaignBasePrompt: campaign.template?.basePrompt || "",
-    campaignVoicemailMessage: campaign.template?.voicemailMessage || "",
-    campaignName: campaign.campaign.name,
-    campaignDescription: campaign.template?.description || "",
-  };
 
   return (
     <AppPage>

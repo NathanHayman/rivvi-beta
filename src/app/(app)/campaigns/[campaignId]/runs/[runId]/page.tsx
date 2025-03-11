@@ -1,5 +1,4 @@
 // src/app/(app)/campaigns/[campaignId]/runs/[runId]/page.tsx
-import { RunDetails } from "@/components/app/run/run-details";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -10,6 +9,7 @@ import { getCampaignById } from "@/server/actions/campaigns";
 import { getRun } from "@/server/actions/runs";
 import { getRunAnalytics } from "@/server/actions/runs/analytics";
 import { Suspense } from "react";
+import { RunDetails } from "./_ui/run-details";
 
 interface PageProps {
   params: Promise<{

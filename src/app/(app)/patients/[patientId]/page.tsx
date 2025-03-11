@@ -1,4 +1,3 @@
-import { PatientDetail } from "@/components/app/patient/patient-detail";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -10,6 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Metadata } from "next";
 import Link from "next/link";
+import { PatientDetail } from "./_ui/patient-detail";
 
 export const metadata: Metadata = {
   title: "Patient Details - Rivvi",

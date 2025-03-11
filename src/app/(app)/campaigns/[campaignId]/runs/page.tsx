@@ -10,12 +10,12 @@ import {
   AppPage,
 } from "@/components/layout/shell";
 import { CreateRunAction } from "@/components/modals/actions/create-run";
-import { RunsTable } from "@/components/tables/runs-table";
 import { getCampaignById } from "@/server/actions/campaigns";
 import { getCampaignAnalytics } from "@/server/actions/runs/analytics";
 import { getRuns } from "@/server/actions/runs/fetch";
 import { Calendar } from "lucide-react";
 import { Metadata } from "next";
+import { RunsTable } from "./_ui/runs-table";
 
 export const metadata: Metadata = {
   title: "Campaign Runs - Rivvi",

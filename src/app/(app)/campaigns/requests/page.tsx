@@ -6,9 +6,9 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { OrganizationCampaignRequestsTable } from "@/components/tables/organization-campaign-requests-table";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { RequestsTable } from "./_ui/requests-table";
 
 export const metadata: Metadata = {
   title: "Campaign Requests - Rivvi",
@@ -32,7 +32,7 @@ export default function CampaignRequests() {
         />
         <AppContent className="h-full">
           <Suspense fallback={<div>Loading...</div>}>
-            <OrganizationCampaignRequestsTable />
+            <RequestsTable />
           </Suspense>
         </AppContent>
       </AppBody>

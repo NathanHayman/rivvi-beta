@@ -1,11 +1,3 @@
-// src/app/(app)/dashboard/page.tsx
-import { RecentCallsCard } from "@/components/app/call/recent-calls-card";
-import { RecentCampaignsCard } from "@/components/app/campaign/recent-campaigns-card";
-import { UpcomingRunsCard } from "@/components/app/run/upcoming-runs-card";
-import {
-  DashboardStats,
-  DashboardStatsSimple,
-} from "@/components/dashboard-stats";
 import {
   AppBody,
   AppContent,
@@ -31,6 +23,10 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { DashboardStats, DashboardStatsSimple } from "./_ui/dashboard-stats";
+import { RecentCallsCard } from "./_ui/recent-calls-card";
+import { RecentCampaignsCard } from "./_ui/recent-campaigns-card";
+import { UpcomingRunsCard } from "./_ui/upcoming-runs-card";
 
 export const metadata: Metadata = {
   title: "Dashboard - Rivvi",

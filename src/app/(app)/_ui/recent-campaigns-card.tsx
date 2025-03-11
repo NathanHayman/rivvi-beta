@@ -1,29 +1,28 @@
 "use client";
 
-// src/components/dashboard/recent-campaigns-card.tsx
 import { formatDistance } from "date-fns";
 import { ArrowUpRight, CalendarIcon } from "lucide-react";
 import Link from "next/link";
 
-// import { CreateRunModal } from "@/components/app/run/create-run-modal";
+import { RunCreateForm } from "@/components/forms/create-run-form/form";
+import { CreateRunAction } from "@/components/modals/actions/create-run";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TCampaign } from "@/types/db";
+import { ZCampaignWithTemplate } from "@/types/zod";
 import { useState } from "react";
 
 interface RecentCampaignsCardProps {
-  campaigns: TCampaign[];
+  campaigns: ZCampaignWithTemplate[];
 }
 
 export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
-    null,
-  );
+  const [selectedCampaign, setSelectedCampaign] =
+    useState<ZCampaignWithTemplate | null>(null);
   const [isCreateRunModalOpen, setIsCreateRunModalOpen] = useState(false);
 
-  const handleCreateRun = (campaignId: string) => {
-    setSelectedCampaignId(campaignId);
+  const handleCreateRun = (campaign: ZCampaignWithTemplate) => {
+    setSelectedCampaign(campaign);
     setIsCreateRunModalOpen(true);
   };
 
@@ -56,21 +55,26 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
           {campaigns.length > 0 ? (
             <div className="space-y-2">
               {campaigns.map((campaign) => (
-                <div key={campaign.id} className="rounded-md border p-3">
+                <div
+                  key={campaign.campaign?.id}
+                  className="rounded-md border p-3"
+                >
                   <div className="mb-2 flex items-center justify-between">
-                    <div className="font-medium">{campaign.name}</div>
+                    <div className="font-medium">{campaign.campaign?.name}</div>
                     <Badge
                       variant="outline"
-                      className={getCampaignTypeColor(campaign.direction)}
+                      className={getCampaignTypeColor(
+                        campaign.campaign?.direction,
+                      )}
                     >
-                      {campaign.direction}
+                      {campaign.campaign?.direction}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted-foreground">
                       Created{" "}
                       {formatDistance(
-                        new Date(campaign.createdAt),
+                        new Date(campaign.campaign?.createdAt),
                         new Date(),
                         { addSuffix: true },
                       )}
@@ -78,7 +82,7 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleCreateRun(campaign.id)}
+                      onClick={() => handleCreateRun(campaign)}
                       className="h-7 gap-1 rounded-full px-2 text-xs"
                     >
                       <CalendarIcon className="h-3.5 w-3.5" />
@@ -96,13 +100,25 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
         </CardContent>
       </Card>
 
-      {/* {selectedCampaignId && (
-        <CreateRunModal
-          campaignId={selectedCampaignId}
-          open={isCreateRunModalOpen}
-          onOpenChange={setIsCreateRunModalOpen}
+      {selectedCampaign && (
+        <CreateRunAction
+          type="modal"
+          form={
+            <RunCreateForm
+              campaignId={selectedCampaign.campaign?.id}
+              campaignBasePrompt={selectedCampaign.template.basePrompt}
+              campaignVoicemailMessage={
+                selectedCampaign.template.voicemailMessage
+              }
+              campaignName={selectedCampaign.campaign?.name}
+              campaignDescription={selectedCampaign.template.description}
+              campaignConfig={selectedCampaign.template.variablesConfig}
+            />
+          }
+          title="Create Run"
+          buttonText="Create Run"
         />
-      )} */}
+      )}
     </>
   );
 }

@@ -1,4 +1,3 @@
-import { PatientsTable } from "@/components/app/patient/patients-table";
 import {
   AppBody,
   AppBreadcrumbs,
@@ -9,6 +8,7 @@ import {
 import { Card, CardDescription } from "@/components/ui/card";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import { PatientsTable } from "./_ui/patients-table";
 
 export const metadata: Metadata = {
   title: "Patients - Rivvi",

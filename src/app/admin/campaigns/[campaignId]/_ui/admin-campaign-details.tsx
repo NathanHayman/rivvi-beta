@@ -78,7 +78,7 @@ function getStatusBadgeVariant(status: string): string {
   }
 }
 
-export function CampaignDetails({
+export function AdminCampaignDetails({
   campaignId,
   initialData,
   initialConfig,
@@ -705,6 +705,17 @@ export function CampaignDetails({
   );
 }
 
-export function CampaignDetailsSkeleton() {
-  return <div>CampaignDetailsSkeleton</div>;
+export function AdminCampaignDetailsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

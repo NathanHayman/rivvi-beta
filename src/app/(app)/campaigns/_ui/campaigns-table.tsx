@@ -40,7 +40,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useCampaigns } from "@/hooks/campaigns/use-campaigns";
-// import { CreateRunModal } from "../app/run/create-run-modal";
 
 export interface Campaign {
   id: string;

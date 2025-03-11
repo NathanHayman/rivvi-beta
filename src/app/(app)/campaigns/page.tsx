@@ -6,7 +6,6 @@ import {
   AppHeader,
   AppPage,
 } from "@/components/layout/shell";
-import { CampaignsTable } from "@/components/tables/campaigns-table";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isError } from "@/lib/service-result";
@@ -15,10 +14,12 @@ import { getAllCampaignsForOrg } from "@/server/actions/campaigns";
 import { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { CampaignsTable } from "./_ui/campaigns-table";
 
 export const metadata: Metadata = {
-  title: "Calls - Rivvi",
-  description: "Calls for Rivvi's human-like conversational AI for healthcare.",
+  title: "Campaigns - Rivvi",
+  description:
+    "Campaigns for Rivvi's human-like conversational AI for healthcare.",
 };
 
 async function CampaignsData() {
