@@ -1,7 +1,7 @@
 "use client";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Badge, BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,7 +28,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCalls } from "@/hooks/calls/use-calls";
-import { cn } from "@/lib/utils";
 import { type ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
 import {
@@ -443,7 +442,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
             <div className="mt-1 flex flex-wrap gap-1">
               {mainKpiField && (
                 <Badge
-                  variant="outline"
+                  variant="blue_solid_outline"
                   className="px-1.5 py-0 text-xs font-normal"
                 >
                   {mainKpiField.label}:{" "}
@@ -456,8 +455,8 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
               )}
               {hasCallback && (
                 <Badge
-                  variant="outline"
-                  className="border-yellow-200 bg-yellow-50 px-1.5 py-0 text-xs font-normal text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400"
+                  variant="yellow_solid_outline"
+                  className="px-1.5 py-0 text-xs font-normal"
                 >
                   Callback
                 </Badge>
@@ -482,45 +481,39 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
           status === "in-progress" && hasAnalysisData ? "completed" : status;
 
         let StatusIcon = Clock;
-        let badgeVariant = "";
+        let badgeVariant = "neutral_solid";
         let statusLabel = "";
 
         if (displayStatus === "pending") {
           StatusIcon = Clock;
-          badgeVariant =
-            "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800";
+          badgeVariant = "yellow_solid";
           statusLabel = "Pending";
         } else if (displayStatus === "in-progress") {
           StatusIcon = PhoneCall;
-          badgeVariant =
-            "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800";
+          badgeVariant = "blue_solid";
           statusLabel = "In Progress";
         } else if (displayStatus === "completed") {
           StatusIcon = Check;
-          badgeVariant =
-            "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800";
+          badgeVariant = "success_solid";
           statusLabel = "Completed";
         } else if (displayStatus === "failed") {
           StatusIcon = CircleAlert;
-          badgeVariant =
-            "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800";
+          badgeVariant = "failure_solid";
           statusLabel = "Failed";
         } else if (displayStatus === "voicemail") {
           StatusIcon = Phone;
-          badgeVariant =
-            "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800";
+          badgeVariant = "violet_solid";
           statusLabel = "Voicemail";
         } else if (displayStatus === "no-answer") {
           StatusIcon = CircleAlert;
-          badgeVariant =
-            "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-800";
+          badgeVariant = "neutral_solid";
           statusLabel = "No Answer";
         }
 
         return (
           <Badge
-            variant="outline"
-            className={cn("flex items-center gap-1 px-2 py-1", badgeVariant)}
+            variant={badgeVariant as BadgeProps["variant"]}
+            className="flex items-center gap-1 px-2 py-1"
           >
             <StatusIcon className="h-3 w-3" />
             {statusLabel}
@@ -643,9 +636,11 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
                 columns={columns}
                 data={displayData?.calls || []}
                 onRowClick={(row) => handleRowClick(row.id)}
+                // className="border-b"
                 rowClassName={(row) => {
-                  if (row.original.campaignId) {
-                    return "border-b";
+                  const status = row?.original?.status;
+                  if (status === "in-progress") {
+                    return "bg-yellow-50";
                   }
                   return "";
                 }}

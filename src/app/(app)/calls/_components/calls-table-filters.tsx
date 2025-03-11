@@ -295,11 +295,10 @@ export function CallsTableFilters() {
       filters.push(
         <Badge
           key="direction"
-          variant="outline"
-          className={cn(
-            "gap-1 border px-2 py-1",
-            getDirectionBadgeStyle(values.direction),
-          )}
+          variant={
+            values.direction === "inbound" ? "yellow_solid" : "violet_solid"
+          }
+          className="gap-1 px-2 py-1"
         >
           {directionLabel}
           <X
@@ -318,11 +317,7 @@ export function CallsTableFilters() {
         campaigns.find((c) => c.id === values.campaignId)?.name ||
         "Selected Campaign";
       filters.push(
-        <Badge
-          key="campaign"
-          variant="outline"
-          className="gap-1 border px-2 py-1"
-        >
+        <Badge key="campaign" variant="blue_solid" className="gap-1 px-2 py-1">
           {campaignName}
           <X
             className="h-3 w-3 cursor-pointer"
@@ -342,8 +337,8 @@ export function CallsTableFilters() {
       filters.push(
         <Badge
           key="dateRange"
-          variant="outline"
-          className="gap-1 border px-2 py-1"
+          variant="neutral_solid"
+          className="gap-1 px-2 py-1"
         >
           {dateRangeLabel}
           <X

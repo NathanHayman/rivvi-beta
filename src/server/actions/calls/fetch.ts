@@ -6,7 +6,20 @@ import { isError } from "@/lib/service-result";
 import { getCallsSchema } from "@/lib/validation/calls";
 import { callService } from "@/services/calls/calls-service";
 
-export async function getCalls(params = {}) {
+export type GetCallsParams = {
+  limit?: number;
+  offset?: number;
+  patientId?: string;
+  runId?: string;
+  status?: string;
+  direction?: string;
+  search?: string;
+  startDate?: Date;
+  endDate?: Date;
+  campaignId?: string;
+};
+
+export async function getCalls(params: GetCallsParams) {
   const { orgId } = await requireOrg();
 
   // Ensure params is an object and not a string or other type

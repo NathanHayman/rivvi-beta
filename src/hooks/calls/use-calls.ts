@@ -1,18 +1,7 @@
 // src/hooks/calls/use-calls.ts
-import { getCall, getCalls } from "@/server/actions/calls";
+import { getCall, getCalls, GetCallsParams } from "@/server/actions/calls";
 import { useCallback, useEffect, useState } from "react";
 import { useDebounce } from "use-debounce";
-
-// Define types
-type CallFilters = {
-  limit?: number;
-  offset?: number;
-  status?: string;
-  direction?: string;
-  search?: string;
-  patientId?: string;
-  campaignId?: string;
-};
 
 type CallsHookReturn = {
   data: {
@@ -32,16 +21,10 @@ type CallHookReturn = {
   refetch: () => Promise<void>;
 };
 
-type CallTranscriptHookReturn = {
-  data: { transcript: string | null } | null;
-  isLoading: boolean;
-  error: Error | null;
-};
-
 /**
  * Hook to fetch calls with filtering
  */
-export function useCalls(filters: CallFilters): CallsHookReturn {
+export function useCalls(filters: GetCallsParams): CallsHookReturn {
   const [data, setData] = useState<{
     calls: any[];
     totalCount: number;
