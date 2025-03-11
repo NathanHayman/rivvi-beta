@@ -44,6 +44,16 @@ export const campaignsService = {
         .from(calls)
         .where(and(eq(calls.campaignId, id), eq(calls.orgId, orgId)));
 
+      // Debug log the counts
+      console.log(`Campaign ${id} stats:`, {
+        runCount: Number(runStats?.count || 0),
+        callCount: Number(callStats?.count || 0),
+        runCountRaw: runStats?.count,
+        callCountRaw: callStats?.count,
+        runCountType: typeof runStats?.count,
+        callCountType: typeof callStats?.count,
+      });
+
       // Return combined data with counts
       return createSuccess({
         campaign: {
@@ -98,13 +108,51 @@ export const campaignsService = {
               and(eq(calls.campaignId, campaign.id), eq(calls.orgId, orgId)),
             );
 
-          // Return campaign with counts
+          // Ensure we're properly converting any potential BigInt values to regular numbers
+          // Using Number() to explicitly convert to a JavaScript number
+          const rawRunCount = runStats?.count;
+          const rawCallCount = callStats?.count;
+
+          // Explicitly convert to numbers with fallback to 0
+          const runCount =
+            typeof rawRunCount !== "undefined" ? Number(rawRunCount) : 0;
+          const callCount =
+            typeof rawCallCount !== "undefined" ? Number(rawCallCount) : 0;
+
+          // Debug log the counts for this campaign
+          console.log(`Campaign ${campaign.id} counts:`, {
+            runCount,
+            callCount,
+            rawRunCount,
+            rawCallCount,
+            runCountType: typeof rawRunCount,
+            callCountType: typeof rawCallCount,
+          });
+
+          // Return campaign with counts as explicitly typed numbers
           return {
             ...campaign,
-            runCount: Number(runStats?.count || 0),
-            callCount: Number(callStats?.count || 0),
+            runCount,
+            callCount,
           };
         }),
+      );
+
+      // Log the entire enriched campaigns array to verify structure
+      console.log(
+        "All enriched campaigns:",
+        JSON.stringify(
+          enrichedCampaigns.map((c) => ({
+            id: c.id,
+            name: c.name,
+            runCount: c.runCount,
+            callCount: c.callCount,
+            runCountType: typeof c.runCount,
+            callCountType: typeof c.callCount,
+          })),
+          null,
+          2,
+        ),
       );
 
       return createSuccess(enrichedCampaigns);

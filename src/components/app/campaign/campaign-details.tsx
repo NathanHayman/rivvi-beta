@@ -266,10 +266,7 @@ export function CampaignDetails({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {recentRuns?.reduce(
-                    (acc, run) => acc + (run.metadata?.calls?.total || 0),
-                    0,
-                  ) || 0}
+                  {campaignAnalytics?.callMetrics?.total || 0}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   <Phone className="mr-1 inline-block h-3 w-3" />
@@ -286,22 +283,10 @@ export function CampaignDetails({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {recentRuns?.length &&
-                  recentRuns.some((run) => run.metadata?.calls?.total)
-                    ? Math.round(
-                        (recentRuns.reduce(
-                          (acc, run) =>
-                            acc + (run.metadata?.calls?.completed || 0),
-                          0,
-                        ) /
-                          recentRuns.reduce(
-                            (acc, run) =>
-                              acc + (run.metadata?.calls?.total || 0),
-                            0,
-                          )) *
-                          100,
-                      ) + "%"
-                    : "N/A"}
+                  {campaignAnalytics?.callMetrics?.successRate
+                    ? campaignAnalytics.callMetrics.successRate.toFixed(1)
+                    : "0"}
+                  %
                 </div>
                 <p className="text-xs text-muted-foreground">
                   <Users className="mr-1 inline-block h-3 w-3" />

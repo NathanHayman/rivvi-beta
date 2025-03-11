@@ -13,8 +13,8 @@ import {
 export const ModalSizes = {
   sm: "w-full lg:max-w-[400px]",
   md: "w-full lg:max-w-[550px]",
-  lg: "w-full lg:max-w-[650px]",
-  xl: "w-full lg:max-w-[1000px]",
+  lg: "w-fit min-w-[500px] lg:max-w-[750px]",
+  xl: "w-fit min-w-[700px] lg:max-w-[1000px]",
   xxl: "w-full lg:max-w-[1200px]",
 } as const;
 
@@ -33,7 +33,7 @@ const ModalForm = (props: ModalFormProps) => {
     <Modal
       showModal={props.open}
       setShowModal={props.setOpen}
-      className={cn(ModalSizes[props.size || "lg"], "w-full")}
+      className={cn(ModalSizes[props.size || "lg"], "w-fit")}
     >
       <ModalHeader>
         <ModalTitle>{props.title}</ModalTitle>

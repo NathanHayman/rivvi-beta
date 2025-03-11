@@ -1,17 +1,18 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowUpIcon, Check, Loader2, X } from "lucide-react";
+import { ArrowUpIcon, CheckCircle, Loader2, X } from "lucide-react";
 
 interface ProcessedFileData {
   totalRows?: number;
   parsedData?: {
     rows?: any[];
+    headers?: string[];
   };
   stats?: {
     totalRows?: number;
+    validRows?: number;
     invalidRows?: number;
   };
-  invalidRows?: number;
 }
 
 interface UploadFileStepProps {
@@ -22,94 +23,6 @@ interface UploadFileStepProps {
   processedFile: ProcessedFileData | null;
 }
 
-// Improved data preview component with better variable display
-const DataPreview = ({ data }: { data: ProcessedFileData }) => {
-  if (!data?.parsedData?.rows?.length) return null;
-
-  const rows = data.parsedData.rows;
-
-  // Function to render cell value properly
-  const renderCellValue = (value: any): string => {
-    if (value === null || value === undefined) return "—";
-    if (typeof value === "object") {
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return Object.keys(value)
-          .map((k) => `${k}: ${value[k]}`)
-          .join(", ");
-      }
-    }
-    return String(value);
-  };
-
-  // Function to format variable object for display
-  const formatVariables = (variables: any): React.ReactNode => {
-    if (!variables || typeof variables !== "object") return "—";
-
-    return (
-      <div className="flex flex-col gap-1">
-        {Object.entries(variables).map(([key, value]) => (
-          <div key={key} className="flex items-start gap-1">
-            <span className="min-w-[80px] truncate text-xs font-medium">
-              {key}:
-            </span>
-            <span className="break-words text-xs">
-              {renderCellValue(value)}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  return (
-    <div className="mt-4">
-      <h4 className="mb-2 text-sm font-medium">Data Sample</h4>
-      <div className="overflow-hidden rounded-md border">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-muted/50">
-            <tr>
-              <th className="w-[100px] px-2 py-1.5 text-left font-medium text-muted-foreground">
-                Patient ID
-              </th>
-              <th className="w-[140px] max-w-[140px] px-2 py-1.5 text-left font-medium text-muted-foreground">
-                Patient Hash
-              </th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
-                Variables
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 1).map((row, i) => (
-              <tr key={i} className="bg-white">
-                <td className="border-t px-2 py-1.5 align-top">
-                  {renderCellValue(row.patientId)}
-                </td>
-                <td
-                  className="max-w-[140px] truncate border-t px-2 py-1.5 align-top"
-                  title={row.patientHash}
-                >
-                  {renderCellValue(row.patientHash)}
-                </td>
-                <td className="border-t px-2 py-1.5 align-top">
-                  {formatVariables(row.variables)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {rows.length > 1 && (
-        <div className="mt-1 text-right text-xs text-muted-foreground">
-          Showing 1 of {rows.length} records
-        </div>
-      )}
-    </div>
-  );
-};
-
 const UploadFileStep = ({
   file,
   handleFileChange,
@@ -117,17 +30,72 @@ const UploadFileStep = ({
   isValidating,
   processedFile,
 }: UploadFileStepProps) => {
+  // Function to render a data preview row
+  const renderDataRow = (row: any) => {
+    if (!row) return null;
+
+    // Extract key information for display
+    const patientId = row.patientId || "—";
+    const patientHash = row.patientHash || "—";
+
+    // Handle variables display
+    let variables: React.ReactNode = "—";
+    if (row.variables && typeof row.variables === "object") {
+      const variableEntries = Object.entries(row.variables);
+      if (variableEntries.length > 0) {
+        variables = (
+          <div className="space-y-1">
+            {variableEntries.slice(0, 3).map(([key, value]) => (
+              <div key={key} className="flex gap-2">
+                <span className="min-w-[80px] truncate text-xs font-medium text-muted-foreground">
+                  {key}:
+                </span>
+                <span className="truncate text-xs">{String(value)}</span>
+              </div>
+            ))}
+            {variableEntries.length > 3 && (
+              <div className="text-xs text-muted-foreground">
+                +{variableEntries.length - 3} more fields
+              </div>
+            )}
+          </div>
+        );
+      }
+    }
+
+    return (
+      <div className="rounded-md border bg-background p-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Patient ID</div>
+            <div className="truncate text-sm font-medium">{patientId}</div>
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">
+              Patient Hash
+            </div>
+            <div className="truncate font-mono text-xs">{patientHash}</div>
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Variables</div>
+            {variables}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div>
-        <h3 className="mb-3 text-base font-medium">Upload Data File</h3>
+        <h3 className="mb-2 text-lg font-medium">Upload Data File</h3>
         <p className="text-sm text-muted-foreground">
           Upload an Excel or CSV file with your patient appointment data
         </p>
       </div>
 
       {!file ? (
-        <div className="relative">
+        <div className="transition-all duration-300">
           <Input
             type="file"
             accept=".xlsx,.xls,.csv"
@@ -137,63 +105,143 @@ const UploadFileStep = ({
           />
           <label
             htmlFor="file-upload"
-            className="border-gray-300 hover:bg-gray-50 flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-3 py-2 text-sm transition-colors"
+            className="flex h-40 w-full cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed transition-all duration-200 hover:border-primary/30 hover:bg-primary/5"
           >
-            <ArrowUpIcon className="text-gray-400 mb-2 h-8 w-8" />
-            <p className="font-medium">Upload Excel or CSV file</p>
-            <p className="text-xs text-muted-foreground">
-              Drag and drop or click to select
-            </p>
+            <div className="flex flex-col items-center justify-center gap-2 text-center">
+              <ArrowUpIcon className="h-10 w-10 text-muted-foreground/50" />
+              <div>
+                <p className="font-medium text-muted-foreground">
+                  Upload Excel or CSV file
+                </p>
+                <p className="text-xs text-muted-foreground/70">
+                  Drag and drop or click to select
+                </p>
+              </div>
+            </div>
           </label>
         </div>
       ) : (
-        <div className="bg-gray-50 rounded-md border p-4">
-          <div className="flex items-center justify-between">
+        <div className="space-y-4 transition-all duration-300 animate-in fade-in-50 slide-in-from-bottom-5">
+          <div className="flex items-center justify-between rounded-md border bg-background p-4">
             <div>
-              <p className="font-medium">{file.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {(file.size / 1024).toFixed(2)} KB
-              </p>
+              <div className="flex items-center gap-2">
+                <div className="rounded-md bg-primary/10 p-2">
+                  <svg
+                    className="h-6 w-6 text-primary"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-medium">{file.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {(file.size / 1024).toFixed(2)} KB
+                  </p>
+                </div>
+              </div>
             </div>
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={handleFileRemove}
+              className="text-muted-foreground hover:text-destructive"
             >
-              <X className="mr-1 h-4 w-4" /> Remove
+              <X className="mr-1 h-4 w-4" />
+              Remove
             </Button>
           </div>
 
           {isValidating && (
-            <div className="mt-4 flex items-center space-x-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Validating file...</span>
+            <div className="flex items-center gap-2 rounded-md border bg-amber-50 p-4 dark:bg-amber-950/20">
+              <Loader2 className="h-5 w-5 animate-spin text-amber-500" />
+              <span className="text-sm text-amber-700 dark:text-amber-400">
+                Validating file...
+              </span>
             </div>
           )}
 
-          {processedFile && (
-            <div className="mt-4 rounded-md bg-green-50 p-3 text-green-800">
-              <div className="flex">
-                <Check className="h-5 w-5 text-green-500" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium">File Validated</p>
-                  <p className="mt-1 text-xs">
-                    The file has been validated and is ready for upload.{" "}
-                    {processedFile.stats?.totalRows ||
-                      processedFile.totalRows ||
-                      processedFile.parsedData?.rows?.length}{" "}
-                    rows found.
-                  </p>
+          {processedFile &&
+            processedFile.stats &&
+            processedFile.stats.totalRows && (
+              <div className="rounded-md border bg-green-50 p-4 duration-300 animate-in fade-in-50 dark:bg-green-950/20">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="mt-0.5 h-5 w-5 text-green-500" />
+                  <div className="space-y-2">
+                    <div>
+                      <h4 className="font-medium text-green-700 dark:text-green-400">
+                        File Validated
+                      </h4>
+                      <p className="text-sm text-green-600 dark:text-green-500">
+                        Found{" "}
+                        {processedFile.stats.totalRows ||
+                          processedFile.parsedData?.rows?.length}{" "}
+                        records ready for processing.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 pt-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Total rows:
+                        </span>
+                        <span className="font-medium">
+                          {processedFile.stats.totalRows}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Valid rows:
+                        </span>
+                        <span className="font-medium text-green-600">
+                          {processedFile.stats.validRows}
+                        </span>
+                      </div>
+                      {processedFile.stats.invalidRows &&
+                        processedFile.stats.invalidRows > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              Invalid rows:
+                            </span>
+                            <span className="font-medium text-amber-600">
+                              {processedFile.stats.invalidRows}
+                            </span>
+                          </div>
+                        )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Data preview component */}
-          {processedFile && processedFile.parsedData && (
-            <DataPreview data={processedFile} />
-          )}
+          {/* Data preview for first row */}
+          {processedFile &&
+            processedFile.parsedData &&
+            processedFile.parsedData.rows &&
+            processedFile.parsedData.rows.length > 0 && (
+              <div className="delay-200 duration-300 animate-in fade-in-50 slide-in-from-bottom-5">
+                <h4 className="mb-2 text-sm font-medium">Data Preview</h4>
+                {renderDataRow(processedFile.parsedData.rows[0])}
+
+                {processedFile.parsedData.rows.length > 1 && (
+                  <div className="mt-2 flex justify-end">
+                    <span className="text-xs text-muted-foreground">
+                      Showing 1 of {processedFile.parsedData.rows.length}{" "}
+                      records
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
         </div>
       )}
     </div>

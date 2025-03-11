@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge, BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,8 +48,8 @@ export interface Campaign {
   direction: string;
   agentId: string;
   createdAt: Date;
-  runCount?: number;
-  callCount?: number;
+  runCount?: number | string | null;
+  callCount?: number | string | null;
 }
 
 interface CampaignsTableProps {
@@ -58,7 +58,107 @@ interface CampaignsTableProps {
 }
 
 const removeInboundCampaigns = (campaigns: Campaign[]) => {
-  return campaigns.filter((campaign) => campaign.direction !== "inbound");
+  console.log(
+    "Before filtering:",
+    JSON.stringify(
+      campaigns.map((c) => ({
+        id: c.id,
+        name: c.name,
+        direction: c.direction,
+        runCount: c.runCount,
+        callCount: c.callCount,
+      })),
+      null,
+      2,
+    ),
+  );
+
+  const filtered = campaigns.filter(
+    (campaign) => campaign.direction !== "inbound",
+  );
+
+  console.log(
+    "After filtering:",
+    JSON.stringify(
+      filtered.map((c) => ({
+        id: c.id,
+        name: c.name,
+        direction: c.direction,
+        runCount: c.runCount,
+        callCount: c.callCount,
+      })),
+      null,
+      2,
+    ),
+  );
+
+  return filtered;
+};
+
+// Helper function to safely convert value to number with enhanced debugging
+const safeToNumber = (value: unknown): number => {
+  console.log("safeToNumber input:", {
+    value,
+    type: typeof value,
+    isObject: value !== null && typeof value === "object",
+    constructor:
+      value !== null && typeof value === "object"
+        ? value.constructor.name
+        : "N/A",
+    stringValue:
+      value !== null && value !== undefined ? String(value) : "null/undefined",
+  });
+
+  // Handle null/undefined
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  // Handle numeric values directly
+  if (typeof value === "number" && !isNaN(value)) {
+    return value;
+  }
+
+  // Handle special cases like objects or BigInt
+  if (typeof value === "object") {
+    // If the object has a valueOf method that returns a number, use that
+    if (typeof (value as any).valueOf === "function") {
+      const valueOfResult = (value as any).valueOf();
+      if (typeof valueOfResult === "number" && !isNaN(valueOfResult)) {
+        return valueOfResult;
+      }
+    }
+    // Try to convert object to string, then to number
+    const numValue = Number(String(value));
+    return isNaN(numValue) ? 0 : numValue;
+  }
+
+  // Handle string with special conversion
+  if (typeof value === "string") {
+    // Empty string case
+    if (value.trim() === "") {
+      return 0;
+    }
+
+    // Try direct conversion first
+    const directNum = Number(value);
+    if (!isNaN(directNum)) {
+      return directNum;
+    }
+
+    // If direct conversion fails, try to extract numeric parts
+    const cleaned = value.replace(/[^\d.]/g, "");
+    return cleaned === "" ? 0 : Number(cleaned);
+  }
+
+  // Handle boolean
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  // For other types, try direct conversion
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
 };
 
 export function CampaignsTable({
@@ -80,11 +180,124 @@ export function CampaignsTable({
   // Get campaigns data using the custom hook if no initialCampaigns provided
   const { data, isLoading, refetch } = useCampaigns();
 
+  // Add debug logging to inspect the actual data structure
+  useEffect(() => {
+    if (data) {
+      console.log(
+        "Campaigns data from hook:",
+        JSON.stringify(
+          data.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            runCount: c.runCount,
+            callCount: c.callCount,
+            runCountType: typeof c.runCount,
+            callCountType: typeof c.callCount,
+          })),
+          null,
+          2,
+        ),
+      );
+    }
+    if (initialCampaigns) {
+      console.log(
+        "Initial campaigns:",
+        JSON.stringify(
+          initialCampaigns.map((c) => ({
+            id: c.id,
+            name: c.name,
+            runCount: c.runCount,
+            callCount: c.callCount,
+            runCountType: typeof c.runCount,
+            callCountType: typeof c.callCount,
+          })),
+          null,
+          2,
+        ),
+      );
+    }
+  }, [data, initialCampaigns]);
+
   // Use either the provided campaigns or the ones from the hook
-  const allCampaigns: Campaign[] = initialCampaigns || data || [];
+  // Ensure runCount and callCount are properly normalized to numbers
+  const allCampaigns: Campaign[] = (initialCampaigns || data || []).map(
+    (campaign) => {
+      // Deep clone to avoid mutation issues
+      const campaignCopy = { ...campaign };
+
+      // Ensure runCount and callCount properties exist with default values
+      if (
+        campaignCopy.runCount === undefined ||
+        campaignCopy.runCount === null
+      ) {
+        console.log(`Setting default runCount for campaign ${campaignCopy.id}`);
+        campaignCopy.runCount = 0;
+      }
+
+      if (
+        campaignCopy.callCount === undefined ||
+        campaignCopy.callCount === null
+      ) {
+        console.log(
+          `Setting default callCount for campaign ${campaignCopy.id}`,
+        );
+        campaignCopy.callCount = 0;
+      }
+
+      // Get raw values for logging
+      const rawRunCount = campaignCopy.runCount;
+      const rawCallCount = campaignCopy.callCount;
+
+      // Convert to safe numbers
+      const runCount = safeToNumber(rawRunCount);
+      const callCount = safeToNumber(rawCallCount);
+
+      console.log("Processing campaign:", campaignCopy.id, campaignCopy.name, {
+        runCount: {
+          raw: rawRunCount,
+          type: typeof rawRunCount,
+          converted: runCount,
+        },
+        callCount: {
+          raw: rawCallCount,
+          type: typeof rawCallCount,
+          converted: callCount,
+        },
+        fullCampaign: campaignCopy,
+      });
+
+      // Always ensure we have proper number values for the counts
+      return {
+        ...campaignCopy,
+        runCount,
+        callCount,
+      };
+    },
+  );
 
   // Then filter out inbound campaigns
   const filteredCampaigns = removeInboundCampaigns(allCampaigns);
+
+  // After the filteredCampaigns are created, add this code:
+  // Log the final filtered campaigns that will be shown in the table
+  useEffect(() => {
+    console.log(
+      "FINAL TABLE DATA:",
+      JSON.stringify(
+        filteredCampaigns.map((c) => ({
+          id: c.id,
+          name: c.name,
+          direction: c.direction,
+          runCount: c.runCount,
+          runCountType: typeof c.runCount,
+          callCount: c.callCount,
+          callCountType: typeof c.callCount,
+        })),
+        null,
+        2,
+      ),
+    );
+  }, [filteredCampaigns]);
 
   const handleCreateRun = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -159,11 +372,29 @@ export function CampaignsTable({
           </Button>
         );
       },
-      cell: ({ row }) => (
-        <div className="text-center font-medium">
-          {row.original.runCount ?? 0}
-        </div>
-      ),
+      cell: ({ row }) => {
+        // Direct access to the original data
+        const rawValue = row.original.runCount;
+        const count = safeToNumber(rawValue);
+
+        console.log(`Run count for ${row.original.id}:`, {
+          raw: rawValue,
+          type: typeof rawValue,
+          converted: count,
+          originalObject: row.original,
+        });
+
+        // Ensure we always display a number rather than letting the system choose how to display it
+        return (
+          <div className="text-center font-medium">{count.toString()}</div>
+        );
+      },
+      // Force numeric sorting
+      sortingFn: (rowA, rowB, columnId) => {
+        const valueA = safeToNumber(rowA.original.runCount);
+        const valueB = safeToNumber(rowB.original.runCount);
+        return valueA - valueB;
+      },
     },
     {
       accessorKey: "callCount",
@@ -178,11 +409,29 @@ export function CampaignsTable({
           </Button>
         );
       },
-      cell: ({ row }) => (
-        <div className="text-center font-medium">
-          {row.original.callCount ?? 0}
-        </div>
-      ),
+      cell: ({ row }) => {
+        // Direct access to the original data
+        const rawValue = row.original.callCount;
+        const count = safeToNumber(rawValue);
+
+        console.log(`Call count for ${row.original.id}:`, {
+          raw: rawValue,
+          type: typeof rawValue,
+          converted: count,
+          originalObject: row.original,
+        });
+
+        // Ensure we always display a number rather than letting the system choose how to display it
+        return (
+          <div className="text-center font-medium">{count.toString()}</div>
+        );
+      },
+      // Force numeric sorting
+      sortingFn: (rowA, rowB, columnId) => {
+        const valueA = safeToNumber(rowA.original.callCount);
+        const valueB = safeToNumber(rowB.original.callCount);
+        return valueA - valueB;
+      },
     },
     {
       id: "actions",
@@ -229,9 +478,47 @@ export function CampaignsTable({
     },
   ];
 
+  // Before creating the table instance, add:
+  // Add more detailed debugging for each column cell rendering
+  const debugColumns = columns.map((column) => {
+    // Only modify the runCount and callCount columns with proper type checking
+    if (
+      "accessorKey" in column &&
+      (column.accessorKey === "runCount" || column.accessorKey === "callCount")
+    ) {
+      const accessorKey = column.accessorKey as string;
+      return {
+        ...column,
+        cell: (info: any) => {
+          const { row } = info;
+          // Get the raw value from the row
+          const rawValue =
+            row.original[accessorKey as keyof typeof row.original];
+          // Log detailed info about the cell value
+          console.log(
+            `Rendering ${accessorKey} for row ${row.original.id} (${row.original.name}):`,
+            {
+              rawValue,
+              valueType: typeof rawValue,
+              originalRow: row.original,
+              accessorValue: row.getValue(accessorKey),
+            },
+          );
+
+          // Call the original cell renderer with the same context
+          if (typeof column.cell === "function") {
+            return column.cell(info);
+          }
+          return null;
+        },
+      };
+    }
+    return column;
+  });
+
   const table = useReactTable<Campaign>({
     data: filteredCampaigns,
-    columns,
+    columns: debugColumns, // Use the enhanced debug columns
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -303,23 +590,53 @@ export function CampaignsTable({
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/campaigns/${row.original.id}`)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row) => {
+                // Debug row data right before rendering
+                console.log(`TABLE ROW ${row.id} DATA:`, {
+                  rowData: row.original,
+                  runCount: row.original.runCount,
+                  runCountType: typeof row.original.runCount,
+                  callCount: row.original.callCount,
+                  callCountType: typeof row.original.callCount,
+                  getValueRunCount: row.getValue("runCount"),
+                  getValueCallCount: row.getValue("callCount"),
+                });
+
+                return (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() && "selected"}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/campaigns/${row.original.id}`)}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      // Extra debug for the cell rendering process
+                      const columnId = cell.column.id;
+                      if (columnId === "runCount" || columnId === "callCount") {
+                        console.log(
+                          `CELL ${columnId} for campaign ${row.original.id}:`,
+                          {
+                            value: cell.getValue(),
+                            renderValue: flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            ),
+                          },
+                        );
+                      }
+
+                      return (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })
             ) : (
               <TableRow>
                 <TableCell

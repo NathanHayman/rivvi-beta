@@ -357,18 +357,23 @@ const zCampaignStatus = z.enum([
   "scheduled",
 ]);
 export type ZCampaignStatus = z.infer<typeof zCampaignStatus>;
-const zCampaign = z.object({
-  id: z.string(),
-  orgId: z.string(),
-  name: z.string(),
-  templateId: z.string(),
-  direction: zCallDirection,
-  isActive: z.boolean(),
-  isDefaultInbound: z.boolean(),
-  metadata: z.record(z.string(), z.any()),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
+const zCampaign = z
+  .object({
+    id: z.string(),
+    orgId: z.string(),
+    name: z.string(),
+    templateId: z.string(),
+    direction: zCallDirection,
+    isActive: z.boolean(),
+    isDefaultInbound: z.boolean(),
+    metadata: z.record(z.string(), z.any()),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+  })
+  .extend({
+    runCount: z.number().optional(),
+    callCount: z.number().optional(),
+  });
 type ZCampaign = z.infer<typeof zCampaign>;
 /* Campaign With Template Schemas */
 const zCampaignWithTemplate = z.object({
