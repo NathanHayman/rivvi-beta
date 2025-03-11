@@ -135,6 +135,7 @@ export function useCalls(filters: GetCallsParams): CallsHookReturn {
         setIsRefetching(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       filters.limit,
       filters.offset,

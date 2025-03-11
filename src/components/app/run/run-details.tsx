@@ -1008,6 +1008,7 @@ export function RunDetails({
           // Use debounced refresh
           handleRefresh();
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [handleRefresh],
       ),
 
@@ -1031,6 +1032,7 @@ export function RunDetails({
           // Use debounced refresh
           handleRefresh();
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [handleRefresh],
       ),
 
@@ -1184,6 +1186,7 @@ export function RunDetails({
         setMetrics(updatedMetrics);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counts]); // Remove metrics from dependency array to prevent infinite loops
 
   const callProgress =
@@ -1316,6 +1319,7 @@ export function RunDetails({
         setActiveTab("variation");
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run]); // Remove metrics from dependency array to prevent infinite loops
 
   // Use the new UI in the render section
@@ -1591,7 +1595,7 @@ export function RunDetails({
                 Loading Variation Data
               </h3>
               <p className="text-sm text-muted-foreground">
-                We're processing the agent variation information...
+                We&apos;re processing the agent variation information...
               </p>
             </div>
           ) : (
