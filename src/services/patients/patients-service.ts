@@ -6,9 +6,9 @@ import {
   createSuccess,
 } from "@/lib/service-result";
 import { db } from "@/server/db";
-import { organizationPatients, patients } from "@/server/db/schema";
+import { calls, organizationPatients, patients } from "@/server/db/schema";
 import { createHash } from "crypto";
-import { and, eq, ilike, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, or, sql } from "drizzle-orm";
 
 /**
  * Determine if a given date of birth makes the patient a minor (under 18)
@@ -99,12 +99,34 @@ export const patientService = {
           ),
         );
 
+      // Get call count for this patient
+      const [callCount] = await db
+        .select({ count: sql`COUNT(*)` })
+        .from(calls)
+        .where(and(eq(calls.patientId, id), eq(calls.orgId, orgId)));
+
+      // Get the most recent call for this patient
+      const lastCall = await db
+        .select()
+        .from(calls)
+        .where(and(eq(calls.patientId, id), eq(calls.orgId, orgId)))
+        .orderBy(sql`${calls.createdAt} DESC`)
+        .limit(1)
+        .then((results) => results[0] || null);
+
       // Format dates for JSON response
       const formattedPatient = {
         ...patient,
         dob: patient.dob?.toString()?.split("T")[0],
         createdAt: patient.createdAt.toString(),
         updatedAt: patient.updatedAt?.toString(),
+        callCount: Number(callCount?.count || 0),
+        lastCall: lastCall
+          ? {
+              ...lastCall,
+              createdAt: lastCall.createdAt.toString(),
+            }
+          : null,
       };
 
       return createSuccess({
@@ -681,6 +703,32 @@ export const patientService = {
       const [totalCountResult] = await countQuery;
       const totalCount = Number(totalCountResult?.count || 0);
 
+      // Get the patient IDs for call count queries
+      const patientIds = patientResults.map((row) => row.patient.id);
+
+      // Get call counts for all the patients in one query
+      const callCounts =
+        patientIds.length > 0
+          ? await db
+              .select({
+                patientId: calls.patientId,
+                count: sql`COUNT(*)`,
+              })
+              .from(calls)
+              .where(
+                and(
+                  inArray(calls.patientId, patientIds),
+                  eq(calls.orgId, orgId),
+                ),
+              )
+              .groupBy(calls.patientId)
+          : [];
+
+      // Convert to a map for easier lookup
+      const callCountMap = new Map(
+        callCounts.map((cc) => [cc.patientId, Number(cc.count)]),
+      );
+
       // Format the results
       const formattedPatients = patientResults.map((row) => {
         const patientData = row.patient;
@@ -693,6 +741,7 @@ export const patientService = {
           updatedAt: patientData.updatedAt?.toString(),
           emrIdInOrg: row.orgPatient.emrIdInOrg,
           isActive: row.orgPatient.isActive,
+          callCount: callCountMap.get(patientData.id) || 0,
         };
       });
 
@@ -702,8 +751,8 @@ export const patientService = {
         hasMore: offset + limit < totalCount,
       });
     } catch (error) {
-      console.error("Error searching patients:", error);
-      return createError("INTERNAL_ERROR", "Failed to search patients", error);
+      console.error("Error fetching patients:", error);
+      return createError("INTERNAL_ERROR", "Failed to fetch patients", error);
     }
   },
 

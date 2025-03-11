@@ -9,6 +9,7 @@ import {
   Download,
   Hourglass,
   ListChecks,
+  Loader2,
   MoveDownLeft,
   MoveUpRight,
   PauseCircle,
@@ -775,9 +776,55 @@ export function RunDetails({
 }: RunDetailsProps) {
   const [activeTab, setActiveTab] = useState("overview");
   const [run, setRun] = useState<TRun>(initialRun);
-  const [metrics, setMetrics] = useState<RunMetadata | null>(
-    initialRun.metadata as RunMetadata | null,
-  );
+  const [metrics, setMetrics] = useState<RunMetadata | null>(() => {
+    // Initialize metrics with any existing variation data from the run metadata
+    const runMetadata = initialRun.metadata as any;
+    const existingMetrics = initialRun.metadata as RunMetadata | null;
+
+    // Check if we need to extract variation data from run metadata
+    if (runMetadata?.promptVariation || runMetadata?.voicemailVariation) {
+      return {
+        ...existingMetrics,
+        metadata: (runMetadata.metadata as VariationMetadataType) || {
+          categories: runMetadata.categories || [],
+          tags: runMetadata.tags || [],
+          keyChanges: runMetadata.keyChanges || [],
+          toneShift: runMetadata.toneShift || "",
+          focusArea: runMetadata.focusArea || "",
+          changeIntent: runMetadata.changeIntent || "",
+          sentimentShift: runMetadata.sentimentShift || {
+            before: "",
+            after: "",
+          },
+          promptLength: runMetadata.promptLength || {
+            before: 0,
+            after: 0,
+            difference: 0,
+          },
+        },
+        comparison: (runMetadata.comparison as ComparisonType) || {
+          structuralChanges: runMetadata.structuralChanges || [],
+          keyPhrases: runMetadata.keyPhrases || {
+            added: [],
+            removed: [],
+            modified: [],
+          },
+          performancePrediction: runMetadata.performancePrediction || {
+            expectedImpact: "neutral",
+            confidenceLevel: 0,
+            rationale: "",
+          },
+        },
+        summary: runMetadata.summary || "",
+        diffData: {
+          promptDiff: runMetadata.promptDiff || [],
+          voicemailDiff: runMetadata.voicemailDiff || [],
+        },
+      };
+    }
+
+    return existingMetrics;
+  });
   const { startRun, pauseRun, isStartingRun, isPausingRun, refetch } = useRun(
     initialRun.id,
   );
@@ -846,6 +893,21 @@ export function RunDetails({
               }
             : null,
         );
+
+        // Update metrics with any variation data from analytics
+        if ((data as any).variationData) {
+          setMetrics((prevMetrics) => ({
+            ...prevMetrics,
+            metadata:
+              (data as any).variationData.metadata || prevMetrics?.metadata,
+            comparison:
+              (data as any).variationData.comparison || prevMetrics?.comparison,
+            summary:
+              (data as any).variationData.summary || prevMetrics?.summary,
+            diffData:
+              (data as any).variationData.diffData || prevMetrics?.diffData,
+          }));
+        }
       }
     } catch (error) {
       console.error("Error fetching run analytics:", error);
@@ -1199,6 +1261,63 @@ export function RunDetails({
     // You can add a proper implementation later
   }, [runId]);
 
+  // Update useEffect for variation data
+  useEffect(() => {
+    // Process and set variation data if available but not yet loaded into metrics
+    const runMetadata = run.metadata as any;
+    if (
+      (runMetadata?.promptVariation || runMetadata?.voicemailVariation) &&
+      !metrics?.metadata &&
+      !metrics?.comparison &&
+      !metrics?.diffData
+    ) {
+      setMetrics((prevMetrics) => ({
+        ...prevMetrics,
+        metadata: (runMetadata.metadata as VariationMetadataType) || {
+          categories: runMetadata.categories || [],
+          tags: runMetadata.tags || [],
+          keyChanges: runMetadata.keyChanges || [],
+          toneShift: runMetadata.toneShift || "",
+          focusArea: runMetadata.focusArea || "",
+          changeIntent: runMetadata.changeIntent || "",
+          sentimentShift: runMetadata.sentimentShift || {
+            before: "",
+            after: "",
+          },
+          promptLength: runMetadata.promptLength || {
+            before: 0,
+            after: 0,
+            difference: 0,
+          },
+        },
+        comparison: (runMetadata.comparison as ComparisonType) || {
+          structuralChanges: runMetadata.structuralChanges || [],
+          keyPhrases: runMetadata.keyPhrases || {
+            added: [],
+            removed: [],
+            modified: [],
+          },
+          performancePrediction: runMetadata.performancePrediction || {
+            expectedImpact: "neutral",
+            confidenceLevel: 0,
+            rationale: "",
+          },
+        },
+        summary: runMetadata.summary || "",
+        diffData: {
+          promptDiff: runMetadata.promptDiff || [],
+          voicemailDiff: runMetadata.voicemailDiff || [],
+        },
+      }));
+
+      // Check if URL has variation tab parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("tab") === "variation") {
+        setActiveTab("variation");
+      }
+    }
+  }, [run, metrics]);
+
   // Use the new UI in the render section
   return (
     <div className="space-y-4">
@@ -1274,14 +1393,22 @@ export function RunDetails({
       </div>
 
       <Tabs
-        defaultValue={activeTab}
+        defaultValue="overview"
+        value={activeTab}
         onValueChange={setActiveTab}
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList
+          className={`grid w-full ${metrics?.metadata || metrics?.comparison || metrics?.summary || metrics?.diffData ? "grid-cols-3" : "grid-cols-2"}`}
+        >
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
-          <TabsTrigger value="variation">Variation</TabsTrigger>
+          {(metrics?.metadata ||
+            metrics?.comparison ||
+            metrics?.summary ||
+            metrics?.diffData) && (
+            <TabsTrigger value="variation">Variation</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-6">
@@ -1413,10 +1540,12 @@ export function RunDetails({
         </TabsContent>
 
         <TabsContent value="variation" className="mt-4">
-          {(run.metadata as any)?.promptVariation !== undefined ||
-          (run.metadata as any)?.voicemailVariation !== undefined ? (
+          {metrics?.metadata ||
+          metrics?.comparison ||
+          metrics?.summary ||
+          metrics?.diffData ? (
             <div className="space-y-6">
-              {/* Keep existing variation metadata component */}
+              {/* Variation metadata component */}
               <VariationMetadata
                 metadata={metrics?.metadata}
                 comparison={metrics?.comparison}
@@ -1426,63 +1555,56 @@ export function RunDetails({
 
               {/* Updated Prompt and Voicemail Cards */}
               <div className="grid gap-6 md:grid-cols-2">
-                {(run.metadata as any)?.promptVariation !== undefined && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-lg font-medium">
-                        Prompt Variation
-                      </CardTitle>
-                      <CardDescription>
-                        Changes made to the prompt template
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="max-h-[400px] overflow-auto rounded-md border p-4 text-sm">
-                        {metrics?.diffData?.promptDiff ? (
-                          <DiffDisplay diff={metrics.diffData.promptDiff} />
-                        ) : (
-                          <pre className="whitespace-pre-wrap font-mono text-sm">
-                            {(run.metadata as any).promptVariation}
-                          </pre>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                {metrics?.diffData?.promptDiff &&
+                  metrics.diffData.promptDiff.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">
+                          Prompt Changes
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <DiffDisplay diff={metrics.diffData.promptDiff} />
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {(run.metadata as any)?.voicemailVariation !== undefined && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-lg font-medium">
-                        Voicemail Variation
-                      </CardTitle>
-                      <CardDescription>
-                        Changes made to the voicemail template
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="max-h-[400px] overflow-auto rounded-md border p-4 text-sm">
-                        {metrics?.diffData?.voicemailDiff ? (
-                          <DiffDisplay diff={metrics.diffData.voicemailDiff} />
-                        ) : (
-                          <pre className="whitespace-pre-wrap font-mono text-sm">
-                            {(run.metadata as any).voicemailVariation}
-                          </pre>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                {metrics?.diffData?.voicemailDiff &&
+                  metrics.diffData.voicemailDiff.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">
+                          Voicemail Changes
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <DiffDisplay diff={metrics.diffData.voicemailDiff} />
+                      </CardContent>
+                    </Card>
+                  )}
               </div>
             </div>
+          ) : isRefreshing || isLoadingAnalytics ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center">
+              <Loader2 className="mb-4 h-8 w-8 animate-spin text-primary" />
+              <h3 className="mb-2 text-lg font-medium">
+                Loading Variation Data
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                We're processing the agent variation information...
+              </p>
+            </div>
           ) : (
-            <Card>
-              <CardContent className="py-6 text-center">
-                <p className="text-muted-foreground">
-                  No variation data available for this run.
-                </p>
-              </CardContent>
-            </Card>
+            <div className="flex flex-col items-center justify-center p-12 text-center">
+              <div className="mb-4 text-4xl">📝</div>
+              <h3 className="mb-2 text-lg font-medium">
+                No Variation Data Available
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                This run doesn't have any prompt or voicemail variations to
+                display.
+              </p>
+            </div>
           )}
         </TabsContent>
       </Tabs>
