@@ -510,7 +510,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       mainKpiField
         ? {
             accessorKey: "mainKpi",
-            header: "Appt Confirmed",
+            header: mainKpiField.label,
             size: 150,
             cell: ({ row }) => {
               const analysis = row.original.analysis;
