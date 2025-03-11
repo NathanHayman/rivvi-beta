@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </Suspense>
       <SidebarProvider>
         <AppSidebar>
-          <div className="mx-auto w-[13.5rem] rounded-md px-2 transition-colors duration-200 hover:bg-accent group-data-[collapsible=icon]:w-fit">
+          <div className="mx-auto w-[13.5rem] rounded-md px-2 transition-colors duration-200 hover:bg-accent/50 group-data-[collapsible=icon]:w-fit dark:hover:bg-accent/50">
             <UserButton
               appearance={{
                 elements: {
@@ -29,7 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   userButtonOuterIdentifier:
                     "group-data-[collapsible=icon]:hidden",
                   // this is the text of the users avatar
-                  userButtonAvatarBox: "",
+                  // userButtonAvatarBox: "bg-blue-500",
                 },
               }}
               showName

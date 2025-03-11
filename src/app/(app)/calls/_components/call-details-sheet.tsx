@@ -243,7 +243,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
           <div>
             <p className="text-xs font-medium text-muted-foreground">From</p>
             <p className="font-medium">{formatPhoneNumber(call.fromNumber)}</p>
@@ -330,8 +330,8 @@ function CallDetailsContent({ callId }: { callId: string }) {
           <div className="mt-4">
             <h3 className="mb-2 text-sm font-medium">Campaign</h3>
             <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="font-medium">{call.campaign.name}</p>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-sm font-medium">{call.campaign.name}</p>
                 {call.campaign.id && (
                   <Button
                     variant="outline"
