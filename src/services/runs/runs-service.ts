@@ -37,7 +37,13 @@ type RunRowsResponse = {
     variables: Record<string, unknown>;
     processedVariables?: Record<string, unknown>;
     analysis?: Record<string, unknown> | null;
-    status: "pending" | "calling" | "completed" | "failed" | "skipped";
+    status:
+      | "pending"
+      | "calling"
+      | "completed"
+      | "failed"
+      | "skipped"
+      | "callback";
     error?: string | null;
     retellCallId?: string | null;
     sortIndex: number;

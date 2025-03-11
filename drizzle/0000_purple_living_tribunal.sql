@@ -23,7 +23,7 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- CREATE TYPE "public"."row_status" AS ENUM('pending', 'calling', 'completed', 'failed', 'skipped');
+ CREATE TYPE "public"."row_status" AS ENUM('pending', 'calling', 'completed', 'failed', 'skipped', 'callback');
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
