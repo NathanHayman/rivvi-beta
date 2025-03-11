@@ -11,6 +11,7 @@ type CallFilters = {
   direction?: string;
   search?: string;
   patientId?: string;
+  campaignId?: string;
 };
 
 type CallsHookReturn = {
@@ -65,6 +66,7 @@ export function useCalls(filters: CallFilters): CallsHookReturn {
         direction: filters.direction,
         search: debouncedSearch,
         patientId: filters.patientId,
+        campaignId: filters.campaignId,
       });
 
       setData(result);
@@ -80,6 +82,7 @@ export function useCalls(filters: CallFilters): CallsHookReturn {
     filters.direction,
     debouncedSearch,
     filters.patientId,
+    filters.campaignId,
   ]);
 
   // Fetch data when filters change

@@ -2,12 +2,32 @@
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
+import { Input } from "@/components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useCalls } from "@/hooks/calls/use-calls";
 import { cn } from "@/lib/utils";
 import { type ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
@@ -16,20 +36,17 @@ import {
   CircleAlert,
   Clock,
   ExternalLink,
-  InfoIcon,
+  Loader2,
+  MoreHorizontal,
+  Phone,
   PhoneCall,
   PhoneIncoming,
   PhoneOutgoing,
   Search,
 } from "lucide-react";
 import Link from "next/link";
-
-import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
-import { useCalls } from "@/hooks/calls/use-calls";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDebounce } from "use-debounce";
 import { CallsTableFilters } from "./calls-table-filters";
 
@@ -107,16 +124,20 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
   const [pagination, setPagination] = useState({
     pageIndex: 0,
-    pageSize: 50,
+    pageSize: 10, // Changed to 10 for better visual design
   });
 
   // Extract filters from URL search params
   const status = searchParams.get("status") || undefined;
   const direction = searchParams.get("direction") || undefined;
+  const campaignId = searchParams.get("campaignId") || undefined;
+  const dateRange = searchParams.get("dateRange") || undefined;
 
   const [filters, setFilters] = useState({
     status,
     direction,
+    campaignId,
+    dateRange,
   });
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -127,6 +148,8 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     setFilters({
       status: undefined,
       direction: undefined,
+      campaignId: undefined,
+      dateRange: undefined,
     });
 
     // Reset URL params
@@ -134,6 +157,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     url.searchParams.delete("status");
     url.searchParams.delete("direction");
     url.searchParams.delete("campaignId");
+    url.searchParams.delete("dateRange");
 
     // Keep the callId if it exists
     const callId = searchParams.get("callId");
@@ -144,25 +168,45 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
     router.replace(url.pathname + url.search);
   };
 
+  // Process date range filter
+  const getDateRangeFilter = useCallback(() => {
+    if (!dateRange || dateRange === "all") return {};
+
+    const now = new Date();
+    let startDate = new Date();
+
+    switch (dateRange) {
+      case "today":
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "week":
+        startDate.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case "month":
+        startDate.setDate(1); // Start of month
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        return {};
+    }
+
+    return { startDate };
+  }, [dateRange]);
+
   // Use our custom hook for fetching data
   const { data, isLoading, error } = useCalls({
     limit: pagination.pageSize,
     offset: pagination.pageIndex * pagination.pageSize,
     status: filters.status,
     direction: filters.direction,
+    campaignId: filters.campaignId,
     search: debouncedSearch,
+    ...getDateRangeFilter(),
   });
 
   // Use initialData until we have data from the hook
   const displayData = data || initialData;
-
-  // Add console logging for debugging
-  useEffect(() => {
-    if (error) {
-      console.error("Error fetching calls:", error);
-    }
-    console.log("Display data:", displayData);
-  }, [displayData, error]);
 
   // Handle row click to view call details
   const handleRowClick = (callId: string) => {
@@ -198,6 +242,18 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
       url.searchParams.delete("direction");
     }
 
+    if (filters.campaignId) {
+      url.searchParams.set("campaignId", filters.campaignId);
+    } else {
+      url.searchParams.delete("campaignId");
+    }
+
+    if (filters.dateRange) {
+      url.searchParams.set("dateRange", filters.dateRange);
+    } else {
+      url.searchParams.delete("dateRange");
+    }
+
     // Preserve callId if present
     if (selectedCallId) {
       url.searchParams.set("callId", selectedCallId);
@@ -205,6 +261,30 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
 
     router.replace(url.pathname + url.search);
   }, [pagination, filters, router, pathname, selectedCallId]);
+
+  // Format phone number
+  const formatPhoneNumber = (phone: string) => {
+    if (!phone) return "N/A";
+
+    // Basic formatting for US numbers - adjust as needed
+    if (phone.length === 10) {
+      return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
+    }
+
+    if (phone.length === 11 && phone.startsWith("1")) {
+      return `+1 (${phone.slice(1, 4)}) ${phone.slice(4, 7)}-${phone.slice(7)}`;
+    }
+
+    return phone;
+  };
+
+  // Format duration in mm:ss
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "-";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Define columns for the data table
   const columns: ColumnDef<Call>[] = [
@@ -216,15 +296,13 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         return (
           <div className="flex items-center gap-2">
             {direction === "inbound" ? (
-              <>
-                <PhoneIncoming className="h-5 w-5 fill-yellow-50 text-yellow-500 dark:fill-yellow-400/20 dark:text-yellow-500" />
-                <span>Inbound</span>
-              </>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-50 dark:bg-yellow-900/30">
+                <PhoneIncoming className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+              </div>
             ) : (
-              <>
-                <PhoneOutgoing className="h-5 w-5 fill-violet-50 text-violet-500 dark:fill-violet-400/20 dark:text-violet-500" />
-                <span>Outbound</span>
-              </>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-900/30">
+                <PhoneOutgoing className="h-4 w-4 text-violet-600 dark:text-violet-500" />
+              </div>
             )}
           </div>
         );
@@ -237,7 +315,16 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         const patient = row.original.patient;
 
         if (!patient) {
-          return <span className="text-muted-foreground">Unknown Patient</span>;
+          return (
+            <div className="flex items-center gap-3">
+              <Avatar>
+                <AvatarFallback className="bg-muted">?</AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm text-muted-foreground">Unknown</span>
+              </div>
+            </div>
+          );
         }
 
         const initials = `${patient.firstName?.[0] || ""}${
@@ -245,81 +332,85 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         }`.toUpperCase();
 
         const name = `${patient.firstName} ${patient.lastName}`;
-        const formattedPhone = patient.primaryPhone || "No phone";
+        const formattedPhone = formatPhoneNumber(patient.primaryPhone || "");
 
         return (
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="flex cursor-pointer items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback>{initials}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-medium">{name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {formattedPhone}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex cursor-pointer items-center gap-3">
+                  <Avatar className="border">
+                    <AvatarFallback className="bg-primary/10 text-primary">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium">{name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formattedPhone}
+                    </span>
                   </div>
                 </div>
-                <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground" />
-              </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium leading-none">Patient Details</h4>
-                  <div className="text-sm text-muted-foreground">
-                    Complete information about this patient.
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <div className="grid grid-cols-3 items-center gap-4">
-                    <span className="text-sm font-medium">Name</span>
-                    <span className="col-span-2 text-sm">{name}</span>
-                  </div>
-                  <div className="grid grid-cols-3 items-center gap-4">
-                    <span className="text-sm font-medium">Phone</span>
-                    <span className="col-span-2 text-sm">{formattedPhone}</span>
-                  </div>
-                  {patient.dob && (
+              </TooltipTrigger>
+              <TooltipContent side="right" align="start" className="w-80 p-0">
+                <Card className="border-0 shadow-none">
+                  <CardHeader className="p-3 pb-2">
+                    <CardTitle className="text-base">Patient Details</CardTitle>
+                    <CardDescription className="text-xs">
+                      More information about {name}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-2 p-3 pt-0">
                     <div className="grid grid-cols-3 items-center gap-4">
-                      <span className="text-sm font-medium">DOB</span>
-                      <span className="col-span-2 text-sm">{patient.dob}</span>
+                      <span className="text-xs font-medium">Phone</span>
+                      <span className="col-span-2 text-xs">
+                        {formattedPhone}
+                      </span>
                     </div>
-                  )}
-                  {patient.externalIds &&
-                    Object.keys(patient.externalIds).length > 0 && (
+                    {patient.dob && (
                       <div className="grid grid-cols-3 items-center gap-4">
-                        <span className="text-sm font-medium">
-                          External IDs
+                        <span className="text-xs font-medium">DOB</span>
+                        <span className="col-span-2 text-xs">
+                          {patient.dob}
                         </span>
-                        <div className="col-span-2">
-                          {Object.entries(patient.externalIds).map(
-                            ([key, value]) => (
-                              <div key={key} className="text-sm">
-                                <span className="font-medium">{key}:</span>{" "}
-                                {value}
-                              </div>
-                            ),
-                          )}
-                        </div>
                       </div>
                     )}
-                  <div className="mt-2 flex justify-end">
-                    <Link
-                      href={`/patients/${patient.id}`}
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" }),
-                        "gap-1",
+                    {patient.externalIds &&
+                      Object.keys(patient.externalIds).length > 0 && (
+                        <div className="grid grid-cols-3 items-center gap-4">
+                          <span className="text-xs font-medium">
+                            External IDs
+                          </span>
+                          <div className="col-span-2">
+                            {Object.entries(patient.externalIds).map(
+                              ([key, value]) => (
+                                <div key={key} className="text-xs">
+                                  <span className="font-medium">{key}:</span>{" "}
+                                  {value}
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
                       )}
-                    >
-                      View Profile
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+                    <div className="mt-2 flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        asChild
+                      >
+                        <Link href={`/patients/${patient.id}`} prefetch={false}>
+                          View Profile
+                          <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         );
       },
     },
@@ -330,7 +421,7 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
         const campaign = row.original.campaign;
 
         if (!campaign) {
-          return <span className="text-muted-foreground">No Campaign</span>;
+          return <span className="text-sm text-muted-foreground">-</span>;
         }
 
         // Find main KPI if available
@@ -342,34 +433,36 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
           ? row.original.analysis?.[mainKpiField.key]
           : null;
 
+        const hasCallback =
+          row.original.direction === "inbound" &&
+          row.original.relatedOutboundCallId;
+
         return (
-          <div>
-            <div className="font-medium">{campaign.name}</div>
-            {mainKpiField && (
-              <div className="mt-1 flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground">
-                  {mainKpiField.label}:
-                </span>
-                <Badge variant="outline" className="text-xs">
+          <div className="max-w-[180px]">
+            <div className="truncate text-sm font-medium">{campaign.name}</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {mainKpiField && (
+                <Badge
+                  variant="outline"
+                  className="px-1.5 py-0 text-xs font-normal"
+                >
+                  {mainKpiField.label}:{" "}
                   {typeof mainKpiValue === "boolean"
                     ? mainKpiValue
                       ? "Yes"
                       : "No"
                     : mainKpiValue || "N/A"}
                 </Badge>
-              </div>
-            )}
-            {row.original.direction === "inbound" &&
-              row.original.relatedOutboundCallId && (
-                <div className="mt-1">
-                  <Badge
-                    variant="outline"
-                    className="border-yellow-200 bg-yellow-50 text-xs text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400"
-                  >
-                    Callback
-                  </Badge>
-                </div>
               )}
+              {hasCallback && (
+                <Badge
+                  variant="outline"
+                  className="border-yellow-200 bg-yellow-50 px-1.5 py-0 text-xs font-normal text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-400"
+                >
+                  Callback
+                </Badge>
+              )}
+            </div>
           </div>
         );
       },
@@ -389,49 +482,64 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
           status === "in-progress" && hasAnalysisData ? "completed" : status;
 
         let StatusIcon = Clock;
-        let badgeVariant = "neutral_solid" as
-          | "neutral_solid"
-          | "success_solid"
-          | "failure_solid";
+        let badgeVariant = "";
+        let statusLabel = "";
 
-        if (displayStatus === "completed") {
-          StatusIcon = Check;
-          badgeVariant = "success_solid";
-        } else if (
-          displayStatus === "failed" ||
-          displayStatus === "no-answer"
-        ) {
-          StatusIcon = CircleAlert;
-          badgeVariant = "failure_solid";
+        if (displayStatus === "pending") {
+          StatusIcon = Clock;
+          badgeVariant =
+            "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800";
+          statusLabel = "Pending";
         } else if (displayStatus === "in-progress") {
           StatusIcon = PhoneCall;
+          badgeVariant =
+            "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800";
+          statusLabel = "In Progress";
+        } else if (displayStatus === "completed") {
+          StatusIcon = Check;
+          badgeVariant =
+            "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800";
+          statusLabel = "Completed";
+        } else if (displayStatus === "failed") {
+          StatusIcon = CircleAlert;
+          badgeVariant =
+            "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800";
+          statusLabel = "Failed";
+        } else if (displayStatus === "voicemail") {
+          StatusIcon = Phone;
+          badgeVariant =
+            "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800";
+          statusLabel = "Voicemail";
+        } else if (displayStatus === "no-answer") {
+          StatusIcon = CircleAlert;
+          badgeVariant =
+            "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-800";
+          statusLabel = "No Answer";
         }
 
         return (
           <Badge
-            variant={badgeVariant}
-            className="flex w-fit items-center gap-1.5"
+            variant="outline"
+            className={cn("flex items-center gap-1 px-2 py-1", badgeVariant)}
           >
             <StatusIcon className="h-3 w-3" />
-            {displayStatus === "in-progress"
-              ? "In Progress"
-              : displayStatus === "no-answer"
-                ? "No Answer"
-                : displayStatus.charAt(0).toUpperCase() +
-                  displayStatus.slice(1)}
+            {statusLabel}
           </Badge>
         );
       },
     },
     {
-      accessorKey: "createdAt",
-      header: "Date",
+      accessorKey: "date",
+      header: "Date & Time",
       cell: ({ row }) => {
         const date = new Date(row.original.createdAt);
         return (
-          <span className="whitespace-nowrap">
-            {format(date, "MMM d, yyyy h:mm a")}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-sm">{format(date, "MMM d, yyyy")}</span>
+            <span className="text-xs text-muted-foreground">
+              {format(date, "h:mm a")}
+            </span>
+          </div>
         );
       },
     },
@@ -440,156 +548,269 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
       header: "Duration",
       cell: ({ row }) => {
         const duration = row.original.duration;
-        if (!duration) return <span>-</span>;
-
-        // Format duration in mm:ss
-        const minutes = Math.floor(duration / 60);
-        const seconds = duration % 60;
         return (
-          <span>
-            {minutes}:{seconds.toString().padStart(2, "0")}
-          </span>
+          <div className="font-mono text-sm">{formatDuration(duration)}</div>
         );
       },
     },
-    // Additional columns from original component...
     {
       id: "actions",
-      header: "Details",
+      header: "",
       cell: ({ row }) => {
         return (
-          <Link
-            href={`/calls?callId=${row.original.id}`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "whitespace-nowrap",
-            )}
+          <Button
+            variant="ghost"
+            size="icon"
+            asChild
+            className="h-8 w-8 rounded-full"
           >
-            View Details
-          </Link>
+            <Link href={`/calls?callId=${row.original.id}`}>
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">View details</span>
+            </Link>
+          </Button>
         );
       },
     },
   ];
 
+  // Calculate total pages for pagination
+  const totalPages = Math.ceil(displayData.totalCount / pagination.pageSize);
+  const currentPage = pagination.pageIndex + 1;
+
   // Type check and convert the data to the required format
   const callsData = (displayData?.calls || []) as unknown as Call[];
 
   return (
-    <div className="space-y-4">
-      <CallsTableFilters />
+    <div className="space-y-6">
+      <div className="flex flex-col items-start justify-between gap-4 md:flex-row">
+        <CallsTableFilters />
 
-      <div className="relative mb-4">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search by patient name, phone number, or campaign..."
-          className="w-full pl-9"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-
-      <div className="">
-        {error ? (
-          <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
-            <div className="mb-2 text-destructive">
-              <CircleAlert className="h-10 w-10" />
-            </div>
-            <h3 className="text-lg font-medium">Error loading calls</h3>
-            <p className="mt-1 max-w-md text-muted-foreground">
-              {error.message ||
-                "There was an error loading the calls data. Please try again."}
-            </p>
-            <Button
-              variant="outline"
-              className="mt-4"
-              onClick={() => window.location.reload()}
-            >
-              Refresh Page
-            </Button>
-          </div>
-        ) : isLoading && !displayData?.calls.length ? (
-          <div className="flex h-[300px] w-full items-center justify-center p-8">
-            <div className="flex flex-col items-center">
-              <div className="mb-4 animate-spin">
-                <svg
-                  className="h-8 w-8 text-primary"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-              </div>
-              <p className="text-muted-foreground">Loading calls data...</p>
-            </div>
-          </div>
-        ) : displayData?.calls.length === 0 ? (
-          <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
-            <div className="mb-2 text-muted-foreground">
-              <PhoneCall className="h-10 w-10" />
-            </div>
-            <h3 className="text-lg font-medium">No calls found</h3>
-            <p className="mt-1 max-w-md text-muted-foreground">
-              No calls match your current filters. Try adjusting your filters or
-              check back later.
-            </p>
-            <Button variant="outline" className="mt-4" onClick={resetFilters}>
-              Reset Filters
-            </Button>
-          </div>
-        ) : (
-          <DataTable
-            columns={columns}
-            data={displayData?.calls || []}
-            pagination={{
-              hasNextPage: displayData?.hasMore || false,
-              onNextPage: () => {
-                setPagination((prev) => ({
-                  ...prev,
-                  pageIndex: prev.pageIndex + 1,
-                }));
-              },
-            }}
-            onRowClick={(row) => handleRowClick(row.id)}
+        <div className="relative w-full md:w-72">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search by name or phone..."
+            className="w-full pl-9"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
-        )}
+        </div>
       </div>
 
-      {displayData?.calls.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Showing {displayData.calls.length} of {displayData.totalCount} calls
-          </p>
-          {displayData.hasMore && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setPagination((prev) => ({
-                  ...prev,
-                  pageIndex: prev.pageIndex + 1,
-                }));
-              }}
-            >
-              Load More
-            </Button>
+      <Card>
+        <CardContent className="p-0">
+          {error ? (
+            <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
+              <div className="mb-4 text-destructive">
+                <CircleAlert className="h-12 w-12" />
+              </div>
+              <h3 className="text-lg font-medium">Error loading calls</h3>
+              <p className="mt-2 max-w-md text-muted-foreground">
+                {error.message ||
+                  "There was an error loading the calls data. Please try again."}
+              </p>
+              <Button
+                variant="outline"
+                className="mt-6"
+                onClick={() => window.location.reload()}
+              >
+                Refresh Page
+              </Button>
+            </div>
+          ) : isLoading && !displayData?.calls.length ? (
+            <div className="flex h-[300px] w-full items-center justify-center p-8">
+              <div className="flex flex-col items-center">
+                <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
+                <p className="text-muted-foreground">Loading calls data...</p>
+              </div>
+            </div>
+          ) : displayData?.calls.length === 0 ? (
+            <div className="flex h-[300px] w-full flex-col items-center justify-center p-8 text-center">
+              <Phone className="mb-4 h-12 w-12 text-muted-foreground" />
+              <h3 className="text-lg font-medium">No calls found</h3>
+              <p className="mt-2 max-w-md text-muted-foreground">
+                No calls match your current filters. Try adjusting your filters
+                or check back later.
+              </p>
+              <Button variant="outline" className="mt-6" onClick={resetFilters}>
+                Reset Filters
+              </Button>
+            </div>
+          ) : (
+            <>
+              <DataTable
+                columns={columns}
+                data={displayData?.calls || []}
+                onRowClick={(row) => handleRowClick(row.id)}
+                rowClassName={(row) => {
+                  if (row.original.campaignId) {
+                    return "border-b";
+                  }
+                  return "";
+                }}
+              />
+
+              {/* Custom Enhanced Pagination */}
+              <div className="px-2 py-4">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() =>
+                          setPagination((prev) => ({
+                            ...prev,
+                            pageIndex: Math.max(0, prev.pageIndex - 1),
+                          }))
+                        }
+                        className={
+                          currentPage === 1
+                            ? "pointer-events-none opacity-50"
+                            : ""
+                        }
+                      />
+                    </PaginationItem>
+
+                    {/* First page */}
+                    {currentPage > 3 && (
+                      <PaginationItem>
+                        <PaginationLink
+                          onClick={() =>
+                            setPagination((prev) => ({ ...prev, pageIndex: 0 }))
+                          }
+                          isActive={currentPage === 1}
+                        >
+                          1
+                        </PaginationLink>
+                      </PaginationItem>
+                    )}
+
+                    {/* Ellipsis for start */}
+                    {currentPage > 4 && (
+                      <PaginationItem>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    )}
+
+                    {/* Previous page if not first */}
+                    {currentPage > 1 && currentPage <= totalPages && (
+                      <PaginationItem>
+                        <PaginationLink
+                          onClick={() =>
+                            setPagination((prev) => ({
+                              ...prev,
+                              pageIndex: prev.pageIndex - 1,
+                            }))
+                          }
+                        >
+                          {currentPage - 1}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )}
+
+                    {/* Current page */}
+                    <PaginationItem>
+                      <PaginationLink isActive>{currentPage}</PaginationLink>
+                    </PaginationItem>
+
+                    {/* Next page if not last */}
+                    {currentPage < totalPages && (
+                      <PaginationItem>
+                        <PaginationLink
+                          onClick={() =>
+                            setPagination((prev) => ({
+                              ...prev,
+                              pageIndex: prev.pageIndex + 1,
+                            }))
+                          }
+                        >
+                          {currentPage + 1}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )}
+
+                    {/* Ellipsis for end */}
+                    {currentPage < totalPages - 3 && (
+                      <PaginationItem>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    )}
+
+                    {/* Last page */}
+                    {totalPages > 1 && currentPage < totalPages - 2 && (
+                      <PaginationItem>
+                        <PaginationLink
+                          onClick={() =>
+                            setPagination((prev) => ({
+                              ...prev,
+                              pageIndex: totalPages - 1,
+                            }))
+                          }
+                        >
+                          {totalPages}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() =>
+                          setPagination((prev) => ({
+                            ...prev,
+                            pageIndex: Math.min(
+                              totalPages - 1,
+                              prev.pageIndex + 1,
+                            ),
+                          }))
+                        }
+                        className={
+                          currentPage === totalPages
+                            ? "pointer-events-none opacity-50"
+                            : ""
+                        }
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+
+                {/* Page size and record info */}
+                <div className="mt-4 flex items-center justify-between px-2">
+                  <div className="text-sm text-muted-foreground">
+                    Showing{" "}
+                    {Math.min(
+                      pagination.pageSize,
+                      displayData?.calls.length || 0,
+                    )}{" "}
+                    of {displayData.totalCount} calls
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      Rows per page:
+                    </span>
+                    <select
+                      className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
+                      value={pagination.pageSize}
+                      onChange={(e) => {
+                        setPagination((prev) => ({
+                          pageIndex: 0, // Reset to first page when changing page size
+                          pageSize: Number(e.target.value),
+                        }));
+                      }}
+                    >
+                      {[5, 10, 20, 50, 100].map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
-        </div>
-      )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

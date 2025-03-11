@@ -1008,7 +1008,7 @@ export function RunDetails({
           // Use debounced refresh
           handleRefresh();
         },
-        [handleRefresh, metrics],
+        [handleRefresh],
       ),
 
       onCallFailed: useCallback(
@@ -1184,7 +1184,7 @@ export function RunDetails({
         setMetrics(updatedMetrics);
       }
     }
-  }, [counts]); // Only depend on counts changing, not metrics
+  }, [counts]); // Remove metrics from dependency array to prevent infinite loops
 
   const callProgress =
     totalCalls > 0
@@ -1259,7 +1259,7 @@ export function RunDetails({
     console.log("Exporting run data...");
     // Implement export functionality here
     // You can add a proper implementation later
-  }, [runId]);
+  }, []);
 
   // Update useEffect for variation data
   useEffect(() => {
@@ -1316,7 +1316,7 @@ export function RunDetails({
         setActiveTab("variation");
       }
     }
-  }, [run, metrics]);
+  }, [run]); // Remove metrics from dependency array to prevent infinite loops
 
   // Use the new UI in the render section
   return (
@@ -1601,7 +1601,7 @@ export function RunDetails({
                 No Variation Data Available
               </h3>
               <p className="text-sm text-muted-foreground">
-                This run doesn't have any prompt or voicemail variations to
+                This run doesn&apos;t have any prompt or voicemail variations to
                 display.
               </p>
             </div>

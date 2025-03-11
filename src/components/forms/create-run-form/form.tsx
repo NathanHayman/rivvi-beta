@@ -300,7 +300,7 @@ export function RunCreateForm({
         form.setValue("customVoicemailMessage", aiResponse.newVoicemailMessage);
       }
     }
-  }, [isAIGenerating, aiResponse, generationStartTime, form]);
+  }, [isAIGenerating, aiResponse, generationStartTime, form, previousProgress]);
 
   const createRunMutation = useCreateRun(campaignId);
   const uploadFileMutation = useUploadFile();
