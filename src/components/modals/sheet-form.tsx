@@ -14,6 +14,7 @@ export const SheetSizes = {
   md: "w-full lg:w-3/5 lg:max-w-[600px]",
   lg: "w-full lg:w-3/5 lg:max-w-[800px]",
   xl: "w-full lg:w-3/5 lg:max-w-[1000px]",
+  xxl: "w-full lg:w-11/12 lg:max-w-[1400px]",
 } as const;
 
 interface SheetFormProps {

@@ -21,8 +21,14 @@ export function CreateRunAction(props: CreateRunActionProps) {
   if (!props) return null;
   const { type } = props;
 
+  // Set default size to md for better compact layout
+  const defaultProps = {
+    ...props,
+    size: props.size || (type === "modal" ? "xl" : "md"),
+  };
+
   if (type === "modal") {
-    return <TriggerModal {...props} />;
+    return <TriggerModal {...defaultProps} />;
   }
-  return <TriggerSheet {...props} />;
+  return <TriggerSheet {...defaultProps} />;
 }

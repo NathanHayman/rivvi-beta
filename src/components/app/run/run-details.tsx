@@ -1,19 +1,26 @@
 "use client";
 
 // src/components/runs/run-details.tsx
-import { format, formatDistance } from "date-fns";
 import { debounce } from "lodash";
 import {
   Calendar,
   CheckCircle,
+  Clock,
   Download,
   Hourglass,
   ListChecks,
-  Loader2,
+  MoveDownLeft,
+  MoveUpRight,
   PauseCircle,
+  PauseIcon,
   Phone,
-  PlayCircle,
+  PhoneIncoming,
+  PhoneOff,
+  PlayIcon,
+  RefreshCcwIcon,
   RefreshCw,
+  Sparkles,
+  VoicemailIcon,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -21,12 +28,19 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRun } from "@/hooks/runs/use-runs";
 import { useOrganizationEvents } from "@/hooks/use-pusher";
 import { useRunEvents } from "@/hooks/use-run-events";
+import { formatDateDistance } from "@/lib/utils/date-utils";
 import { TCampaign, TRun } from "@/types/db";
 import { RunRowsTable } from "../../tables/run-rows-table";
 
@@ -39,6 +53,7 @@ type RunDetailsProps = {
 type RunMetadata = {
   run?: {
     startTime?: string;
+    endTime?: string;
     duration?: number;
   };
   rows?: {
@@ -484,6 +499,275 @@ function VariationMetadata({
   );
 }
 
+// New StatCard component for better visualization
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  icon: React.ReactNode;
+  trend?: {
+    value: string;
+    positive: boolean;
+  };
+  className?: string;
+}
+
+const StatCard: React.FC<StatCardProps> = ({
+  title,
+  value,
+  subtitle,
+  icon,
+  trend,
+  className,
+}) => {
+  return (
+    <Card className={`flex flex-col justify-between ${className}`}>
+      <CardHeader className="flex flex-row items-start justify-between pb-2">
+        <div>
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {title}
+          </CardTitle>
+          <CardDescription className="text-2xl font-bold tracking-tight">
+            {value}
+          </CardDescription>
+        </div>
+        <div className="rounded-md border bg-background p-2">{icon}</div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {trend && (
+          <div className="flex items-center gap-2">
+            {trend.positive ? (
+              <MoveUpRight className="text-success h-4 w-4" />
+            ) : (
+              <MoveDownLeft className="h-4 w-4 text-destructive" />
+            )}
+            <span
+              className={`text-sm ${trend.positive ? "text-success" : "text-destructive"}`}
+            >
+              {trend.value}
+            </span>
+          </div>
+        )}
+        {subtitle && (
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// New ProgressCard component
+interface ProgressCardProps {
+  title: string;
+  value: number;
+  target: number;
+  subtitle?: string;
+  className?: string;
+}
+
+const ProgressCard: React.FC<ProgressCardProps> = ({
+  title,
+  value,
+  target,
+  subtitle,
+  className,
+}) => {
+  const percentage = target > 0 ? Math.round((value / target) * 100) : 0;
+
+  return (
+    <Card className={`flex flex-col justify-between ${className}`}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {title}
+          </CardTitle>
+          <Badge variant="outline">{percentage}%</Badge>
+        </div>
+        <CardDescription className="text-2xl font-bold tracking-tight">
+          {value} / {target}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <Progress value={percentage} className="h-2" />
+        {subtitle && (
+          <p className="mt-3 text-sm text-muted-foreground">{subtitle}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// New CallStatusSection component
+interface CallStatusProps {
+  completed: number;
+  failed: number;
+  voicemails: number;
+  callbacks: number;
+}
+
+const CallStatusSection: React.FC<CallStatusProps> = ({
+  completed,
+  failed,
+  voicemails,
+  callbacks,
+}) => {
+  const total = completed + failed + voicemails;
+  const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg font-medium">
+          Call Status Breakdown
+        </CardTitle>
+        <CardDescription>Overview of all call outcomes</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="flex flex-col items-center rounded-md border p-3">
+            <div className="mb-2 rounded-full bg-primary/10 p-2">
+              <Phone className="h-5 w-5 text-primary" />
+            </div>
+            <span className="text-2xl font-bold">{completed}</span>
+            <span className="text-sm text-muted-foreground">Completed</span>
+          </div>
+          <div className="flex flex-col items-center rounded-md border p-3">
+            <div className="mb-2 rounded-full bg-destructive/10 p-2">
+              <PhoneOff className="h-5 w-5 text-destructive" />
+            </div>
+            <span className="text-2xl font-bold">{failed}</span>
+            <span className="text-sm text-muted-foreground">Failed</span>
+          </div>
+          <div className="flex flex-col items-center rounded-md border p-3">
+            <div className="mb-2 rounded-full bg-amber-500/10 p-2">
+              <VoicemailIcon className="h-5 w-5 text-amber-500" />
+            </div>
+            <span className="text-2xl font-bold">{voicemails}</span>
+            <span className="text-sm text-muted-foreground">Voicemails</span>
+          </div>
+          <div className="flex flex-col items-center rounded-md border p-3">
+            <div className="mb-2 rounded-full bg-blue-500/10 p-2">
+              <PhoneIncoming className="h-5 w-5 text-blue-500" />
+            </div>
+            <span className="text-2xl font-bold">{callbacks}</span>
+            <span className="text-sm text-muted-foreground">Callbacks</span>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-2 flex justify-between">
+            <span className="text-sm font-medium">Call Completion Rate</span>
+            <span className="text-sm font-medium">{completionRate}%</span>
+          </div>
+          <Progress value={completionRate} className="h-2" />
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-primary"></div>
+              <span className="text-xs text-muted-foreground">Completed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-destructive"></div>
+              <span className="text-xs text-muted-foreground">Failed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-amber-500"></div>
+              <span className="text-xs text-muted-foreground">Voicemails</span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Create a new RunHeader component
+interface RunHeaderProps {
+  run: TRun;
+  campaign: TCampaign;
+  onStart: () => void;
+  onPause: () => void;
+  isStarting: boolean;
+  isPausing: boolean;
+  canStart: boolean;
+  canPause: boolean;
+  isCompleted: boolean;
+  isFailed: boolean;
+}
+
+const RunHeader: React.FC<RunHeaderProps> = ({
+  run,
+  campaign,
+  onStart,
+  onPause,
+  isStarting,
+  isPausing,
+  canStart,
+  canPause,
+  isCompleted,
+  isFailed,
+}) => {
+  return (
+    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">{run.name}</h1>
+        <p className="text-sm text-muted-foreground">
+          Created {formatDateDistance(run.createdAt)}
+          {run.updatedAt && run.updatedAt !== run.createdAt && (
+            <> • Updated {formatDateDistance(run.updatedAt)}</>
+          )}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {canStart && (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={onStart}
+            disabled={isStarting || isPausing}
+            className="gap-1"
+          >
+            {isStarting ? (
+              <>
+                <RefreshCcwIcon className="h-3.5 w-3.5 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <PlayIcon className="h-3.5 w-3.5" />
+                Start Run
+              </>
+            )}
+          </Button>
+        )}
+
+        {canPause && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onPause}
+            disabled={isStarting || isPausing}
+            className="gap-1"
+          >
+            {isPausing ? (
+              <>
+                <RefreshCcwIcon className="h-3.5 w-3.5 animate-spin" />
+                Pausing...
+              </>
+            ) : (
+              <>
+                <PauseIcon className="h-3.5 w-3.5" />
+                Pause Run
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export function RunDetails({
   run: initialRun,
   campaign,
@@ -504,6 +788,10 @@ export function RunDetails({
   // Add analytics state
   const [analytics, setAnalytics] = useState<any>(initialAnalytics || null);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  // Add state for inbound callbacks
+  const [inboundCallbacks, setInboundCallbacks] = useState<number>(
+    initialAnalytics?.callMetrics?.inboundReturns || 0,
+  );
 
   // Add counts state to replace useRunRows data
   const [counts, setCounts] = useState<Record<string, number> | null>(
@@ -515,6 +803,7 @@ export function RunDetails({
           pending: initialAnalytics.overview.pendingCalls || 0,
           connected: initialAnalytics.callMetrics.patientsReached || 0,
           voicemail: initialAnalytics.callMetrics.voicemailsLeft || 0,
+          inboundCallbacks: initialAnalytics.callMetrics.inboundReturns || 0,
         }
       : null,
   );
@@ -529,6 +818,8 @@ export function RunDetails({
       );
       const data = await getRunAnalytics(runId);
       if (data) {
+        const inboundCallbacksValue = data.callMetrics?.inboundReturns || 0;
+
         setAnalytics({
           overview: {
             totalRows: data.overview?.totalRows || 0,
@@ -539,8 +830,22 @@ export function RunDetails({
           callMetrics: {
             patientsReached: data.callMetrics?.patientsReached || 0,
             voicemailsLeft: data.callMetrics?.voicemailsLeft || 0,
+            inboundReturns: inboundCallbacksValue,
           },
         });
+
+        // Set inbound callbacks directly
+        setInboundCallbacks(inboundCallbacksValue);
+
+        // Update counts state with inbound callbacks
+        setCounts((prev) =>
+          prev
+            ? {
+                ...prev,
+                inboundCallbacks: inboundCallbacksValue,
+              }
+            : null,
+        );
       }
     } catch (error) {
       console.error("Error fetching run analytics:", error);
@@ -817,7 +1122,7 @@ export function RunDetails({
         setMetrics(updatedMetrics);
       }
     }
-  }, [counts, metrics]); // Depend on counts and metrics changing
+  }, [counts]); // Only depend on counts changing, not metrics
 
   const callProgress =
     totalCalls > 0
@@ -829,16 +1134,12 @@ export function RunDetails({
       ? Math.round((connectedCalls / completedCalls) * 100)
       : 0;
 
-  // Determine if run is actionable (can be started or paused)
-  const canStart =
-    run.status === "ready" ||
-    run.status === "paused" ||
-    run.status === "scheduled" ||
-    run.status === "draft";
-  const canPause = run.status === "running";
-
-  // Loading state
-  const isLoading = isStartingRun || isPausingRun;
+  // Calculate whether controls should be enabled
+  const canStart = run.status === "draft" || run.status === "paused";
+  const canPause = run.status === "running" || run.status === "scheduled";
+  const isCompleted = run.status === "completed";
+  const isFailed = run.status === "failed";
+  const isLoading = isRefreshing || isStartingRun || isPausingRun;
 
   // Get the appropriate status badge variant
   const getStatusBadgeVariant = (status: string) => {
@@ -880,239 +1181,309 @@ export function RunDetails({
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{run.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            Created{" "}
-            {formatDistance(new Date(run.createdAt), new Date(), {
-              addSuffix: true,
-            })}
-            {metrics?.run?.startTime && (
-              <>
-                {" "}
-                • Started{" "}
-                {formatDistance(new Date(metrics.run.startTime), new Date(), {
-                  addSuffix: true,
-                })}
-              </>
-            )}
-          </p>
-        </div>
+  // Helper function to format duration in a human-readable format
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
 
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+  };
+
+  // Add an export function
+  const handleExportRun = useCallback(() => {
+    console.log("Exporting run data...");
+    // Implement export functionality here
+    // You can add a proper implementation later
+  }, [runId]);
+
+  // Use the new UI in the render section
+  return (
+    <div className="space-y-4">
+      <RunHeader
+        run={run}
+        campaign={campaign}
+        onStart={handleStartRun}
+        onPause={handlePauseRun}
+        isStarting={isStartingRun}
+        isPausing={isPausingRun}
+        canStart={canStart}
+        canPause={canPause}
+        isCompleted={isCompleted}
+        isFailed={isFailed}
+      />
+
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Badge
-            variant={getStatusBadgeVariant(run.status) as any}
-            className="flex items-center gap-1.5"
+            variant="outline"
+            className={`${getStatusBadgeVariant(
+              run.status,
+            )} flex items-center gap-1`}
           >
             {getStatusIcon(run.status)}
             {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
           </Badge>
 
-          {/* Always show buttons for debugging */}
+          {metrics?.run?.startTime && (
+            <Badge variant="outline" className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {metrics.run.duration
+                ? formatDuration(metrics.run.duration)
+                : "Running..."}
+            </Badge>
+          )}
+
+          {(run.metadata as any)?.promptKey && (
+            <Badge
+              variant="outline"
+              className="flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100"
+            >
+              <Sparkles className="h-3 w-3" />
+              {(run.metadata as any).promptKey}
+            </Badge>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
           <Button
-            variant="default"
+            variant="outline"
             size="sm"
-            onClick={handleStartRun}
-            disabled={isLoading || (!canStart && run.status !== "draft")}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="gap-1"
           >
-            {isLoading && isStartingRun ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <PlayCircle className="mr-1.5 h-4 w-4" />
-            )}
-            Start Run
+            <RefreshCcwIcon
+              className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            Refresh
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={handlePauseRun}
-            disabled={isLoading || !canPause}
+            onClick={handleExportRun}
+            className="gap-1"
           >
-            {isLoading && isPausingRun ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <PauseCircle className="mr-1.5 h-4 w-4" />
-            )}
-            Pause Run
-          </Button>
-
-          <Button variant="outline" size="sm">
-            <Download className="mr-1.5 h-4 w-4" />
-            Export Data
+            <Download className="h-3.5 w-3.5" />
+            Export
           </Button>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+      <Tabs
+        defaultValue={activeTab}
+        onValueChange={setActiveTab}
+        className="w-full"
+      >
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
           <TabsTrigger value="variation">Variation</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Total Rows
-                </CardTitle>
-                <ListChecks className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalCalls}</div>
-                {invalidRows > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {invalidRows} invalid rows skipped
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Call Progress
-                </CardTitle>
-                <Phone className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {completedCalls + failedCalls} out of {totalCalls}
-                </div>
-                <Progress value={callProgress} className="mt-2" />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Conversion Rate
-                </CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{conversionRate}%</div>
-                <p className="text-xs text-muted-foreground">
-                  {connectedCalls} connected calls
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Call Status
-                </CardTitle>
-                <Phone className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Connected</span>
-                  <span className="text-sm font-bold">{connectedCalls}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Voicemail</span>
-                  <span className="text-sm font-bold">{voicemailCalls}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Failed</span>
-                  <span className="text-sm font-bold">{failedCalls}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Pending</span>
-                  <span className="text-sm font-bold">{pendingCalls}</span>
-                </div>
-              </CardContent>
-            </Card>
+        <TabsContent value="overview" className="mt-4 space-y-6">
+          {/* Statistics Summary */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Total Rows"
+              value={totalCalls}
+              icon={<ListChecks className="h-4 w-4 text-primary" />}
+              subtitle={
+                invalidRows > 0
+                  ? `${invalidRows} invalid rows skipped`
+                  : undefined
+              }
+            />
+            <StatCard
+              title="Conversion Rate"
+              value={`${conversionRate}%`}
+              icon={<CheckCircle className="h-4 w-4 text-primary" />}
+              subtitle={`${connectedCalls} patients reached`}
+            />
+            <StatCard
+              title="Call Progress"
+              value={`${completedCalls + failedCalls} / ${totalCalls}`}
+              icon={<Phone className="h-4 w-4 text-primary" />}
+              subtitle={`${callProgress}% completion rate`}
+            />
+            <StatCard
+              title="Inbound Callbacks"
+              value={inboundCallbacks}
+              icon={<PhoneIncoming className="h-4 w-4 text-blue-500" />}
+            />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Run Details</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm">Campaign</p>
-                    <p className="text-sm font-medium">{campaign.name}</p>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm">Campaign Direction</p>
-                    <Badge variant="outline">{campaign.direction}</Badge>
-                  </div>
-
-                  {run.scheduledAt && (
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm">Scheduled Time</p>
-                      <p className="text-sm font-medium">
-                        {format(new Date(run.scheduledAt), "PPp")}
-                      </p>
-                    </div>
-                  )}
-
-                  {metrics?.run?.duration !== undefined &&
-                    typeof metrics?.run?.duration === "number" && (
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm">Run Duration</p>
-                        <p className="text-sm font-medium">
-                          {Math.floor(metrics.run.duration / 60)} min{" "}
-                          {Math.floor(metrics.run.duration % 60)} sec
-                        </p>
-                      </div>
-                    )}
-                </div>
-              </CardContent>
-            </Card>
+          {/* Call Status Section */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <CallStatusSection
+                completed={completedCalls}
+                failed={failedCalls}
+                voicemails={voicemailCalls}
+                callbacks={inboundCallbacks}
+              />
+            </div>
+            <div className="space-y-4">
+              <ProgressCard
+                title="Call Progress"
+                value={completedCalls + failedCalls}
+                target={totalCalls}
+                subtitle={`${totalCalls - (completedCalls + failedCalls)} calls remaining`}
+              />
+              <ProgressCard
+                title="Conversion Goal"
+                value={connectedCalls}
+                target={Math.ceil(completedCalls * 0.5)} // Example goal: 50% conversion
+                subtitle="Patients successfully reached"
+              />
+            </div>
           </div>
-        </TabsContent>
 
-        <TabsContent value="data">
+          {/* Run Metadata */}
           <Card>
-            <CardContent className="pt-6">
-              <RunRowsTable runId={initialRun.id} />
+            <CardHeader>
+              <CardTitle className="text-lg font-medium">Run Details</CardTitle>
+              <CardDescription>
+                Essential information about this run
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Run ID
+                  </h3>
+                  <p className="font-mono text-sm">{run.id}</p>
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Created
+                  </h3>
+                  <p className="text-sm">{formatDateDistance(run.createdAt)}</p>
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Last Updated
+                  </h3>
+                  <p className="text-sm">{formatDateDistance(run.updatedAt)}</p>
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Status
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    {getStatusIcon(run.status)}
+                    <span className="text-sm">
+                      {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Campaign
+                  </h3>
+                  <p className="text-sm">{campaign.name}</p>
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                    Organization
+                  </h3>
+                  <p className="text-sm">{run.orgId}</p>
+                </div>
+                {(run.metadata as any)?.pauseReason && (
+                  <div className="col-span-full">
+                    <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                      Pause Reason
+                    </h3>
+                    <p className="text-sm">
+                      {(run.metadata as any).pauseReason}
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="variation">
-          <div>
-            {metrics?.metadata || metrics?.comparison ? (
+        <TabsContent value="data" className="mt-4">
+          <RunRowsTable runId={runId} />
+        </TabsContent>
+
+        <TabsContent value="variation" className="mt-4">
+          {(run.metadata as any)?.promptVariation !== undefined ||
+          (run.metadata as any)?.voicemailVariation !== undefined ? (
+            <div className="space-y-6">
+              {/* Keep existing variation metadata component */}
               <VariationMetadata
                 metadata={metrics?.metadata}
                 comparison={metrics?.comparison}
+                summary={metrics?.summary}
+                diffData={metrics?.diffData}
               />
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Variation Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-sm text-muted-foreground">
-                    No variation data available for this run.
-                  </div>
-                  {run.customPrompt && (
-                    <div className="mt-4">
-                      <h4 className="mb-2 text-sm font-semibold">
-                        Custom Prompt
-                      </h4>
-                      <div className="rounded-md bg-muted p-4">
-                        <pre className="whitespace-pre-wrap text-sm">
-                          {run.customPrompt}
-                        </pre>
+
+              {/* Updated Prompt and Voicemail Cards */}
+              <div className="grid gap-6 md:grid-cols-2">
+                {(run.metadata as any)?.promptVariation !== undefined && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg font-medium">
+                        Prompt Variation
+                      </CardTitle>
+                      <CardDescription>
+                        Changes made to the prompt template
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="max-h-[400px] overflow-auto rounded-md border p-4 text-sm">
+                        {metrics?.diffData?.promptDiff ? (
+                          <DiffDisplay diff={metrics.diffData.promptDiff} />
+                        ) : (
+                          <pre className="whitespace-pre-wrap font-mono text-sm">
+                            {(run.metadata as any).promptVariation}
+                          </pre>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {(run.metadata as any)?.voicemailVariation !== undefined && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg font-medium">
+                        Voicemail Variation
+                      </CardTitle>
+                      <CardDescription>
+                        Changes made to the voicemail template
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="max-h-[400px] overflow-auto rounded-md border p-4 text-sm">
+                        {metrics?.diffData?.voicemailDiff ? (
+                          <DiffDisplay diff={metrics.diffData.voicemailDiff} />
+                        ) : (
+                          <pre className="whitespace-pre-wrap font-mono text-sm">
+                            {(run.metadata as any).voicemailVariation}
+                          </pre>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-6 text-center">
+                <p className="text-muted-foreground">
+                  No variation data available for this run.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

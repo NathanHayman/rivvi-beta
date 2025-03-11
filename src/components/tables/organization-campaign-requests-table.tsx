@@ -12,8 +12,10 @@ import {
 } from "@/components/ui/card";
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -177,175 +179,176 @@ export function OrganizationCampaignRequestsTable() {
             </SheetDescription>
           </SheetHeader>
 
-          {selectedRequest && (
-            <div className="mt-6 space-y-6">
-              <div className="space-y-1">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  Status
-                </h3>
-                <div>
-                  <Badge
-                    variant={
-                      selectedRequest.status === "pending"
-                        ? "neutral_solid"
-                        : selectedRequest.status === "approved"
-                          ? "success_solid"
-                          : selectedRequest.status === "rejected"
-                            ? "failure_solid"
-                            : selectedRequest.status === "in_progress"
-                              ? "blue_solid"
-                              : "neutral_solid"
-                    }
-                    className="flex w-fit items-center"
-                  >
-                    {selectedRequest.status === "pending" && (
-                      <Clock className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {selectedRequest.status === "approved" && (
-                      <Check className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {selectedRequest.status === "rejected" && (
-                      <X className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {selectedRequest.status === "in_progress" && (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    )}
-                    {selectedRequest.status?.charAt(0).toUpperCase() +
-                      selectedRequest.status?.slice(1).replace("_", " ")}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  Campaign Name
-                </h3>
-                <p className="text-base">{selectedRequest.name}</p>
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  Description
-                </h3>
-                <p className="whitespace-pre-wrap text-sm">
-                  {selectedRequest.description}
-                </p>
-              </div>
-
-              {selectedRequest.mainGoal && (
+          <SheetBody>
+            {selectedRequest && (
+              <div className="mt-6 space-y-6">
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-muted-foreground">
-                    Main Goal
+                    Status
+                  </h3>
+                  <div>
+                    <Badge
+                      variant={
+                        selectedRequest.status === "pending"
+                          ? "neutral_solid"
+                          : selectedRequest.status === "approved"
+                            ? "success_solid"
+                            : selectedRequest.status === "rejected"
+                              ? "failure_solid"
+                              : selectedRequest.status === "in_progress"
+                                ? "blue_solid"
+                                : "neutral_solid"
+                      }
+                      className="flex w-fit items-center"
+                    >
+                      {selectedRequest.status === "pending" && (
+                        <Clock className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {selectedRequest.status === "approved" && (
+                        <Check className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {selectedRequest.status === "rejected" && (
+                        <X className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {selectedRequest.status === "in_progress" && (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      )}
+                      {selectedRequest.status?.charAt(0).toUpperCase() +
+                        selectedRequest.status?.slice(1).replace("_", " ")}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Campaign Name
+                  </h3>
+                  <p className="text-base">{selectedRequest.name}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Description
                   </h3>
                   <p className="whitespace-pre-wrap text-sm">
-                    {selectedRequest.mainGoal}
+                    {selectedRequest.description}
                   </p>
                 </div>
-              )}
 
-              {selectedRequest.desiredAnalysis &&
-                selectedRequest.desiredAnalysis.length > 0 && (
+                {selectedRequest.mainGoal && (
                   <div className="space-y-1">
                     <h3 className="text-sm font-medium text-muted-foreground">
-                      Desired Analysis/KPIs
+                      Main Goal
                     </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedRequest.desiredAnalysis.map((kpi, index) => (
-                        <Badge key={index} variant="secondary">
-                          {kpi}
-                        </Badge>
-                      ))}
-                    </div>
+                    <p className="whitespace-pre-wrap text-sm">
+                      {selectedRequest.mainGoal}
+                    </p>
                   </div>
                 )}
 
-              {/* Admin Notes (if available) */}
-              {selectedRequest.adminNotes && (
-                <div className="space-y-1">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    Admin Notes
-                  </h3>
-                  <p className="whitespace-pre-wrap text-sm">
-                    {selectedRequest.adminNotes}
-                  </p>
-                </div>
-              )}
+                {selectedRequest.desiredAnalysis &&
+                  selectedRequest.desiredAnalysis.length > 0 && (
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium text-muted-foreground">
+                        Desired Analysis/KPIs
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedRequest.desiredAnalysis.map((kpi, index) => (
+                          <Badge key={index} variant="secondary">
+                            {kpi}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Example Sheets */}
-              {selectedRequest.exampleSheets &&
-                selectedRequest.exampleSheets.length > 0 && (
-                  <div className="space-y-2">
+                {/* Admin Notes (if available) */}
+                {selectedRequest.adminNotes && (
+                  <div className="space-y-1">
                     <h3 className="text-sm font-medium text-muted-foreground">
-                      Example Sheets
+                      Admin Notes
                     </h3>
-                    <div className="grid gap-2">
-                      {selectedRequest.exampleSheets.map((sheet, index) => (
-                        <Button
-                          key={index}
-                          variant="outline"
-                          className="justify-start"
-                          onClick={() => {
-                            // Open sheet URL if available
-                            if (sheet.url) {
-                              window.open(sheet.url, "_blank");
-                            }
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <ExternalLink className="h-4 w-4" />
-                            <span>{sheet.name}</span>
-                          </div>
-                        </Button>
-                      ))}
-                    </div>
+                    <p className="whitespace-pre-wrap text-sm">
+                      {selectedRequest.adminNotes}
+                    </p>
                   </div>
                 )}
 
-              {/* Request metadata */}
-              <div className="space-y-1 pt-2">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  Request Details
-                </h3>
-                <div className="grid grid-cols-2 gap-1 text-sm">
-                  <span className="text-muted-foreground">Requested:</span>
-                  <span>
-                    {formatDistance(
-                      new Date(selectedRequest.createdAt),
-                      new Date(),
-                      { addSuffix: true },
-                    )}
-                  </span>
-                  <span className="text-muted-foreground">Direction:</span>
-                  <span>
-                    {selectedRequest.direction.charAt(0).toUpperCase() +
-                      selectedRequest.direction.slice(1)}
-                  </span>
-                </div>
-              </div>
+                {/* Example Sheets */}
+                {selectedRequest.exampleSheets &&
+                  selectedRequest.exampleSheets.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium text-muted-foreground">
+                        Example Sheets
+                      </h3>
+                      <div className="grid gap-2">
+                        {selectedRequest.exampleSheets.map((sheet, index) => (
+                          <Button
+                            key={index}
+                            variant="outline"
+                            className="justify-start"
+                            onClick={() => {
+                              // Open sheet URL if available
+                              if (sheet.url) {
+                                window.open(sheet.url, "_blank");
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <ExternalLink className="h-4 w-4" />
+                              <span>{sheet.name}</span>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Actions */}
-              <div className="flex justify-end gap-2 pt-4">
-                {selectedRequest.resultingCampaignId && (
+                {/* Request metadata */}
+                <div className="space-y-1 pt-2">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Request Details
+                  </h3>
+                  <div className="grid grid-cols-2 gap-1 text-sm">
+                    <span className="text-muted-foreground">Requested:</span>
+                    <span>
+                      {formatDistance(
+                        new Date(selectedRequest.createdAt),
+                        new Date(),
+                        { addSuffix: true },
+                      )}
+                    </span>
+                    <span className="text-muted-foreground">Direction:</span>
+                    <span>
+                      {selectedRequest.direction.charAt(0).toUpperCase() +
+                        selectedRequest.direction.slice(1)}
+                    </span>
+                  </div>
+                </div>
+                {/* Actions */}
+                <SheetFooter className="absolute bottom-0 left-0 right-0 flex justify-end gap-2 pt-4">
+                  {selectedRequest.resultingCampaignId && (
+                    <Button
+                      onClick={() =>
+                        router.push(
+                          `/campaigns/${selectedRequest.resultingCampaignId}`,
+                        )
+                      }
+                    >
+                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                      View Campaign
+                    </Button>
+                  )}
                   <Button
-                    onClick={() =>
-                      router.push(
-                        `/campaigns/${selectedRequest.resultingCampaignId}`,
-                      )
-                    }
+                    variant="secondary"
+                    onClick={() => setIsViewDetailsOpen(false)}
                   >
-                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                    View Campaign
+                    Close
                   </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  onClick={() => setIsViewDetailsOpen(false)}
-                >
-                  Close
-                </Button>
+                </SheetFooter>
               </div>
-            </div>
-          )}
+            )}
+          </SheetBody>
         </SheetContent>
       </Sheet>
     </div>

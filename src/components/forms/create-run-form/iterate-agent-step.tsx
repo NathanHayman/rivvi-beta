@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle, ChevronRight, CircleHelp, Loader2 } from "lucide-react";
+import { CheckCircle, CircleHelp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { RunFormValues } from "./form";
@@ -361,6 +361,7 @@ const StreamingGenerationUI = ({
 const IterateAgentStep = ({
   form,
   isGeneratingPrompt,
+  setIsGeneratingPrompt,
   isStreamingComplete,
   currentTask,
   streamedMetadata,
@@ -397,9 +398,9 @@ const IterateAgentStep = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h3 className="mb-2 text-lg font-medium">
+        <h3 className="mb-3 text-base font-medium">
           Natural Language Prompt Enhancement
         </h3>
         <p className="text-sm text-muted-foreground">
@@ -417,7 +418,7 @@ const IterateAgentStep = ({
             <FormControl>
               <Textarea
                 placeholder="Example: Make the prompt more empathetic and focus on explaining benefits clearly."
-                className="min-h-[120px]"
+                className="h-[180px] resize-none"
                 {...field}
                 onChange={handleInputChange}
               />
@@ -430,57 +431,24 @@ const IterateAgentStep = ({
         )}
       />
 
-      <div className="flex items-center space-x-3">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={prevStep}
-          className="w-[120px]"
-        >
-          Back
-        </Button>
-
-        <Button
-          type="button"
-          variant="default"
-          onClick={generateNaturalLanguage}
-          disabled={
-            isGeneratingPrompt || !form.getValues("naturalLanguageInput")
-          }
-          className="w-[200px]"
-        >
-          {isGeneratingPrompt ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </>
-          ) : hasChangedInput || !isStreamingComplete ? (
-            "Generate Enhancement"
-          ) : (
-            "Regenerate"
-          )}
-        </Button>
-
-        <Button
-          type="button"
-          variant={canProceedFromCurrentStep() ? "default" : "outline"}
-          onClick={nextStep}
-          disabled={!canProceedFromCurrentStep()}
-          className="ml-auto"
-        >
-          Next <ChevronRight className="ml-2 h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* Display streaming UI */}
-      {(isGeneratingPrompt || isStreamingComplete) && (
-        <StreamingGenerationUI
-          isGenerating={isGeneratingPrompt}
-          isComplete={isStreamingComplete}
-          currentTask={currentTask}
-          streamedMetadata={streamedMetadata}
-        />
-      )}
+      <Button
+        type="button"
+        variant="default"
+        onClick={generateNaturalLanguage}
+        disabled={isGeneratingPrompt || !form.getValues("naturalLanguageInput")}
+        className="w-full"
+      >
+        {isGeneratingPrompt ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Processing...
+          </>
+        ) : hasChangedInput || !isStreamingComplete ? (
+          "Generate Enhancement"
+        ) : (
+          "Regenerate"
+        )}
+      </Button>
     </div>
   );
 };

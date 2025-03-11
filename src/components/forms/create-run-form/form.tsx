@@ -4,13 +4,7 @@ import type React from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import {
-  AlertCircle,
-  Check,
-  CheckCircle,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { Check, ChevronRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -106,6 +100,7 @@ export function RunCreateForm({
   const [isStreamingComplete, setIsStreamingComplete] =
     useState<boolean>(false);
   const [currentTask, setCurrentTask] = useState<string>("");
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const steps = ["Upload & Validate", "Configure Prompt", "Schedule & Name"];
 
@@ -170,6 +165,19 @@ export function RunCreateForm({
       setCurrentTask("Prompt generation complete");
     }
   }, [isAIGenerating, aiResponse]);
+
+  // Add transition effect when moving to/from the AI generation step
+  useEffect(() => {
+    if (currentStep === 1) {
+      // Small delay before expanding to allow for smooth transition
+      const timer = setTimeout(() => {
+        setIsExpanded(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    } else {
+      setIsExpanded(false);
+    }
+  }, [currentStep]);
 
   const form = useForm<RunFormValues>({
     resolver: zodResolver(runFormSchema),
@@ -740,28 +748,91 @@ export function RunCreateForm({
 
       case 1:
         return (
-          <IterateAgentStep
-            form={form}
-            setIsGeneratingPrompt={setIsGeneratingPrompt}
-            setIsStreamingComplete={setIsStreamingComplete}
-            setCurrentTask={setCurrentTask}
-            setStreamedMetadata={setStreamedMetadata}
-            initialPrompt={campaignBasePrompt}
-            initialVoicemail={campaignVoicemailMessage}
-            generateNaturalLanguage={generateNaturalLanguage}
-            prevStep={prevStep}
-            nextStep={nextStep}
-            canProceedFromCurrentStep={canProceedFromCurrentStep}
-            isGeneratingPrompt={isGeneratingPrompt}
-            isStreamingComplete={isStreamingComplete}
-            currentTask={currentTask}
-            streamedMetadata={streamedMetadata}
-          />
+          <div
+            className={`w-full transition-all duration-300 ${isExpanded ? "md:grid md:grid-cols-2 md:gap-6" : ""}`}
+          >
+            <div className="flex flex-col">
+              <IterateAgentStep
+                form={form}
+                setIsGeneratingPrompt={setIsGeneratingPrompt}
+                setIsStreamingComplete={setIsStreamingComplete}
+                setCurrentTask={setCurrentTask}
+                setStreamedMetadata={setStreamedMetadata}
+                initialPrompt={campaignBasePrompt}
+                initialVoicemail={campaignVoicemailMessage}
+                generateNaturalLanguage={generateNaturalLanguage}
+                prevStep={prevStep}
+                nextStep={nextStep}
+                canProceedFromCurrentStep={canProceedFromCurrentStep}
+                isGeneratingPrompt={isGeneratingPrompt}
+                isStreamingComplete={isStreamingComplete}
+                currentTask={currentTask}
+                streamedMetadata={streamedMetadata}
+              />
+            </div>
+
+            {isExpanded && (isGeneratingPrompt || isStreamingComplete) && (
+              <div className="bg-gray-50 mt-6 max-h-[400px] overflow-auto rounded-md border p-4 duration-500 animate-in slide-in-from-right-10 md:mt-0">
+                <h3 className="text-md mb-3 font-medium">
+                  AI Generation Results
+                </h3>
+                <div className="space-y-4">
+                  {isGeneratingPrompt && (
+                    <div className="flex items-center space-x-2">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      <p className="text-sm">
+                        {currentTask || "Generating..."}
+                      </p>
+                    </div>
+                  )}
+
+                  {streamedMetadata?.summary && (
+                    <div className="border-l-2 border-primary pl-3 duration-300 animate-in fade-in slide-in-from-bottom-5">
+                      <h4 className="text-sm font-medium">Summary</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {streamedMetadata.summary}
+                      </p>
+                    </div>
+                  )}
+
+                  {streamedMetadata?.newPrompt && (
+                    <div className="border-l-2 border-primary pl-3 duration-300 animate-in fade-in slide-in-from-bottom-5">
+                      <h4 className="text-sm font-medium">Enhanced Prompt</h4>
+                      <div className="mt-2 whitespace-pre-wrap rounded-md bg-white p-3 text-sm">
+                        {streamedMetadata.newPrompt}
+                      </div>
+                    </div>
+                  )}
+
+                  {streamedMetadata?.metadata?.keyChanges &&
+                    streamedMetadata.metadata.keyChanges.length > 0 && (
+                      <div className="border-l-2 border-primary pl-3 duration-300 animate-in fade-in slide-in-from-bottom-5">
+                        <h4 className="text-sm font-medium">Key Changes</h4>
+                        <ul className="mt-1 list-disc pl-5 text-sm">
+                          {streamedMetadata.metadata.keyChanges.map(
+                            (change, i) => (
+                              <li key={i}>{change}</li>
+                            ),
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                </div>
+              </div>
+            )}
+          </div>
         );
 
       case 2:
         return (
           <div className="space-y-6">
+            <div>
+              <h3 className="mb-3 text-base font-medium">Run Name</h3>
+              <p className="text-sm text-muted-foreground">
+                Give your run a descriptive name for easier identification
+              </p>
+            </div>
+
             <FormField
               control={form.control}
               name="name"
@@ -774,9 +845,6 @@ export function RunCreateForm({
                       {...field}
                     />
                   </FormControl>
-                  <FormDescription>
-                    Give your run a descriptive name
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -809,62 +877,49 @@ export function RunCreateForm({
                       <FormField
                         control={form.control}
                         name="scheduledDate"
-                        render={({ field }) => {
-                          console.log("Date field value:", field.value);
-                          return (
-                            <FormItem>
-                              <FormLabel>Date</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="date"
-                                  min={format(new Date(), "yyyy-MM-dd")}
-                                  {...field}
-                                  value={
-                                    field.value
-                                      ? format(field.value, "yyyy-MM-dd")
-                                      : ""
-                                  }
-                                  onChange={(e) => {
-                                    const date = e.target.value
-                                      ? new Date(e.target.value)
-                                      : null;
-                                    console.log(
-                                      "Date onChange:",
-                                      e.target.value,
-                                      date,
-                                    );
-                                    field.onChange(date);
-                                  }}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          );
-                        }}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Date</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="date"
+                                min={format(new Date(), "yyyy-MM-dd")}
+                                {...field}
+                                value={
+                                  field.value
+                                    ? format(field.value, "yyyy-MM-dd")
+                                    : ""
+                                }
+                                onChange={(e) => {
+                                  const date = e.target.value
+                                    ? new Date(e.target.value)
+                                    : null;
+                                  field.onChange(date);
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
 
                       <FormField
                         control={form.control}
                         name="scheduledTime"
-                        render={({ field }) => {
-                          console.log("Time field value:", field.value);
-                          return (
-                            <FormItem>
-                              <FormLabel>Time</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="time"
-                                  {...field}
-                                  value={
-                                    field.value === null ? "" : field.value
-                                  }
-                                  disabled={!form.getValues("scheduledDate")}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          );
-                        }}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Time</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="time"
+                                {...field}
+                                value={field.value === null ? "" : field.value}
+                                disabled={!form.getValues("scheduledDate")}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
                     </div>
                   )}
@@ -873,131 +928,40 @@ export function RunCreateForm({
             />
 
             {processedFile && (
-              <div className="bg-gray-50 rounded-md p-4">
-                <h3 className="mb-2 font-medium">Run Summary</h3>
-                <div className="space-y-1 text-sm">
+              <div className="bg-gray-50 rounded-md border p-4">
+                <h3 className="mb-2 text-sm font-medium">Run Summary</h3>
+                <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Rows:</span>
-                    <span className="font-medium">
-                      {processedFile.stats?.totalRows || 0}
+                    <span className="text-sm text-muted-foreground">
+                      Total Rows:
+                    </span>
+                    <span className="text-sm font-medium">
+                      {processedFile.stats?.totalRows ||
+                        processedFile.parsedData?.rows?.length ||
+                        0}
                     </span>
                   </div>
                   {processedFile.stats?.invalidRows > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         Invalid Rows:
                       </span>
-                      <span className="font-medium text-amber-600">
+                      <span className="text-sm font-medium text-amber-600">
                         {processedFile.stats?.invalidRows}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Valid Calls:</span>
-                    <span className="font-medium text-green-600">
-                      {(processedFile.stats?.totalRows || 0) -
-                        (processedFile.stats?.invalidRows || 0)}
+                    <span className="text-sm text-muted-foreground">
+                      Valid Calls:
+                    </span>
+                    <span className="text-sm font-medium text-green-600">
+                      {(processedFile.stats?.totalRows ||
+                        processedFile.parsedData?.rows?.length ||
+                        0) - (processedFile.stats?.invalidRows || 0)}
                     </span>
                   </div>
                 </div>
-
-                {/* Add data preview in the final step too */}
-                {processedFile.parsedData &&
-                  processedFile.parsedData.rows &&
-                  processedFile.parsedData.rows.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="mb-2 text-sm font-medium">Data Sample</h4>
-                      <div className="overflow-hidden rounded-md border">
-                        <div className="max-h-[200px] overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted/50">
-                              <tr>
-                                {Object.keys(processedFile.parsedData.rows[0])
-                                  .slice(0, 5)
-                                  .map((header) => (
-                                    <th
-                                      key={header}
-                                      className="px-2 py-1.5 text-left font-medium text-muted-foreground"
-                                    >
-                                      {header}
-                                    </th>
-                                  ))}
-                                {Object.keys(processedFile.parsedData.rows[0])
-                                  .length > 5 && (
-                                  <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
-                                    ...
-                                  </th>
-                                )}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {processedFile.parsedData.rows
-                                .slice(0, 3)
-                                .map((row, rowIndex) => (
-                                  <tr
-                                    key={rowIndex}
-                                    className={
-                                      rowIndex % 2 === 0
-                                        ? "bg-white"
-                                        : "bg-muted/20"
-                                    }
-                                  >
-                                    {Object.keys(row)
-                                      .slice(0, 5)
-                                      .map((header) => (
-                                        <td
-                                          key={`${rowIndex}-${header}`}
-                                          className="max-w-[150px] truncate border-t px-2 py-1.5"
-                                        >
-                                          {typeof row[header] === "object"
-                                            ? JSON.stringify(row[header])
-                                            : row[header]}
-                                        </td>
-                                      ))}
-                                    {Object.keys(row).length > 5 && (
-                                      <td className="border-t px-2 py-1.5 text-muted-foreground">
-                                        ...
-                                      </td>
-                                    )}
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {processedFile.parsedData.rows.length > 3 && (
-                          <div className="border-t bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground">
-                            Showing 3 of {processedFile.parsedData.rows.length}{" "}
-                            rows
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                {/* If we have a file with valid rows, show the count */}
-                {processedFile?.stats?.totalRows &&
-                  processedFile.stats.totalRows > 0 && (
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                        <span className="text-sm font-medium">
-                          {processedFile.stats.validRows ||
-                            processedFile.stats.totalRows -
-                              (processedFile.stats.invalidRows || 0)}
-                          valid rows found
-                        </span>
-                      </div>
-                      {processedFile.stats.invalidRows > 0 && (
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="h-5 w-5 text-amber-500" />
-                          <span className="text-sm font-medium">
-                            {processedFile.stats.invalidRows} invalid rows will
-                            be skipped
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
               </div>
             )}
           </div>
@@ -1009,7 +973,7 @@ export function RunCreateForm({
   };
 
   return (
-    <div className="mx-auto w-full p-3">
+    <div className="mx-auto w-full">
       <div className="mb-6 w-full">
         <div className="w-full">
           <div className="flex w-full items-center justify-between">
@@ -1017,7 +981,7 @@ export function RunCreateForm({
               <div key={index} className="flex flex-col items-center">
                 <div
                   className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded-full border text-xs font-medium",
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-sm font-medium",
                     {
                       "border-primary bg-primary text-primary-foreground":
                         currentStep === index,
@@ -1034,16 +998,16 @@ export function RunCreateForm({
                     index + 1
                   )}
                 </div>
-                <span className="text-gray-500 mt-1 text-xs font-medium">
+                <span className="text-gray-500 mt-2 text-xs font-medium">
                   {step}
                 </span>
               </div>
             ))}
           </div>
-          <div className="relative mt-2">
-            <div className="bg-gray-200 absolute left-0 top-1/2 h-0.5 w-full -translate-y-1/2"></div>
+          <div className="relative mt-3">
+            <div className="bg-gray-200 absolute left-0 top-1/2 h-1 w-full -translate-y-1/2"></div>
             <div
-              className="absolute left-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary transition-all duration-300"
+              className="absolute left-0 top-1/2 h-1 -translate-y-1/2 bg-primary transition-all duration-300"
               style={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
             ></div>
           </div>
@@ -1053,14 +1017,17 @@ export function RunCreateForm({
       <Form {...form}>
         <form
           onSubmit={(e) => {
-            console.log("Form submit event triggered");
             form.handleSubmit(onSubmit)(e);
           }}
-          className="mt-0 w-full space-y-6 pb-24"
+          className={`mb-24 w-full transition-all duration-300 ${isExpanded ? "pb-6" : "pb-4"}`}
         >
-          {renderStepContent()}
+          <div
+            className={`transition-all duration-300 ${currentStep === 1 && isGeneratingPrompt ? "pb-6" : "pb-2"}`}
+          >
+            {renderStepContent()}
+          </div>
 
-          <ModalFooter className="absolute bottom-0 left-0 right-0 flex justify-between">
+          <ModalFooter className="absolute bottom-0 left-0 right-0 mt-2 flex justify-between border-t pt-4">
             {currentStep === 0 ? (
               <Button type="button" variant="outline" onClick={onCancel}>
                 Cancel
@@ -1101,38 +1068,6 @@ export function RunCreateForm({
                   !canProceedFromCurrentStep() ||
                   isGeneratingPrompt
                 }
-                onClick={() => {
-                  console.log("Submit button clicked");
-                  console.log("Form state:", form.getValues());
-                  console.log("Form validation state:", form.formState);
-                  console.log("Can proceed:", canProceedFromCurrentStep());
-
-                  // Get validation state for last step
-                  const hasName = !!form.getValues("name");
-                  const isScheduled = form.getValues("scheduleForLater");
-                  const hasDate = !!form.getValues("scheduledDate");
-                  const hasTime = !!form.getValues("scheduledTime");
-
-                  console.log("Validation details:", {
-                    hasName,
-                    isScheduled,
-                    hasDate,
-                    hasTime,
-                    isSubmitting,
-                    isGeneratingPrompt,
-                  });
-
-                  // If the form can't proceed, focus the first invalid field
-                  if (!canProceedFromCurrentStep()) {
-                    if (!hasName) {
-                      form.setFocus("name");
-                    } else if (isScheduled && !hasDate) {
-                      form.setFocus("scheduledDate");
-                    } else if (isScheduled && !hasTime) {
-                      form.setFocus("scheduledTime");
-                    }
-                  }
-                }}
               >
                 {isSubmitting ? (
                   <>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "../ui/button";
+import { ModalSizes } from "./modal-form";
 import { SheetForm, SheetSizes } from "./sheet-form";
 
 interface TriggerSheetProps {
@@ -9,7 +10,7 @@ interface TriggerSheetProps {
   title: string;
   description?: string;
   className?: string;
-  size?: keyof typeof SheetSizes;
+  size?: keyof typeof SheetSizes | keyof typeof ModalSizes;
   buttonText: string;
   buttonIcon?: React.ReactNode;
   onOpenChange?: (open: boolean) => void;

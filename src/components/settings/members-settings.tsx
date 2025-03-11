@@ -383,7 +383,7 @@ export function MembersSettings() {
             </div>
           </div>
         ) : (
-          <div className="rounded-md border">
+          <div className="">
             <Table>
               <TableHeader>
                 <TableRow>

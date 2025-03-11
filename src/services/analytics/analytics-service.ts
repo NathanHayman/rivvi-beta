@@ -918,6 +918,7 @@ export function createAnalyticsService(dbInstance = db) {
                     Number(callMetrics?.completedCount)) *
                   100
                 : 0,
+            inboundReturns: Number(callMetrics?.inboundReturns || 0),
           },
           callTimeline: callTimeline.map((call) => ({
             time: call.time.toISOString(),

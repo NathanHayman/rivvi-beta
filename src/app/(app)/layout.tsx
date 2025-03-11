@@ -15,13 +15,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </Suspense>
       <SidebarProvider>
         <AppSidebar>
-          <div className="mx-auto w-[13.5rem] rounded-md px-2 transition-colors duration-200 hover:bg-accent">
+          <div className="mx-auto w-[13.5rem] rounded-md px-2 transition-colors duration-200 hover:bg-accent group-data-[collapsible=icon]:w-fit">
             <UserButton
               appearance={{
                 elements: {
-                  rootBox: "w-full px-4 py-2",
-                  avatarBox: "w-8 h-8 order-first",
-                  userButtonBox: "text-foreground",
+                  rootBox: "w-full py-2 group-data-[collapsible=icon]:w-fit",
+                  avatarBox: "w-8 h-8 order-first px-4",
+                  userButtonTrigger:
+                    "w-full group-data-[collapsible=icon]:w-fit focus:outline-none focus:ring-0",
+                  userButtonBox:
+                    "text-foreground flex justify-start w-full group-data-[collapsible=icon]:w-fit",
+                  // this is the box that contains the users name
+                  userButtonOuterIdentifier:
+                    "group-data-[collapsible=icon]:hidden",
+                  // this is the text of the users avatar
+                  userButtonAvatarBox: "",
                 },
               }}
               showName

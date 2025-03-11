@@ -11,10 +11,11 @@ import {
 } from "../ui/modal";
 
 export const ModalSizes = {
-  sm: "w-full lg:w-3/5 lg:max-w-[400px]",
-  md: "w-full lg:w-3/5 lg:max-w-[600px]",
-  lg: "w-full lg:w-3/5 lg:max-w-[800px]",
-  xl: "w-full lg:w-3/5 lg:max-w-[1000px]",
+  sm: "w-full lg:max-w-[400px]",
+  md: "w-full lg:max-w-[550px]",
+  lg: "w-full lg:max-w-[650px]",
+  xl: "w-full lg:max-w-[1000px]",
+  xxl: "w-full lg:max-w-[1200px]",
 } as const;
 
 interface ModalFormProps {

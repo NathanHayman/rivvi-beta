@@ -43,7 +43,6 @@ import { cn } from "@/lib/utils";
 import { fetchRunRows } from "@/server/actions/runs/rows";
 import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type RowStatus = "pending" | "calling" | "completed" | "failed" | "skipped";
 
@@ -90,10 +89,6 @@ interface RunRowsTableProps {
 }
 
 export function RunRowsTable({ runId }: RunRowsTableProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
   const [searchQuery, setSearchQuery] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [pagination, setPagination] = useState({

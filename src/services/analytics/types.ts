@@ -147,6 +147,7 @@ export type RunAnalytics = {
     noAnswer: number;
     averageCallDuration: number;
     conversionRate: number;
+    inboundReturns?: number;
   };
   callTimeline: Array<{
     time: string;

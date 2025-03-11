@@ -2,15 +2,14 @@
 
 import { useState } from "react";
 import { Button } from "../ui/button";
-import { ModalForm } from "./modal-form";
-import { SheetSizes } from "./sheet-form";
+import { ModalForm, ModalSizes } from "./modal-form";
 
 interface TriggerModalProps {
   form: React.ReactNode;
   title: string;
   description?: string;
   className?: string;
-  size?: keyof typeof SheetSizes;
+  size?: keyof typeof ModalSizes;
   buttonText: string;
   buttonIcon?: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
