@@ -15,14 +15,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </Suspense>
       <SidebarProvider>
         <AppSidebar>
-          <UserButton
-            appearance={{
-              elements: {
-                rootBox: "w-8 h-8",
-                avatarBox: "w-8 h-8",
-              },
-            }}
-          />
+          <div className="mx-auto w-[13.5rem] rounded-md px-2 transition-colors duration-200 hover:bg-accent">
+            <UserButton
+              appearance={{
+                elements: {
+                  rootBox: "w-full px-4 py-2",
+                  avatarBox: "w-8 h-8 order-first",
+                  userButtonBox: "text-foreground",
+                },
+              }}
+              showName
+            />
+          </div>
           <OrganizationSwitcher
             fallback={
               <Button variant="outline">
