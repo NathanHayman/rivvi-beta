@@ -21,6 +21,88 @@ const requestSchema = z.object({
     .optional(),
 });
 
+// Helper function to ensure the diff data is properly structured
+const processAIResponse = (chunk: any) => {
+  console.log("Processing AI response chunk:", JSON.stringify(chunk, null, 2));
+
+  // Create a deep copy to avoid modifying the original
+  const processedChunk = JSON.parse(JSON.stringify(chunk));
+
+  // Ensure diffData exists
+  if (!processedChunk.diffData) {
+    processedChunk.diffData = { promptDiff: [], voicemailDiff: [] };
+  }
+
+  // Process promptDiff if it exists
+  if (processedChunk.diffData.promptDiff) {
+    // Handle case where promptDiff is a string instead of an array
+    if (typeof processedChunk.diffData.promptDiff === "string") {
+      // Convert to a simple unchanged segment
+      processedChunk.diffData.promptDiff = [
+        { type: "unchanged", value: processedChunk.diffData.promptDiff },
+      ];
+    }
+    // Handle case where promptDiff is not an array
+    else if (!Array.isArray(processedChunk.diffData.promptDiff)) {
+      processedChunk.diffData.promptDiff = [];
+    }
+
+    // Make sure all array items are objects with type and value
+    processedChunk.diffData.promptDiff = processedChunk.diffData.promptDiff.map(
+      (item: any) => {
+        if (typeof item === "string") {
+          return { type: "unchanged", value: item };
+        } else if (item && typeof item === "object") {
+          return {
+            type: item.type || "unchanged",
+            value: item.value || "",
+          };
+        }
+        return { type: "unchanged", value: "" };
+      },
+    );
+  } else {
+    processedChunk.diffData.promptDiff = [];
+  }
+
+  // Process voicemailDiff if it exists
+  if (processedChunk.diffData.voicemailDiff) {
+    // Handle case where voicemailDiff is a string instead of an array
+    if (typeof processedChunk.diffData.voicemailDiff === "string") {
+      // Convert to a simple unchanged segment
+      processedChunk.diffData.voicemailDiff = [
+        { type: "unchanged", value: processedChunk.diffData.voicemailDiff },
+      ];
+    }
+    // Handle case where voicemailDiff is not an array
+    else if (!Array.isArray(processedChunk.diffData.voicemailDiff)) {
+      processedChunk.diffData.voicemailDiff = [];
+    }
+
+    // Make sure all array items are objects with type and value
+    processedChunk.diffData.voicemailDiff =
+      processedChunk.diffData.voicemailDiff.map((item: any) => {
+        if (typeof item === "string") {
+          return { type: "unchanged", value: item };
+        } else if (item && typeof item === "object") {
+          return {
+            type: item.type || "unchanged",
+            value: item.value || "",
+          };
+        }
+        return { type: "unchanged", value: "" };
+      });
+  } else {
+    processedChunk.diffData.voicemailDiff = [];
+  }
+
+  console.log(
+    "Processed chunk:",
+    JSON.stringify(processedChunk.diffData, null, 2),
+  );
+  return processedChunk;
+};
+
 export async function POST(request: NextRequest) {
   try {
     // Parse and validate the request body
@@ -73,7 +155,11 @@ Example diff:
   { "type": "removed", "value": "old text" },
   { "type": "added", "value": "new text" },
   { "type": "unchanged", "value": " that continues." }
-]`;
+]
+
+EXTREMELY IMPORTANT: The diffData should always be properly structured with the exact format shown above.
+Each chunk of the diffData must be an array of objects with 'type' and 'value' properties.
+Never return raw text or any other format for the diffData.`;
 
     // Create the stream with OpenAI using streamObject
     const stream = streamObject({
@@ -84,6 +170,7 @@ Example diff:
       maxTokens: 3000,
       schemaName: "agentResponseSchema",
       schemaDescription: "Agent response schema",
+      polisher: processAIResponse, // Process each chunk to ensure proper structure
     });
 
     // Return the streaming response for consumption by the useObject hook

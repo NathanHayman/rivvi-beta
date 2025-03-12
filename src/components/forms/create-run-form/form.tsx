@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useUploadFile } from "@/hooks/runs/use-files";
 import { useCreateRun } from "@/hooks/runs/use-runs";
+import { updatePromptAndVoicemail } from "@/lib/retell/retell-actions";
 import { cn } from "@/lib/utils";
 import { validateData } from "@/server/actions/runs";
 import { experimental_useObject as useObject } from "@ai-sdk/react";
@@ -41,7 +42,7 @@ import { useMutation } from "@tanstack/react-query";
 import StreamingGenerationUI from "./streaming-generation-ui";
 import UploadFileStep from "./upload-file-step";
 
-// Run form schema
+// Run form schema - unchanged
 const runFormSchema = z.object({
   name: z.string().min(1, "Run name is required"),
   file: z.instanceof(File).optional(),
@@ -112,11 +113,6 @@ export function RunCreateForm({
     null,
   );
 
-  // Refs to track important streaming events for smart scrolling
-  const previousSummaryRef = useRef<string | null>(null);
-  const previousDiffRef = useRef<boolean>(false);
-  const previousPredictionRef = useRef<boolean>(false);
-
   // Create a ref for the results container to enable auto-scrolling
   const resultsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -132,6 +128,13 @@ export function RunCreateForm({
   } = useObject({
     api: "/api/ai/agent",
     schema: agentResponseSchema,
+    onFinish: (finalObject) => {
+      console.log("AI SDK finished, final object:", finalObject);
+    },
+    onError: (error) => {
+      console.error("AI SDK error:", error);
+      toast.error("There was an error generating the AI response");
+    },
   });
 
   const form = useForm<RunFormValues>({
@@ -149,50 +152,8 @@ export function RunCreateForm({
     },
   });
 
-  // Improved auto-scrolling logic with smart scrolling to important content
-  useEffect(() => {
-    if (isGeneratingPrompt && resultsContainerRef.current && aiResponse) {
-      const container = resultsContainerRef.current;
-
-      // Handle specific important updates that we want to show the user
-      if (aiResponse?.summary && !previousSummaryRef.current) {
-        // If summary just appeared, scroll to top to show it
-        container.scrollTo({
-          top: 0,
-          behavior: "smooth",
-        });
-        previousSummaryRef.current = aiResponse.summary;
-      } else if (aiResponse?.diffData?.promptDiff && !previousDiffRef.current) {
-        // If diff visualization just appeared, scroll to show it
-        const diffElement = container.querySelector('[data-section="diff"]');
-        if (diffElement) {
-          diffElement.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-        previousDiffRef.current = true;
-      } else if (
-        aiResponse?.comparison?.performancePrediction &&
-        !previousPredictionRef.current
-      ) {
-        // If prediction just appeared, scroll to show it
-        const predictionElement = container.querySelector(
-          '[data-section="prediction"]',
-        );
-        if (predictionElement) {
-          predictionElement.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
-        }
-        previousPredictionRef.current = true;
-      } else {
-        // For other updates, default to following the bottom
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: "smooth",
-        });
-      }
-    }
-  }, [isGeneratingPrompt, aiResponse]);
+  const createRunMutation = useCreateRun(campaignId);
+  const uploadFileMutation = useUploadFile();
 
   // Effect to animate modal expansion when streaming starts
   useEffect(() => {
@@ -207,81 +168,91 @@ export function RunCreateForm({
     }
   }, [aiResponse, isAIGenerating, isExpanded]);
 
-  // Improved effect to track AI generation status with more detailed messages
+  // Enhanced effect for tracking generation status and progress
   useEffect(() => {
-    // Only update states if they're not already matching the isAIGenerating value
-    // This prevents the infinite loop caused by updating the same state multiple times
     if (isAIGenerating && !isGeneratingPrompt) {
       setIsGeneratingPrompt(true);
       setIsStreamingComplete(false);
 
-      // Start timing if needed
+      // Start timing
       if (!generationStartTime) {
         setGenerationStartTime(Date.now());
-        // Timer setup...
       }
 
-      // Simplified stage detection - check what data we have right now
+      // Determine current stage and appropriate message
       let currentStage = "Initializing AI";
       let progress = 5;
 
-      // Check data properties in sequence to determine current stage
-      if (aiResponse?.diffData?.promptDiff) {
-        currentStage = "Creating visualization of changes";
-        progress = 95;
-      } else if (aiResponse?.comparison?.performancePrediction) {
-        currentStage = "Analyzing performance impact";
-        progress = 85;
-      } else if (aiResponse?.comparison?.keyPhrases) {
-        currentStage = "Identifying key phrase changes";
-        progress = 75;
-      } else if (aiResponse?.comparison?.structuralChanges) {
-        currentStage = "Analyzing structural changes";
-        progress = 65;
-      } else if (aiResponse?.newVoicemailMessage) {
-        currentStage = "Refining voicemail message";
-        progress = 60;
-      } else if (aiResponse?.newPrompt) {
-        currentStage = "Enhancing prompt text";
-        progress = 50;
-      } else if (aiResponse?.metadata?.sentimentShift) {
-        currentStage = "Analyzing sentiment changes";
-        progress = 45;
-      } else if (aiResponse?.metadata?.complexityScore) {
-        currentStage = "Calculating complexity scores";
-        progress = 40;
-      } else if (aiResponse?.metadata?.formalityLevel) {
-        currentStage = "Measuring formality changes";
-        progress = 35;
-      } else if (aiResponse?.summary) {
-        currentStage = "Generating summary";
-        progress = 30;
-      } else if (aiResponse?.metadata?.focusArea) {
-        currentStage = "Identifying focus areas";
-        progress = 25;
-      } else if (aiResponse?.metadata?.toneShift) {
-        currentStage = "Determining tone changes";
-        progress = 20;
-      } else if (aiResponse?.metadata?.tags?.length) {
-        currentStage = "Generating tags";
-        progress = 15;
-      } else if (aiResponse?.metadata?.categories?.length) {
-        currentStage = "Creating categories";
-        progress = 10;
-      } else {
-        currentStage = "Analyzing your request";
-        progress = 5;
-      }
+      try {
+        // Check data properties in sequence to determine current stage
+        if (aiResponse?.diffData?.promptDiff) {
+          console.log(
+            "DIFF DATA DETECTED:",
+            JSON.stringify(aiResponse.diffData, null, 2),
+          );
+          currentStage = "Creating visualization of changes";
+          progress = 95;
+        } else if (aiResponse?.comparison?.performancePrediction) {
+          currentStage = "Analyzing performance impact";
+          progress = 85;
+        } else if (aiResponse?.comparison?.keyPhrases) {
+          currentStage = "Identifying key phrase changes";
+          progress = 75;
+        } else if (aiResponse?.comparison?.structuralChanges) {
+          currentStage = "Analyzing structural changes";
+          progress = 65;
+        } else if (aiResponse?.newVoicemailMessage) {
+          currentStage = "Refining voicemail message";
+          progress = 60;
+        } else if (aiResponse?.newPrompt) {
+          currentStage = "Enhancing prompt text";
+          progress = 50;
+        } else if (aiResponse?.metadata?.sentimentShift) {
+          currentStage = "Analyzing sentiment changes";
+          progress = 45;
+        } else if (aiResponse?.metadata?.complexityScore) {
+          currentStage = "Calculating complexity scores";
+          progress = 40;
+        } else if (aiResponse?.metadata?.formalityLevel) {
+          currentStage = "Measuring formality changes";
+          progress = 35;
+        } else if (aiResponse?.summary) {
+          currentStage = "Generating summary";
+          progress = 30;
+        } else if (aiResponse?.metadata?.focusArea) {
+          currentStage = "Identifying focus areas";
+          progress = 25;
+        } else if (aiResponse?.metadata?.toneShift) {
+          currentStage = "Determining tone changes";
+          progress = 20;
+        } else if (aiResponse?.metadata?.tags?.length) {
+          currentStage = "Generating tags";
+          progress = 15;
+        } else if (aiResponse?.metadata?.categories?.length) {
+          currentStage = "Creating categories";
+          progress = 10;
+        } else {
+          currentStage = "Analyzing your request";
+          progress = 5;
+        }
 
-      // Apply time-based progress increment
-      const elapsed = Date.now() - (generationStartTime || Date.now());
-      const timeBasedMinimumProgress = Math.min(90, (elapsed / 30000) * 100);
-      progress = Math.max(progress, timeBasedMinimumProgress);
+        // Apply time-based progress increment for smoother experience
+        const elapsed = Date.now() - (generationStartTime || Date.now());
+        const timeBasedMinimumProgress = Math.min(90, (elapsed / 30000) * 100);
+        progress = Math.max(progress, timeBasedMinimumProgress);
+
+        console.log(
+          "Current AI response state:",
+          JSON.stringify(aiResponse, null, 2),
+        );
+      } catch (error) {
+        console.error("Error processing AI response:", error);
+        currentStage = "Processing AI response";
+      }
 
       setCurrentTask(currentStage);
       setPreviousProgress(progress);
     } else if (!isAIGenerating && isGeneratingPrompt && aiResponse) {
-      // Only update states if they're not already correct
       // Reset progress timers and set to complete
       setGenerationStartTime(null);
       setIsGeneratingPrompt(false);
@@ -289,18 +260,47 @@ export function RunCreateForm({
       setCurrentTask("Prompt generation complete");
       setPreviousProgress(100);
 
-      // Set form values from AI response
-      if (aiResponse?.suggestedRunName) {
-        form.setValue("name", aiResponse.suggestedRunName);
-      }
+      try {
+        // Process the AI response to ensure it has the correct format
+        const processedResponse = sanitizeDataForSubmission(aiResponse);
 
-      if (aiResponse?.newPrompt) {
-        form.setValue("customPrompt", aiResponse.newPrompt);
-        form.setValue("aiGenerated", true);
-      }
+        // Log the processed response for debugging
+        console.log(
+          "Processed AI response:",
+          JSON.stringify(processedResponse, null, 2),
+        );
 
-      if (aiResponse?.newVoicemailMessage) {
-        form.setValue("customVoicemailMessage", aiResponse.newVoicemailMessage);
+        // Check specifically for diff data
+        if (processedResponse?.diffData) {
+          console.log(
+            "Final DIFF DATA:",
+            JSON.stringify(processedResponse.diffData, null, 2),
+          );
+        } else {
+          console.warn("No diff data found in processed response");
+        }
+
+        // Set form values from AI response
+        if (processedResponse?.suggestedRunName) {
+          form.setValue("name", processedResponse.suggestedRunName);
+        }
+
+        if (processedResponse?.newPrompt) {
+          form.setValue("customPrompt", processedResponse.newPrompt);
+          form.setValue("aiGenerated", true);
+        }
+
+        if (processedResponse?.newVoicemailMessage) {
+          form.setValue(
+            "customVoicemailMessage",
+            processedResponse.newVoicemailMessage,
+          );
+        }
+      } catch (error) {
+        console.error("Error setting form values from AI response:", error);
+        toast.error(
+          "There was an issue processing the AI response, but you can still proceed.",
+        );
       }
     }
   }, [
@@ -312,76 +312,144 @@ export function RunCreateForm({
     isStreamingComplete,
   ]);
 
-  const createRunMutation = useCreateRun(campaignId);
-  const uploadFileMutation = useUploadFile();
-
   // Sanitize AI response data to ensure it matches schema format
   const sanitizeDataForSubmission = (data: any): any => {
     if (!data) return null;
 
-    const result = { ...data };
+    try {
+      console.log("Sanitizing data:", JSON.stringify(data, null, 2));
+      const result = { ...data };
 
-    // Fix diffData to ensure it matches schema
-    if (result.diffData && result.diffData.promptDiff) {
-      result.diffData.promptDiff = result.diffData.promptDiff.map(
-        (item: any) => {
-          if (typeof item === "string") {
-            return { type: "unchanged", value: item };
-          } else if (typeof item === "object" && item !== null) {
-            return {
-              type: item.type || "unchanged",
-              value: item.value || "",
-            };
-          }
-          return { type: "unchanged", value: "" };
-        },
-      );
-    }
-
-    // Similar check for voicemailDiff
-    if (result.diffData && result.diffData.voicemailDiff) {
-      result.diffData.voicemailDiff = result.diffData.voicemailDiff.map(
-        (item: any) => {
-          if (typeof item === "string") {
-            return { type: "unchanged", value: item };
-          } else if (typeof item === "object" && item !== null) {
-            return {
-              type: item.type || "unchanged",
-              value: item.value || "",
-            };
-          }
-          return { type: "unchanged", value: "" };
-        },
-      );
-    }
-
-    // Fix comparison.keyPhrases.modified to ensure it's an array of objects
-    if (
-      result.comparison &&
-      result.comparison.keyPhrases &&
-      result.comparison.keyPhrases.modified
-    ) {
-      // Check if modified is actually an array before calling map
-      if (Array.isArray(result.comparison.keyPhrases.modified)) {
-        result.comparison.keyPhrases.modified =
-          result.comparison.keyPhrases.modified.map((item: any) => {
-            if (typeof item === "string") {
-              return { after: item };
-            } else if (typeof item === "object" && item !== null) {
-              return {
-                before: item.before || "",
-                after: item.after || "",
-              };
-            }
-            return { before: "", after: "" };
-          });
-      } else {
-        // If it's not an array, convert it to an empty array to prevent errors
-        result.comparison.keyPhrases.modified = [];
+      // Create empty diffData structure if it doesn't exist
+      if (!result.diffData) {
+        console.log("Creating empty diffData structure");
+        result.diffData = {
+          promptDiff: [],
+          voicemailDiff: [],
+        };
       }
-    }
 
-    return result;
+      // Fix promptDiff to ensure it matches schema
+      if (result.diffData) {
+        // Process promptDiff
+        if (result.diffData.promptDiff) {
+          console.log(
+            "Processing promptDiff:",
+            JSON.stringify(result.diffData.promptDiff, null, 2),
+          );
+
+          // Ensure promptDiff is an array
+          if (!Array.isArray(result.diffData.promptDiff)) {
+            console.warn(
+              "promptDiff is not an array, converting to empty array",
+            );
+            result.diffData.promptDiff = [];
+          } else {
+            // Map each item to ensure proper format
+            result.diffData.promptDiff = result.diffData.promptDiff.map(
+              (item: any) => {
+                if (typeof item === "string") {
+                  return { type: "unchanged", value: item };
+                } else if (typeof item === "object" && item !== null) {
+                  return {
+                    type: item.type || "unchanged",
+                    value: item.value || "",
+                  };
+                }
+                return { type: "unchanged", value: "" };
+              },
+            );
+          }
+        } else {
+          console.log("promptDiff not found, initializing as empty array");
+          result.diffData.promptDiff = [];
+        }
+
+        // Process voicemailDiff
+        if (result.diffData.voicemailDiff) {
+          console.log(
+            "Processing voicemailDiff:",
+            JSON.stringify(result.diffData.voicemailDiff, null, 2),
+          );
+
+          // Ensure voicemailDiff is an array
+          if (!Array.isArray(result.diffData.voicemailDiff)) {
+            console.warn(
+              "voicemailDiff is not an array, converting to empty array",
+            );
+            result.diffData.voicemailDiff = [];
+          } else {
+            // Map each item to ensure proper format
+            result.diffData.voicemailDiff = result.diffData.voicemailDiff.map(
+              (item: any) => {
+                if (typeof item === "string") {
+                  return { type: "unchanged", value: item };
+                } else if (typeof item === "object" && item !== null) {
+                  return {
+                    type: item.type || "unchanged",
+                    value: item.value || "",
+                  };
+                }
+                return { type: "unchanged", value: "" };
+              },
+            );
+          }
+        } else {
+          console.log("voicemailDiff not found, initializing as empty array");
+          result.diffData.voicemailDiff = [];
+        }
+      }
+
+      // Ensure newPrompt is set in form values for Retell update
+      if (result.newPrompt && typeof result.newPrompt === "string") {
+        form.setValue("customPrompt", result.newPrompt);
+        form.setValue("aiGenerated", true);
+      }
+
+      // Ensure newVoicemailMessage is set in form values for Retell update
+      if (
+        result.newVoicemailMessage &&
+        typeof result.newVoicemailMessage === "string"
+      ) {
+        form.setValue("customVoicemailMessage", result.newVoicemailMessage);
+      }
+
+      // Format metadata correctly for submission
+      if (result.metadata) {
+        // Ensure all expected metadata fields exist
+        result.metadata = {
+          categories: result.metadata.categories || [],
+          tags: result.metadata.tags || [],
+          keyChanges: result.metadata.keyChanges || [],
+          toneShift: result.metadata.toneShift || "",
+          focusArea: result.metadata.focusArea || "",
+          promptLength: result.metadata.promptLength || {
+            before: 0,
+            after: 0,
+            difference: 0,
+          },
+          changeIntent: result.metadata.changeIntent || "",
+          sentimentShift: result.metadata.sentimentShift || {
+            before: "",
+            after: "",
+          },
+          formalityLevel: result.metadata.formalityLevel || {
+            before: 5,
+            after: 5,
+          },
+          complexityScore: result.metadata.complexityScore || {
+            before: 5,
+            after: 5,
+          },
+        };
+      }
+
+      console.log("Sanitized result:", JSON.stringify(result, null, 2));
+      return result;
+    } catch (error) {
+      console.error("Error in sanitizeDataForSubmission:", error);
+      return data; // Return original data if sanitization fails
+    }
   };
 
   const generateNaturalLanguage = async () => {
@@ -389,16 +457,35 @@ export function RunCreateForm({
     setPreviousProgress(0);
     setCurrentTask("Initializing AI");
 
-    // Use the AI SDK hook for generation
-    generateAIResponse({
-      basePrompt: campaignBasePrompt,
-      baseVoicemailMessage: campaignVoicemailMessage,
-      naturalLanguageInput: form.getValues("naturalLanguageInput"),
-      campaignContext: {
-        name: campaignName,
-        description: campaignDescription,
-      },
-    });
+    // Clear any previous response data
+    setIsExpanded(true);
+
+    try {
+      console.log("Starting AI generation with inputs:", {
+        basePrompt: campaignBasePrompt,
+        baseVoicemailMessage: campaignVoicemailMessage,
+        naturalLanguageInput: form.getValues("naturalLanguageInput"),
+        campaignContext: {
+          name: campaignName,
+          description: campaignDescription,
+        },
+      });
+
+      // Use the AI SDK hook for generation
+      generateAIResponse({
+        basePrompt: campaignBasePrompt,
+        baseVoicemailMessage: campaignVoicemailMessage,
+        naturalLanguageInput: form.getValues("naturalLanguageInput"),
+        campaignContext: {
+          name: campaignName,
+          description: campaignDescription,
+        },
+      });
+    } catch (error) {
+      console.error("Error generating natural language:", error);
+      toast.error("Failed to generate AI response. Please try again.");
+      setIsGeneratingPrompt(false);
+    }
   };
 
   const validateDataMutation = useMutation({
@@ -477,6 +564,7 @@ export function RunCreateForm({
 
   const processSelectedFile = useCallback(
     async (selectedFile: File) => {
+      // File processing logic stays the same
       try {
         setIsValidating(true);
 
@@ -600,6 +688,7 @@ export function RunCreateForm({
   };
 
   const onSubmit = async (values: RunFormValues) => {
+    // Form submission logic stays the same
     // Only proceed to the next step if we're not on the final step
     if (currentStep < steps.length - 1) {
       nextStep();
@@ -642,75 +731,115 @@ export function RunCreateForm({
         naturalLanguageInput: values.naturalLanguageInput,
       };
 
+      // First, create the run
       const createRunResult = await createRunMutation.mutateAsync(
         runPayload as any,
       );
 
-      // If we have a file, upload it for the run
-      if (createRunResult?.id && file) {
+      // Then, if this is an AI-generated variation, update Retell and record the variation
+      if (values.aiGenerated && sanitizedAiResponse) {
         try {
-          // Read the file as a base64 string
-          const fileContent = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              if (event.target?.result) {
-                resolve(event.target.result as string);
-              } else {
-                reject(new Error("Failed to read file"));
-              }
-            };
-            reader.onerror = () => reject(new Error("File reading error"));
-            reader.readAsDataURL(file);
+          console.log("Preparing to update Retell with AI-generated content:", {
+            newPrompt: sanitizedAiResponse.newPrompt ? "Present" : "Missing",
+            newVoicemailMessage: sanitizedAiResponse.newVoicemailMessage
+              ? "Present"
+              : "Missing",
+            suggestedRunName: sanitizedAiResponse.suggestedRunName,
+            hasMetadata: sanitizedAiResponse.metadata ? true : false,
+            naturalLanguageInput: values.naturalLanguageInput
+              ? "Present"
+              : "Missing",
           });
 
-          const uploadData = {
+          // Call updatePromptAndVoicemail to update Retell and create variation record
+          const updateResult = await updatePromptAndVoicemail({
+            campaignId,
             runId: createRunResult.id,
-            fileContent,
-            fileName: file.name,
-            processedData: processedFile?.parsedData
-              ? {
-                  headers: processedFile.parsedData.headers || [],
-                  rows: Array.isArray(processedFile.parsedData.rows)
-                    ? processedFile.parsedData.rows.map((row) => {
-                        if (
-                          row.variables &&
-                          typeof row.variables === "object"
-                        ) {
-                          return {
-                            patientId: row.patientId || null,
-                            patientHash: row.patientHash || null,
-                            variables: row.variables,
-                          };
-                        }
+            naturalLanguageInput: values.naturalLanguageInput,
+            // Use the AI-generated content directly from sanitizedAiResponse
+            generatedPrompt:
+              sanitizedAiResponse.newPrompt ||
+              values.customPrompt ||
+              campaignBasePrompt,
+            generatedVoicemail:
+              sanitizedAiResponse.newVoicemailMessage ||
+              values.customVoicemailMessage ||
+              campaignVoicemailMessage,
+            suggestedRunName:
+              sanitizedAiResponse.suggestedRunName || values.name,
+            summary:
+              sanitizedAiResponse.summary || "AI-generated prompt variation",
+            metadata: sanitizedAiResponse.metadata,
+          });
 
-                        const { patientId, patientHash, ...variables } = row;
-                        return {
-                          patientId: patientId || null,
-                          patientHash: patientHash || null,
-                          variables,
-                        };
-                      })
-                    : [],
-                }
-              : undefined,
-          };
-
-          // Upload the file with processed data
-          await uploadFileMutation.mutateAsync(uploadData);
-        } catch (error) {
-          console.error("Error uploading file:", error);
-          toast.error("File upload failed, but run was created successfully");
+          console.log(
+            "Successfully updated Retell and recorded agent variation:",
+            updateResult,
+          );
+          toast.success("Successfully updated AI variation in Retell");
+        } catch (updateError) {
+          console.error("Error updating Retell:", updateError);
+          toast.error(
+            "Created run but failed to update Retell. Contact support for assistance.",
+          );
         }
       }
 
-      if (onFormSuccess) {
-        onFormSuccess();
+      // Handle the file upload if provided
+      if (file && createRunResult) {
+        try {
+          // Prepare the file content and processed data structure
+          const fileData = {
+            runId: createRunResult.id,
+            fileName: file.name,
+            fileContent: JSON.stringify(processedFile.parsedData?.rows || []),
+            processedData: {
+              headers: processedFile.parsedData?.headers || [],
+              rows:
+                processedFile.parsedData?.rows?.map((row) => {
+                  if (row.variables && typeof row.variables === "object") {
+                    return {
+                      patientId: row.patientId || null,
+                      patientHash: row.patientHash || null,
+                      variables: row.variables,
+                    };
+                  }
+
+                  // Extract patientId and patientHash, keep the rest as variables
+                  const { patientId, patientHash, ...variables } = row;
+                  return {
+                    patientId: patientId || null,
+                    patientHash: patientHash || null,
+                    variables,
+                  };
+                }) || [],
+            },
+          };
+
+          console.log("Uploading file with data:", {
+            fileName: fileData.fileName,
+            rowCount: fileData.processedData.rows.length,
+            hasHeaders: fileData.processedData.headers.length > 0,
+          });
+
+          const fileUploadResult =
+            await uploadFileMutation.mutateAsync(fileData);
+          console.log("File upload result:", fileUploadResult);
+        } catch (fileError) {
+          console.error("Error uploading file:", fileError);
+          toast.error("Error uploading file. Please try again.");
+        }
       }
 
+      // Show success message
+      toast.success(`Run "${values.name}" created successfully`);
+
+      // Handle success (e.g., redirect, callback)
       handleSuccess(createRunResult?.id);
     } catch (error) {
-      console.error("Error creating run:", error);
-      toast.error("Failed to create run");
+      console.error("Error submitting form:", error);
+      toast.error("Failed to create run. Please try again.");
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -879,7 +1008,7 @@ export function RunCreateForm({
             {(isExpanded || isStreamingComplete) && (
               <div
                 className={cn(
-                  "col-span-3 max-h-[600px] space-y-4 overflow-auto rounded-md border-2 border-primary/20 bg-accent/10 p-4 pt-0 shadow-lg transition-all duration-500 ease-in-out",
+                  "col-span-3 max-h-[650px] space-y-4 rounded-md border-2 border-primary/20 bg-accent/50 p-4 pt-4 shadow-lg transition-all duration-500 ease-in-out",
                   animateTransition
                     ? "translate-x-4 opacity-0"
                     : "translate-x-0 opacity-100",
@@ -890,9 +1019,20 @@ export function RunCreateForm({
                   isGenerating={isGeneratingPrompt}
                   isComplete={isStreamingComplete}
                   currentTask={currentTask}
-                  streamedData={aiResponse || {}}
+                  streamedData={sanitizeDataForSubmission(aiResponse) || {}}
                   progress={previousProgress}
                 />
+                {/* Add debug info in development mode */}
+                {/* {process.env.NODE_ENV === "development" && (
+                  <details className="mt-4 rounded-md border p-2 text-xs">
+                    <summary className="cursor-pointer font-mono">
+                      Raw Response Data (Debug)
+                    </summary>
+                    <pre className="mt-2 max-h-[200px] overflow-auto p-2 text-[10px]">
+                      {JSON.stringify(aiResponse, null, 2)}
+                    </pre>
+                  </details>
+                )} */}
               </div>
             )}
           </div>
@@ -1079,6 +1219,7 @@ export function RunCreateForm({
       <Form {...form}>
         <form
           onSubmit={(e) => {
+            e.preventDefault(); // Prevent default form submission
             form.handleSubmit(onSubmit)(e);
           }}
           className="w-full"
@@ -1089,14 +1230,24 @@ export function RunCreateForm({
 
           <div className="mt-8 flex justify-between border-t pt-4">
             {currentStep === 0 ? (
-              <Button type="button" variant="outline" onClick={onCancel}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel && onCancel();
+                }}
+              >
                 Cancel
               </Button>
             ) : (
               <Button
                 type="button"
                 variant="outline"
-                onClick={prevStep}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevStep();
+                }}
                 disabled={isGeneratingPrompt}
               >
                 <ChevronLeft className="mr-2 h-4 w-4" />
@@ -1107,7 +1258,10 @@ export function RunCreateForm({
             {currentStep < steps.length - 1 ? (
               <Button
                 type="button"
-                onClick={nextStep}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextStep();
+                }}
                 disabled={!canProceedFromCurrentStep() || isGeneratingPrompt}
                 className="group"
               >
@@ -1126,6 +1280,9 @@ export function RunCreateForm({
             ) : (
               <Button
                 type="submit"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
                 disabled={
                   isSubmitting ||
                   !canProceedFromCurrentStep() ||
