@@ -1121,6 +1121,11 @@ export async function handlePostCallWebhook(
             console.log(
               `[WEBHOOK] Setting row status to 'callback' for inbound callback`,
             );
+          } else if (
+            payload.call_analysis?.in_voicemail === true ||
+            payload.call_status === "voicemail"
+          ) {
+            rowStatus = "voicemail";
           } else {
             // For non-callback calls, use the standard status mapping
             rowStatus = getStatus("row", callStatus as RetellCallStatus);
@@ -1394,7 +1399,8 @@ export async function handlePostCallWebhook(
           const voicemailLeft =
             processedAnalysis?.voicemail_left === true ||
             processedAnalysis?.left_voicemail === true ||
-            call_analysis?.in_voicemail === true;
+            payload.call_analysis?.in_voicemail === true ||
+            payload.call_status === "voicemail";
 
           let resolutionStatus: string;
           if (callStatus === "failed" || callStatus === "no-answer") {
