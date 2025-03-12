@@ -1122,6 +1122,7 @@ export async function handlePostCallWebhook(
               `[WEBHOOK] Setting row status to 'callback' for inbound callback`,
             );
           } else if (
+            processedAnalysis?.voicemail_detected === true ||
             payload.call_analysis?.in_voicemail === true ||
             payload.call_status === "voicemail"
           ) {
@@ -1199,7 +1200,9 @@ export async function handlePostCallWebhook(
                 (processedAnalysis?.callback_requested === false &&
                   processedAnalysis?.voicemail_left === false) ||
                 (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.patient_reached === true)
+                  processedAnalysis?.patient_reached === true) ||
+                (processedAnalysis?.callback_requested === false &&
+                  processedAnalysis?.voicemail_detected === true)
               ) {
                 resolutionStatus = "resolved";
               } else {
@@ -1341,7 +1344,10 @@ export async function handlePostCallWebhook(
           const voicemailLeft =
             processedAnalysis?.voicemail_left === true ||
             processedAnalysis?.left_voicemail === true ||
-            call_analysis?.in_voicemail === true;
+            payload.call_analysis?.in_voicemail === true ||
+            payload.call_status === "voicemail" ||
+            processedAnalysis.voicemail_detected === true ||
+            processedAnalysis.voicemail_detected === true;
 
           let resolutionStatus: string;
           if (callStatus === "failed" || callStatus === "no-answer") {
@@ -1400,7 +1406,8 @@ export async function handlePostCallWebhook(
             processedAnalysis?.voicemail_left === true ||
             processedAnalysis?.left_voicemail === true ||
             payload.call_analysis?.in_voicemail === true ||
-            payload.call_status === "voicemail";
+            payload.call_status === "voicemail" ||
+            processedAnalysis.voicemail_detected === true;
 
           let resolutionStatus: string;
           if (callStatus === "failed" || callStatus === "no-answer") {
