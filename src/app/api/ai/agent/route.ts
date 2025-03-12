@@ -170,7 +170,6 @@ Never return raw text or any other format for the diffData.`;
       maxTokens: 3000,
       schemaName: "agentResponseSchema",
       schemaDescription: "Agent response schema",
-      polisher: processAIResponse, // Process each chunk to ensure proper structure
     });
 
     // Return the streaming response for consumption by the useObject hook

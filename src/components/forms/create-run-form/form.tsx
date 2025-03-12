@@ -303,6 +303,7 @@ export function RunCreateForm({
         );
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isAIGenerating,
     aiResponse,
@@ -1234,7 +1235,9 @@ export function RunCreateForm({
                 type="button"
                 variant="outline"
                 onClick={(e) => {
+                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   e.stopPropagation();
+                  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   onCancel && onCancel();
                 }}
               >

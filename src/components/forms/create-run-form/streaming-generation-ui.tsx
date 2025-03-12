@@ -148,7 +148,9 @@ const StreamingGenerationUI = ({
 
   // Extract data for easier access
   const metadata = streamedData?.metadata || {};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const comparison = streamedData?.comparison || {};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const diffData = streamedData?.diffData || {};
 
   // Add debugging for streamedData
