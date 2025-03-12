@@ -1194,8 +1194,9 @@ export async function handlePostCallWebhook(
                 processedAnalysis?.agreed_to_schedule === true ||
                 processedAnalysis?.agreed_to_reschedule === true ||
                 processedAnalysis?.transferred === true ||
-                processedAnalysis?.callback_requested === false ||
-                patientReached // Also mark as resolved if patient was reached
+                processedAnalysis?.callback_requested === false
+                // ||
+                // patientReached // Also mark as resolved if patient was reached
               ) {
                 resolutionStatus = "resolved";
               } else {
