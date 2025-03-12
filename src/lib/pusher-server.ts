@@ -1,4 +1,6 @@
-// src/lib/pusher-server.ts - Improved version
+// src/lib/pusher-server.ts
+// Improved version with better error handling and retry logic
+
 import { env } from "@/env";
 import Pusher from "pusher";
 
@@ -164,7 +166,7 @@ export type PusherChannels = {
 };
 
 /**
- * Type-safe wrapper for pusher.trigger with error handling
+ * Type-safe wrapper for pusher.trigger with enhanced error handling and retries
  */
 export async function triggerEvent<
   Channel extends keyof PusherChannels,
@@ -173,6 +175,7 @@ export async function triggerEvent<
   channel: Channel,
   event: Event,
   data: PusherChannels[Channel][Event],
+  retryCount = 0,
 ): Promise<unknown> {
   try {
     console.log(
@@ -189,8 +192,16 @@ export async function triggerEvent<
       `Error triggering Pusher event ${String(event)} on ${String(channel)}:`,
       error,
     );
-    // Don't rethrow to prevent app crashes
-    return null;
+
+    // Retry logic for critical events to improve reliability
+    if (retryCount < 3) {
+      console.log(`Retrying event (attempt ${retryCount + 1})...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second before retry
+      return triggerEvent(channel, event, data, retryCount + 1);
+    }
+
+    // Don't rethrow to prevent app crashes, but return error info
+    return { error: true, message: error.message || "Unknown error" };
   }
 }
 
@@ -242,7 +253,7 @@ export async function triggerCallEvent(
   orgId: string,
   runId: string,
   eventType: "call-started" | "call-completed" | "call-failed",
-  data: Record<string, unknown>,
+  data: Record<string, any>,
 ): Promise<void> {
   try {
     const pusherInstance = createPusherInstance();
@@ -259,13 +270,26 @@ export async function triggerCallEvent(
         variables: data.variables as Record<string, unknown>,
       });
     } else if (eventType === "call-completed") {
+      // Check for voicemail status or flags
+      const isVoicemail =
+        data.status === "voicemail" ||
+        data.analysis?.voicemail_detected === true ||
+        data.analysis?.left_voicemail === true ||
+        data.analysis?.in_voicemail === true;
+
+      // Add wasVoicemail flag to metadata if applicable
+      const metadata = {
+        ...((data.metadata || {}) as Record<string, unknown>),
+        wasVoicemail: isVoicemail ? true : undefined,
+      };
+
       await triggerEvent(`run-${runId}`, eventType, {
         rowId: data.rowId as string,
         callId: data.callId as string,
         outreachEffortId: data.outreachEffortId as string,
         status: data.status as string,
         direction: (data.direction as "inbound" | "outbound") || "outbound",
-        metadata: data.metadata as Record<string, unknown>,
+        metadata: metadata,
         analysis: data.analysis as Record<string, unknown>,
         insights: data.insights as Record<string, unknown>,
       });
@@ -278,7 +302,7 @@ export async function triggerCallEvent(
         outreachEffortId: data.outreachEffortId as string,
         runId,
         direction: (data.direction as "inbound" | "outbound") || "outbound",
-        metadata: data.metadata as Record<string, unknown>,
+        metadata: metadata,
         analysis: data.analysis as Record<string, unknown>,
         insights: data.insights as Record<string, unknown>,
       });
@@ -327,6 +351,50 @@ export async function sendUserNotification(
     console.log(`Sent notification to user ${userId}: ${message}`);
   } catch (error) {
     console.error(`Error sending notification to user ${userId}:`, error);
+  }
+}
+
+/**
+ * ADDED: New function to specifically update run metrics in real-time
+ */
+export async function updateRunMetrics(
+  runId: string,
+  orgId: string,
+  metrics: Record<string, any>,
+): Promise<void> {
+  try {
+    // Ensure we always have the required nested objects
+    const formattedMetrics = {
+      ...metrics,
+      calls: metrics.calls || {
+        total: 0,
+        completed: 0,
+        failed: 0,
+        calling: 0,
+        pending: 0,
+        voicemail: 0,
+        connected: 0,
+      },
+    };
+
+    // Send update to both run and org channels
+    await Promise.all([
+      triggerEvent(`run-${runId}`, "metrics-updated", {
+        runId,
+        metrics: formattedMetrics,
+      }),
+      triggerEvent(`org-${orgId}`, "run-updated", {
+        runId,
+        status: "running", // Don't change status, just update metrics
+        metadata: {
+          calls: formattedMetrics.calls,
+        },
+      }),
+    ]);
+
+    console.log(`[METRICS] Updated metrics for run ${runId}`);
+  } catch (error) {
+    console.error(`[METRICS] Error updating run metrics:`, error);
   }
 }
 
@@ -392,45 +460,37 @@ export async function triggerBatchEvents(
 }
 
 /**
- * Check if a channel exists (for debugging)
+ * ADDED: New function to trigger row status changes
  */
-export async function checkChannelExists(channel: string): Promise<boolean> {
+export async function triggerRowStatusUpdate(
+  runId: string,
+  rowId: string,
+  status: string,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
   try {
-    const response = await pusherServer.get({ path: `/channels/${channel}` });
-    return response.status === 200;
+    const pusherInstance = createPusherInstance();
+    if (!pusherInstance) {
+      console.error("Pusher not configured. Unable to trigger event.");
+      return;
+    }
+
+    await triggerEvent(`run-${runId}`, "row-updated", {
+      rowId,
+      status,
+      updatedAt: new Date().toISOString(),
+      metadata,
+    });
+
+    console.log(`[ROW STATUS] Updated status for row ${rowId} to ${status}`);
   } catch (error) {
-    console.error(`Error checking if channel ${channel} exists:`, error);
-    return false;
+    console.error("Error triggering row status update event:", error);
   }
 }
 
 /**
- * Get active users on a presence channel
+ * ADDED: New function for run status changes
  */
-export async function getChannelUsers(
-  channel: string,
-): Promise<Array<Record<string, any>>> {
-  if (!channel.startsWith("presence-")) {
-    console.error(`Cannot get users for non-presence channel: ${channel}`);
-    return [];
-  }
-
-  try {
-    const response = await pusherServer.get({
-      path: `/channels/${channel}/users`,
-    });
-    if (response.status === 200) {
-      const responseData = await response.json();
-      return responseData.users || [];
-    }
-    return [];
-  } catch (error) {
-    console.error(`Error getting users for channel ${channel}:`, error);
-    return [];
-  }
-}
-
-// New function to trigger run status changes
 export async function triggerRunStatusChange(
   runId: string,
   status:
@@ -454,32 +514,9 @@ export async function triggerRunStatusChange(
       status,
       updatedAt: new Date().toISOString(),
     });
+
+    console.log(`[RUN STATUS] Updated run ${runId} status to ${status}`);
   } catch (error) {
     console.error("Error triggering run status change event:", error);
-  }
-}
-
-// New function for triggering row status updates
-export async function triggerRowStatusUpdate(
-  runId: string,
-  rowId: string,
-  status: string,
-  metadata?: Record<string, unknown>,
-): Promise<void> {
-  try {
-    const pusherInstance = createPusherInstance();
-    if (!pusherInstance) {
-      console.error("Pusher not configured. Unable to trigger event.");
-      return;
-    }
-
-    await triggerEvent(`run-${runId}`, "row-updated", {
-      rowId,
-      status,
-      updatedAt: new Date().toISOString(),
-      metadata,
-    });
-  } catch (error) {
-    console.error("Error triggering row status update event:", error);
   }
 }

@@ -1,8 +1,6 @@
 // src/app/api/webhooks/retell/[orgId]/post-call/[campaignId]/route.ts
-import {
-  handlePostCallWebhook,
-  RetellPostCallObjectRaw,
-} from "@/lib/retell/webhook-handlers";
+import { handlePostCallWebhook } from "@/services/retell/post-call-webhook-hander";
+import { RetellPostCallObjectRaw } from "@/services/retell/utils";
 import { RetellPostCallWebhookRaw } from "@/types/retell";
 import { NextResponse } from "next/server";
 

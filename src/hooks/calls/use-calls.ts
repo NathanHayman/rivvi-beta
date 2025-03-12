@@ -1,5 +1,11 @@
 // src/hooks/calls/use-calls.ts
-import { getCall, getCalls, GetCallsParams } from "@/server/actions/calls";
+// Updated with better refresh and error handling logic
+import {
+  getCall,
+  getCalls,
+  GetCallsParams,
+  getRetellCall,
+} from "@/server/actions/calls";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebounce } from "use-debounce";
 
@@ -78,7 +84,8 @@ export function useCalls(filters: GetCallsParams): CallsHookReturn {
 
       if (
         serializedFilters === lastFiltersRef.current &&
-        hasInitialFetchRef.current
+        hasInitialFetchRef.current &&
+        !showLoading // Allow forced refresh even with same params
       ) {
         return;
       }
@@ -196,8 +203,142 @@ export function useCall(callId: string | null): CallHookReturn {
   // Track auto-refresh interval
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Track of the last fetch time to help with debouncing
+  const lastFetchTimeRef = useRef<number>(0);
+
+  // Track the last received status for detecting changes
+  const lastStatusRef = useRef<string | null>(null);
+
+  const fetchCall = useCallback(
+    async (forceRefresh = false) => {
+      if (!callId) {
+        setData(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // Implement a simple fetch throttle unless forceRefresh is true
+      const now = Date.now();
+      if (!forceRefresh && now - lastFetchTimeRef.current < 2000) {
+        console.log("Skipping fetch - throttled");
+        return;
+      }
+
+      lastFetchTimeRef.current = now;
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const result = await getCall(callId);
+
+        // Only update state if component is still mounted
+        if (isMounted.current) {
+          // Check if the status has changed
+          const newStatus = result?.status || null;
+          const statusChanged = lastStatusRef.current !== newStatus;
+
+          // Store current status for future comparisons
+          lastStatusRef.current = newStatus;
+
+          // If we're forcing a refresh or status changed, completely clear and reset data
+          if (forceRefresh || statusChanged) {
+            console.log("Forcing complete data refresh");
+            setData(null); // Clear data first
+            // Short timeout to ensure the UI knows the data is changing
+            setTimeout(() => {
+              if (isMounted.current) {
+                setData(result); // Set the new data
+              }
+            }, 50);
+          } else {
+            setData(result);
+          }
+        }
+      } catch (err) {
+        console.error(`Error fetching call ${callId}:`, err);
+
+        // Only update state if component is still mounted
+        if (isMounted.current) {
+          setError(
+            err instanceof Error
+              ? err
+              : new Error(`Failed to fetch call ${callId}`),
+          );
+        }
+      } finally {
+        // Only update state if component is still mounted
+        if (isMounted.current) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [callId],
+  );
+
+  useEffect(() => {
+    // Set mounted flag
+    isMounted.current = true;
+
+    // Fetch data initially
+    fetchCall(true);
+
+    // Set up auto-refresh for active calls, only if we have a callId
+    if (callId) {
+      refreshIntervalRef.current = setInterval(() => {
+        // Check current status first
+        const currentStatus = lastStatusRef.current;
+
+        // If in a non-final state, use shorter interval
+        if (currentStatus === "in-progress" || currentStatus === "pending") {
+          fetchCall(); // More frequent updates for active calls
+        } else {
+          // For completed calls, be less aggressive with refreshes
+          const shouldRefresh = Math.random() < 0.3; // Only refresh ~30% of the time
+          if (shouldRefresh) {
+            fetchCall();
+          }
+        }
+      }, 10000); // 10 seconds - reasonable interval
+    }
+
+    // Clean up
+    return () => {
+      isMounted.current = false;
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [fetchCall, callId]);
+
+  // Improved refetch method that forces a complete refresh
+  const refetch = useCallback(async () => {
+    await fetchCall(true); // Pass true to force a complete refresh
+  }, [fetchCall]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+/**
+ * Hook to fetch a single call by ID with better error handling and caching
+ */
+export function useRetellCall(retellCallId: string | null): CallHookReturn {
+  const [data, setData] = useState<any | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(retellCallId !== null);
+  const [error, setError] = useState<Error | null>(null);
+
+  // Track if component is mounted to prevent state updates after unmount
+  const isMounted = useRef(true);
+
+  // Track auto-refresh interval
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const fetchCall = useCallback(async () => {
-    if (!callId) {
+    if (!retellCallId) {
       setData(null);
       setIsLoading(false);
       return;
@@ -207,21 +348,21 @@ export function useCall(callId: string | null): CallHookReturn {
     setError(null);
 
     try {
-      const result = await getCall(callId);
+      const result = await getRetellCall(retellCallId);
 
       // Only update state if component is still mounted
       if (isMounted.current) {
         setData(result);
       }
     } catch (err) {
-      console.error(`Error fetching call ${callId}:`, err);
+      console.error(`Error fetching call ${retellCallId}:`, err);
 
       // Only update state if component is still mounted
       if (isMounted.current) {
         setError(
           err instanceof Error
             ? err
-            : new Error(`Failed to fetch call ${callId}`),
+            : new Error(`Failed to fetch call ${retellCallId}`),
         );
       }
     } finally {
@@ -230,7 +371,7 @@ export function useCall(callId: string | null): CallHookReturn {
         setIsLoading(false);
       }
     }
-  }, [callId]);
+  }, [retellCallId]);
 
   useEffect(() => {
     // Set mounted flag
@@ -240,7 +381,7 @@ export function useCall(callId: string | null): CallHookReturn {
     fetchCall();
 
     // Set up auto-refresh for active calls, only if we have a callId
-    if (callId) {
+    if (retellCallId) {
       refreshIntervalRef.current = setInterval(() => {
         fetchCall();
       }, 15000); // 15 seconds - more reasonable interval
@@ -253,7 +394,7 @@ export function useCall(callId: string | null): CallHookReturn {
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [fetchCall, callId]);
+  }, [fetchCall, retellCallId]);
 
   return {
     data,

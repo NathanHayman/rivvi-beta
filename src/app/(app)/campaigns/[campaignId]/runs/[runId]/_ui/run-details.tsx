@@ -638,6 +638,8 @@ const CallStatusSection: React.FC<CallStatusProps> = ({
             <span className="text-2xl font-bold">{failed}</span>
             <span className="text-sm text-muted-foreground">Failed</span>
           </div>
+
+          {/* Make voicemail section obvious */}
           <div className="flex flex-col items-center rounded-md border p-3">
             <div className="mb-2 rounded-full bg-amber-500/10 p-2">
               <VoicemailIcon className="h-5 w-5 text-amber-500" />
@@ -645,6 +647,7 @@ const CallStatusSection: React.FC<CallStatusProps> = ({
             <span className="text-2xl font-bold">{voicemails}</span>
             <span className="text-sm text-muted-foreground">Voicemails</span>
           </div>
+
           <div className="flex flex-col items-center rounded-md border p-3">
             <div className="mb-2 rounded-full bg-blue-500/10 p-2">
               <PhoneIncoming className="h-5 w-5 text-blue-500" />
@@ -978,6 +981,7 @@ export function RunDetails({
         [handleRefresh],
       ),
 
+      // Update the onCallCompleted handler in useRunEvents to properly count voicemails
       onCallCompleted: useCallback(
         (data) => {
           console.log("Call completed:", data);
@@ -987,17 +991,32 @@ export function RunDetails({
               if (!prev || !prev.calls) return prev;
 
               const updatedCalls = { ...prev.calls };
+
               // Decrease pending count
               if (updatedCalls.pending > 0) {
                 updatedCalls.pending -= 1;
               }
-              // Increase the appropriate status count
-              if (data.status === "completed") {
+
+              // Check if this is a voicemail call
+              const isVoicemail =
+                data.status === "voicemail" ||
+                data.metadata?.wasVoicemail ||
+                (data.analysis &&
+                  (data.analysis.voicemail_detected === true ||
+                    data.analysis.left_voicemail === true ||
+                    data.analysis.in_voicemail === true));
+
+              // Increase the appropriate status count based on status and voicemail check
+              if (isVoicemail) {
+                // Make sure we're tracking voicemails
+                updatedCalls.voicemail = (updatedCalls.voicemail || 0) + 1;
+                console.log(
+                  "Detected and counted voicemail in call completion event",
+                );
+              } else if (data.status === "completed") {
                 updatedCalls.completed = (updatedCalls.completed || 0) + 1;
               } else if (data.status === "failed") {
                 updatedCalls.failed = (updatedCalls.failed || 0) + 1;
-              } else if (data.status === "voicemail") {
-                updatedCalls.voicemail = (updatedCalls.voicemail || 0) + 1;
               }
 
               return { ...prev, calls: updatedCalls };
@@ -1145,6 +1164,7 @@ export function RunDetails({
   const connectedCalls =
     getNestedValue(counts, "connected") ||
     getNestedValue(metrics, "calls.connected", 0);
+  // Improved voicemail counting
   const voicemailCalls =
     getNestedValue(counts, "voicemail") ||
     getNestedValue(metrics, "calls.voicemail", 0);

@@ -18,7 +18,8 @@ interface PageProps {
   }>;
 }
 
-async function RunDetailsData({
+// Server component that fetches data
+async function RunDataLoader({
   campaignId,
   runId,
 }: {
@@ -35,6 +36,7 @@ async function RunDetailsData({
     }),
   ]);
 
+  // Instead of rendering client component directly, pass data as props
   return (
     <RunDetails
       run={run as any}
@@ -72,7 +74,7 @@ export default async function RunPage({ params }: PageProps) {
       <AppBody>
         <AppContent>
           <Suspense fallback={<div>Loading...</div>}>
-            <RunDetailsData campaignId={campaignId} runId={runId} />
+            <RunDataLoader campaignId={campaignId} runId={runId} />
           </Suspense>
         </AppContent>
       </AppBody>

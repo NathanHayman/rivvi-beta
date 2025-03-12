@@ -16,6 +16,7 @@ import {
   Phone,
   RefreshCw,
   User,
+  VoicemailIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -227,20 +228,38 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
   const handleCallCompleted = useCallback((data) => {
     setRows((currentRows) =>
-      currentRows.map((row) =>
-        row.id === data.rowId
-          ? {
-              ...row,
-              status: data.status as RowStatus,
-              analysis: data.analysis || row.analysis,
-              metadata: {
-                ...row.metadata,
-                ...(data.metadata || {}),
-                completedAt: new Date().toISOString(),
-              },
-            }
-          : row,
-      ),
+      currentRows.map((row) => {
+        if (row.id === data.rowId) {
+          // Check for voicemail status
+          const isVoicemail =
+            data.status === "voicemail" ||
+            data.metadata?.wasVoicemail ||
+            data.analysis?.voicemail_detected ||
+            data.analysis?.in_voicemail ||
+            data.analysis?.left_voicemail;
+
+          return {
+            ...row,
+            status:
+              data.status === "voicemail"
+                ? "completed" // Row status doesn't support "voicemail"
+                : (data.status as RowStatus),
+            analysis: data.analysis || row.analysis,
+            metadata: {
+              ...row.metadata,
+              ...(data.metadata || {}),
+              completedAt: new Date().toISOString(),
+              // Add voicemail flags when needed
+              wasVoicemail: isVoicemail,
+              voicemailLeft: isVoicemail,
+              voicemailTimestamp: isVoicemail
+                ? new Date().toISOString()
+                : undefined,
+            },
+          };
+        }
+        return row;
+      }),
     );
   }, []);
 
@@ -588,6 +607,27 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             );
           }
 
+          // Add explicit handling for rows with voicemail metadata
+          const isVoicemail =
+            row.original.metadata?.wasVoicemail === true ||
+            analysis?.voicemail_detected === true ||
+            analysis?.in_voicemail === true ||
+            analysis?.left_voicemail === true;
+
+          if (isVoicemail) {
+            return (
+              <Badge
+                variant="outline"
+                className="border-0 bg-yellow-100 font-normal text-yellow-700"
+              >
+                <div className="flex items-center gap-1">
+                  <VoicemailIcon className="h-3 w-3" />
+                  <span>Voicemail</span>
+                </div>
+              </Badge>
+            );
+          }
+
           if (!analysis) {
             return (
               <span className="text-sm text-muted-foreground">No data</span>
@@ -596,6 +636,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
           // Try to find the main outcome
           let outcomeText = "Unknown";
+          let isPositive = false;
 
           // Common post-call fields to check
           const fieldsToCheck = [
@@ -603,8 +644,6 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             "appointmentConfirmed",
             "patient_reached",
             "patientReached",
-            "voicemail_left",
-            "voicemailLeft",
             "successful",
             "call_successful",
           ];
@@ -613,18 +652,9 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
           for (const field of fieldsToCheck) {
             if (field in analysis && typeof analysis[field] !== "undefined") {
               const value = analysis[field];
-              const isPositive =
+              isPositive =
                 value === true || value === "true" || value === "yes";
               outcomeText = isPositive ? "Successful" : "Unsuccessful";
-
-              // If the field is about voicemail, show special outcome
-              if (
-                field.includes("voicemail") &&
-                (value === true || value === "true" || value === "yes")
-              ) {
-                outcomeText = "Voicemail";
-              }
-
               break;
             }
           }
@@ -641,8 +671,6 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
             badgeClass = "bg-green-100 text-green-700";
           } else if (outcomeText.toLowerCase().includes("unsuccess")) {
             badgeClass = "bg-red-100 text-red-700";
-          } else if (outcomeText.toLowerCase().includes("voicemail")) {
-            badgeClass = "bg-yellow-100 text-yellow-700";
           }
 
           return (
@@ -667,7 +695,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
 
           // Create the call details URL - using search params as specified
           const callDetailsUrl = callId
-            ? `/calls?runId=${runId}&rowId=${rowId}${callId ? `&callId=${callId}` : ""}`
+            ? `/calls?retellCallId=${callId}`
             : null;
 
           return (
@@ -695,6 +723,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
     ];
 
     return cols as ColumnDef<Row>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainKpiField, runId]);
 
   // Memoize pagination state to prevent infinite re-renders
@@ -750,7 +779,7 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
   });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 overflow-x-hidden">
       {/* Search and refresh controls */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex w-full max-w-sm items-center space-x-2">
@@ -779,10 +808,10 @@ export function RunRowsTable({ runId }: RunRowsTableProps) {
       </div>
 
       {/* Table container with overflow handling */}
-      <div className="overflow-hidden rounded-md">
+      <div className="">
         <div className="relative">
           {/* Table wrapper with controlled overflow */}
-          <div className="w-full overflow-x-auto">
+          <div className="">
             <Table className="w-full border-collapse">
               <TableHeader className="bg-muted/50">
                 {table.getHeaderGroups().map((headerGroup) => (

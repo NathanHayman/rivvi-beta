@@ -2,7 +2,7 @@
 
 import { AudioPlayerWithWaveform } from "@/components/ui/audio-wave-player";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Badge, BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCall } from "@/hooks/calls/use-calls";
+import { useCall, useRetellCall } from "@/hooks/calls/use-calls";
 import type { TCall } from "@/types/db";
 import { format } from "date-fns";
 import {
@@ -31,6 +31,7 @@ import {
   PhoneOutgoing,
   PieChart,
   User,
+  VoicemailIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -92,12 +93,14 @@ export function CallDetailsSheet() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const callId = searchParams.get("callId");
+  const retellCallId = searchParams.get("retellCallId");
 
   // Close the sheet and return to the calls list
   const handleClose = () => {
     // Preserve all existing search parameters except callId
     const params = new URLSearchParams(searchParams.toString());
     params.delete("callId");
+    params.delete("retellCallId");
 
     // Keep the URL clean if there are no remaining params
     const newPath = params.toString()
@@ -107,10 +110,13 @@ export function CallDetailsSheet() {
   };
 
   // If no callId, don't render anything
-  if (!callId) return null;
+  if (!callId && !retellCallId) return null;
 
   return (
-    <Sheet open={!!callId} onOpenChange={(open) => !open && handleClose()}>
+    <Sheet
+      open={!!callId || !!retellCallId}
+      onOpenChange={(open) => !open && handleClose()}
+    >
       <SheetContent
         className="w-full overflow-hidden p-0 sm:max-w-md md:max-w-xl lg:max-w-2xl"
         side="right"
@@ -125,16 +131,28 @@ export function CallDetailsSheet() {
             </div>
           </SheetHeader>
 
-          <CallDetailsContent callId={callId} />
+          <CallDetailsContent
+            id={callId || retellCallId}
+            type={callId ? "call" : "retellCall"}
+          />
         </div>
       </SheetContent>
     </Sheet>
   );
 }
 
-function CallDetailsContent({ callId }: { callId: string }) {
+function CallDetailsContent({
+  id,
+  type,
+}: {
+  id: string;
+  type: "call" | "retellCall";
+}) {
   // Use our custom hooks instead of direct tRPC queries
-  const { data, isLoading, error } = useCall(callId);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { data, isLoading, error } =
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    type === "call" ? useCall(id) : useRetellCall(id);
 
   if (isLoading) {
     return <CallDetailsSkeleton />;
@@ -163,30 +181,56 @@ function CallDetailsContent({ callId }: { callId: string }) {
       ? ("completed" as CallStatus)
       : call.status;
 
-  // Determine status icon and color
   let StatusIcon = Clock;
-  let badgeVariant = "neutral_solid" as
-    | "neutral_solid"
-    | "success_solid"
-    | "failure_solid";
+  let badgeVariant = "neutral_solid" as BadgeProps["variant"];
 
   if (displayStatus === "completed") {
-    StatusIcon = Check;
-    badgeVariant = "success_solid";
+    // Check if this was actually a voicemail
+    const isVoicemail =
+      call.analysis?.voicemail_detected === true ||
+      call.analysis?.left_voicemail === true ||
+      call.analysis?.in_voicemail === true ||
+      call.metadata?.wasVoicemail === true;
+
+    if (isVoicemail) {
+      StatusIcon = VoicemailIcon;
+      badgeVariant = "neutral_solid";
+    } else {
+      StatusIcon = Check;
+      badgeVariant = "success_solid";
+    }
   } else if (displayStatus === "failed" || displayStatus === "no-answer") {
     StatusIcon = CircleAlert;
     badgeVariant = "failure_solid";
   } else if (displayStatus === "in-progress") {
     StatusIcon = PhoneCall;
+    badgeVariant = "blue_solid";
+  } else if (displayStatus === "voicemail") {
+    // Explicit handling for voicemail status
+    StatusIcon = VoicemailIcon;
     badgeVariant = "neutral_solid";
   }
 
+  // Update the formatStatus function:
   const formatStatus = (status: string) => {
+    // Check if this is a "completed" status but actually a voicemail
+    if (
+      status === "completed" &&
+      (call.analysis?.voicemail_detected === true ||
+        call.analysis?.left_voicemail === true ||
+        call.analysis?.in_voicemail === true ||
+        call.metadata?.wasVoicemail === true)
+    ) {
+      return "Voicemail Left";
+    }
+
     return status === "in-progress"
       ? "In Progress"
       : status === "no-answer"
         ? "No Answer"
-        : status.charAt(0).toUpperCase() + status.slice(1);
+        : status === "voicemail"
+          ? "Voicemail Left"
+          : status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   // Calculate duration in readable format
@@ -226,7 +270,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
     <div className="flex h-[calc(100vh-80px)] flex-col">
       <SheetBody className="overflow-auto border-b lg:pb-8">
         {/* Top section with basic info */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {call.direction === "inbound" ? (
               <div className="flex items-center gap-2">
@@ -253,7 +297,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-8 gap-y-3 rounded-lg border bg-muted/30 p-3 text-sm">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
           <div>
             <p className="text-xs font-medium text-muted-foreground">From</p>
             <p className="font-medium">{formatPhoneNumber(call.fromNumber)}</p>
@@ -298,7 +342,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
 
         {/* Patient information */}
         {call.patient && (
-          <div className="mt-6">
+          <div className="mt-4">
             <h3 className="mb-3 text-sm font-medium">Patient Information</h3>
             <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
               <div className="flex items-center gap-3">
@@ -336,7 +380,7 @@ function CallDetailsContent({ callId }: { callId: string }) {
           <div className="mt-4">
             <h3 className="mb-2 text-sm font-medium">Campaign</h3>
             <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="mb-1 flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{call.campaign.name}</p>
                 {call.campaign.id && (
                   <Button
@@ -546,7 +590,11 @@ function CallDetailsContent({ callId }: { callId: string }) {
               </TabsContent>
 
               {/* Transcript Tab */}
-              <TranscriptTab callId={callId} transcript={call.transcript} />
+              <TranscriptTab
+                id={id}
+                type={type}
+                transcript={data?.transcript}
+              />
 
               {/* Details Tab */}
               <TabsContent
@@ -565,22 +613,22 @@ function CallDetailsContent({ callId }: { callId: string }) {
                           <p className="text-xs font-medium text-muted-foreground">
                             Call ID
                           </p>
-                          <p className="font-mono text-xs">{call.id}</p>
+                          <p className="font-mono text-xs">{data?.id}</p>
                         </div>
-                        {call.run && (
+                        {data?.run && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground">
                               Run ID
                             </p>
-                            <p className="font-mono text-xs">{call.run.id}</p>
+                            <p className="font-mono text-xs">{data?.run.id}</p>
                           </div>
                         )}
-                        {call.row && (
+                        {data?.row && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground">
                               Row ID
                             </p>
-                            <p className="font-mono text-xs">{call.row.id}</p>
+                            <p className="font-mono text-xs">{data?.row.id}</p>
                           </div>
                         )}
                       </div>
@@ -588,14 +636,14 @@ function CallDetailsContent({ callId }: { callId: string }) {
                   </div>
 
                   {/* Additional metadata */}
-                  {call.metadata && (
+                  {data?.metadata && (
                     <div className="rounded-lg border">
                       <div className="border-b bg-muted/30 px-4 py-2">
                         <h3 className="font-medium">Metadata</h3>
                       </div>
                       <div className="p-4">
                         <div className="grid grid-cols-2 gap-y-3">
-                          {Object.entries(call.metadata)
+                          {Object.entries(data?.metadata)
                             .filter(
                               ([key]) =>
                                 !["summary", "notes", "userSentiment"].includes(
@@ -635,10 +683,12 @@ function CallDetailsContent({ callId }: { callId: string }) {
 }
 
 function TranscriptTab({
-  callId,
+  id,
+  type,
   transcript: initialTranscript,
 }: {
-  callId: string;
+  id: string;
+  type: "call" | "retellCall";
   transcript?: string;
 }) {
   // Use the initial transcript if available, otherwise use the fetched one

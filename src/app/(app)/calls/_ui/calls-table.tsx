@@ -27,6 +27,7 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   RefreshCw,
+  VoicemailIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -474,13 +475,28 @@ export function CallsTable({ initialData, callIdToView }: CallsTableProps) {
             badgeVariant = "failure_solid";
             statusLabel = "Failed";
           } else if (displayStatus === "voicemail") {
-            StatusIcon = Phone;
-            badgeVariant = "violet_solid";
+            // Updated to properly handle voicemail status
+            StatusIcon = VoicemailIcon || Phone; // Fallback to Phone if VoicemailIcon not available
+            badgeVariant = "warning_solid";
             statusLabel = "Voicemail";
           } else if (displayStatus === "no-answer") {
             StatusIcon = CircleAlert;
             badgeVariant = "neutral_solid";
             statusLabel = "No Answer";
+          }
+
+          // Look for voicemail in analysis data even if status is "completed"
+          if (
+            displayStatus === "completed" &&
+            call.analysis &&
+            (call.analysis.voicemail_detected === true ||
+              call.analysis.left_voicemail === true ||
+              call.analysis.in_voicemail === true)
+          ) {
+            // Override status display for completed calls that were actually voicemails
+            StatusIcon = VoicemailIcon || Phone;
+            badgeVariant = "warning_solid";
+            statusLabel = "Voicemail";
           }
 
           return (

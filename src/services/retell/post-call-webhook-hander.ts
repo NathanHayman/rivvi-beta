@@ -1,4 +1,4 @@
-// src/server/api/webhooks/retell-handler.ts
+// src/lib/retell/post-call-webhook.ts
 
 import { triggerEvent } from "@/lib/pusher-server";
 import { db } from "@/server/db";
@@ -6,707 +6,19 @@ import {
   calls,
   campaigns,
   campaignTemplates,
-  organizations,
   outreachEfforts,
   OutreachResolutionStatus,
   rows,
   runs,
 } from "@/server/db/schema";
 import { patientService } from "@/services/patients";
-import { createId } from "@paralleldrive/cuid2";
-import { and, desc, eq, or, sql } from "drizzle-orm";
-import { isError } from "../service-result";
-
-// Types for Retell webhook payloads
-export type RetellCallStatus =
-  | "registered"
-  | "ongoing"
-  | "ended"
-  | "error"
-  | "voicemail";
-export type RowStatus =
-  | "pending"
-  | "calling"
-  | "completed"
-  | "failed"
-  | "skipped";
-export type CallStatus =
-  | "pending"
-  | "in-progress"
-  | "completed"
-  | "failed"
-  | "voicemail"
-  | "no-answer";
-
-export type RetellInboundWebhookPayload = {
-  from_number: string;
-  to_number: string;
-  agent_id: string;
-  [key: string]: any;
-};
-
-export type RetellInboundWebhookResponse = {
-  status: "success" | "error";
-  message?: string;
-  error?: string;
-  call_inbound: {
-    override_agent_id: string | null;
-    dynamic_variables: Record<string, any>;
-    metadata: Record<string, any>;
-  };
-};
-
-export type RetellPostCallObjectRaw = {
-  call_id?: string;
-  direction?: "inbound" | "outbound";
-  agent_id?: string;
-  metadata?: Record<string, any>;
-  to_number?: string;
-  from_number?: string;
-  call_status?: string;
-  recording_url?: string | null;
-  disconnection_reason?: string | null;
-  transcript?: string;
-  duration_ms?: number;
-  start_timestamp?: string;
-  end_timestamp?: string;
-  call_analysis?: {
-    transcript?: string;
-    call_summary?: string | null;
-    in_voicemail?: boolean;
-    user_sentiment?: string;
-    call_successful?: boolean;
-    custom_analysis_data?: Record<string, any>;
-    call_completion_rating?: string;
-    agent_task_completion_rating?: string;
-  };
-  [key: string]: any;
-};
-
-// Find the type definition for the object and add outreachEffortId
-type CallLogEntry = {
-  callId: string;
-  patientId?: string;
-  fromNumber: string;
-  toNumber: string;
-  retellCallId: string;
-  isReturnCall?: boolean;
-  campaignId?: string;
-  outreachEffortId?: string; // Add this field
-  hotSwapPerformed?: boolean;
-  time: string;
-};
-
-/**
- * Helper function to map Retell call status to our internal status
- */
-function getStatus(
-  type: "call" | "row",
-  status: RetellCallStatus,
-): CallStatus | RowStatus {
-  console.log(`[STATUS CONVERSION] Converting ${status} to ${type} status`);
-
-  if (type === "call") {
-    switch (status) {
-      case "registered":
-        return "in-progress";
-      case "ongoing":
-        return "in-progress";
-      case "ended":
-        return "completed";
-      case "error":
-        return "failed";
-      case "voicemail":
-        return "voicemail";
-      default:
-        console.log(
-          `[WARNING] Unknown call status: ${status}, defaulting to pending`,
-        );
-        return "pending";
-    }
-  } else {
-    switch (status) {
-      case "ongoing":
-        return "calling";
-      case "registered":
-        return "pending";
-      case "ended":
-        return "completed";
-      case "error":
-        return "failed";
-      case "voicemail":
-        // For row status, treat voicemail as completed
-        return "completed";
-      default:
-        console.log(
-          `[WARNING] Unknown row status: ${status}, defaulting to pending`,
-        );
-        return "pending";
-    }
-  }
-}
-
-/**
- * Ensure values are always strings for Retell dynamic variables
- */
-function ensureStringValue(value: any): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  if (typeof value === "boolean") {
-    return value ? "TRUE" : "FALSE";
-  }
-
-  if (typeof value === "object") {
-    return JSON.stringify(value);
-  }
-
-  return String(value);
-}
-
-/**
- * Handle inbound webhook from Retell with agent hot-swapping
- * This processes incoming calls, identifies patients, and provides context
- */
-export async function handleInboundWebhook(
-  orgId: string,
-  payload: RetellInboundWebhookPayload,
-): Promise<RetellInboundWebhookResponse> {
-  console.log(
-    `[INBOUND WEBHOOK] Inbound call received for org ${orgId}:`,
-    JSON.stringify(payload),
-  );
-
-  try {
-    // Initialize variables at the beginning to fix linter errors
-    let overrideAgentId = null;
-    let dynamicVariables: Record<string, any> = {};
-    const metadata: Record<string, any> = {
-      orgId,
-      patientId: null,
-      isInboundCall: true,
-    };
-
-    // Validate required fields with better error handling
-    if (!payload.from_number) {
-      console.error(
-        `[INBOUND WEBHOOK] Missing from_number in inbound webhook payload`,
-      );
-      return {
-        status: "error",
-        message: "Missing caller phone number",
-        error: "Missing caller phone number",
-        call_inbound: {
-          override_agent_id: null,
-          dynamic_variables: {
-            error_occurred: true,
-            error_message: "Missing caller phone number",
-            organization_name: "Our organization", // Fallback to ensure call continues
-          },
-          metadata: {},
-        },
-      };
-    }
-
-    if (!payload.to_number) {
-      console.warn(
-        `[INBOUND WEBHOOK] Missing to_number in inbound webhook payload, using fallback`,
-      );
-      // Use a fallback to avoid disrupting call flow
-      payload.to_number = payload.to_number || "unknown";
-    }
-
-    // Get organization details with error handling
-    const [organization] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.id, orgId));
-
-    if (!organization) {
-      console.error(`[INBOUND WEBHOOK] Organization ${orgId} not found`);
-      return {
-        status: "error",
-        message: "Organization not found",
-        error: "Organization not found",
-        call_inbound: {
-          override_agent_id: null,
-          dynamic_variables: {
-            error_occurred: true,
-            error_message: "Organization not found",
-            organization_name: "Our organization", // Fallback
-          },
-          metadata: {},
-        },
-      };
-    }
-
-    // Find patient by phone number
-    const cleanPhone = payload.from_number;
-    console.log(`[INBOUND WEBHOOK] Looking up patient by phone: ${cleanPhone}`);
-
-    // First try using the patient service
-    const patient = await patientService.findByPhone(cleanPhone, orgId);
-
-    // Create a minimal patient record if not found
-    let patientId: string | null = patient?.id || null;
-    if (!patient) {
-      try {
-        console.log(
-          `[INBOUND WEBHOOK] No existing patient found, creating minimal record`,
-        );
-        // Create a basic patient record with today's date as a placeholder DOB
-        const today = new Date().toISOString().split("T")[0]; // Format as YYYY-MM-DD
-
-        const patientResult = await patientService.create({
-          firstName: "Unknown",
-          lastName: "Caller",
-          dob: today || "",
-          primaryPhone: cleanPhone,
-          orgId,
-        });
-
-        if (isError(patientResult)) {
-          console.error(
-            "[INBOUND WEBHOOK] Error creating patient:",
-            patientResult.error,
-          );
-          patientId = null;
-        } else {
-          patientId = patientResult.data.id;
-          console.log(
-            `[INBOUND WEBHOOK] Created new patient with ID: ${patientId}`,
-          );
-        }
-      } catch (error) {
-        console.error("[INBOUND WEBHOOK] Error creating patient:", error);
-        // Continue with a null patientId if patient creation fails
-        patientId = null;
-      }
-    } else {
-      console.log(
-        `[INBOUND WEBHOOK] Found existing patient: ${patient.firstName} ${patient.lastName} (ID: ${patient.id})`,
-      );
-    }
-
-    // Update metadata with patient ID
-    metadata.patientId = patientId;
-
-    // Find open outreach efforts for this patient
-    let outreachEffort = null;
-    let rowData = null;
-    let campaignData = null;
-    let templateData = null;
-    let runData = null;
-    let mostRecentOutboundCall = null;
-    let shouldHotSwapAgent = false;
-
-    if (patientId) {
-      try {
-        // Find open outreach efforts for the patient, prioritizing those with status 'open' or 'voicemail'
-        const openOutreachEfforts = await db
-          .select({
-            effort: outreachEfforts,
-            campaign: campaigns,
-            row: rows,
-            run: runs,
-          })
-          .from(outreachEfforts)
-          .leftJoin(campaigns, eq(outreachEfforts.campaignId, campaigns.id))
-          .leftJoin(rows, eq(outreachEfforts.rowId, rows.id))
-          .leftJoin(runs, eq(outreachEfforts.runId, runs.id))
-          .where(
-            and(
-              eq(outreachEfforts.patientId, patientId),
-              eq(outreachEfforts.orgId, orgId),
-              or(
-                eq(outreachEfforts.resolutionStatus, "open"),
-                eq(outreachEfforts.resolutionStatus, "voicemail"),
-                eq(outreachEfforts.resolutionStatus, "follow_up"),
-              ),
-            ),
-          )
-          .orderBy(desc(outreachEfforts.createdAt));
-
-        if (openOutreachEfforts.length > 0) {
-          outreachEffort = openOutreachEfforts[0].effort;
-          rowData = openOutreachEfforts[0].row;
-          campaignData = openOutreachEfforts[0].campaign;
-          runData = openOutreachEfforts[0].run;
-          shouldHotSwapAgent = true; // Flag to indicate we should hot-swap the agent
-
-          // Get the most recent outbound call for this outreach effort
-          if (outreachEffort.lastCallId) {
-            const [call] = await db
-              .select()
-              .from(calls)
-              .where(eq(calls.id, outreachEffort.lastCallId));
-
-            mostRecentOutboundCall = call;
-          }
-
-          // Get the campaign template to access the agent ID
-          if (campaignData && campaignData.templateId) {
-            const [template] = await db
-              .select()
-              .from(campaignTemplates)
-              .where(eq(campaignTemplates.id, campaignData.templateId));
-
-            templateData = template;
-
-            // Use the template's agent ID for hot-swapping
-            if (template && template.agentId) {
-              overrideAgentId = template.agentId;
-              console.log(
-                `[INBOUND WEBHOOK] Found agent ID ${overrideAgentId} for hot-swapping`,
-              );
-            }
-          }
-
-          console.log(
-            `[INBOUND WEBHOOK] Found open outreach effort (${outreachEffort.id}) for campaign "${campaignData?.name || "unknown"}" with resolution status ${outreachEffort.resolutionStatus}`,
-          );
-
-          // Update metadata for the call to link it to this outreach effort
-          metadata.outreachEffortId = outreachEffort.id;
-          metadata.campaignId = campaignData?.id;
-          metadata.runId = runData?.id;
-          metadata.rowId = rowData?.id;
-          metadata.isReturnCall = true;
-          metadata.previousCallId = outreachEffort.lastCallId;
-          metadata.hotSwapPerformed = true;
-
-          // Set dynamic variables for the agent
-          if (patient) {
-            dynamicVariables = {
-              organization_name: organization.name || "Our organization",
-              inbound_call: true,
-              is_return_call: true,
-              patient_exists: true,
-              patient_id: patient.id,
-              patient_first_name: patient.firstName || "Unknown",
-              patient_last_name: patient.lastName || "Unknown",
-              patient_phone: patient.primaryPhone || cleanPhone,
-              first_name: patient.firstName || "Unknown",
-              last_name: patient.lastName || "Unknown",
-              phone: patient.primaryPhone || cleanPhone,
-              previous_call_status: outreachEffort.resolutionStatus,
-              campaign_name: campaignData?.name || "Unknown Campaign",
-              is_minor: rowData?.variables?.isMinor || false,
-            };
-
-            // Add variables from the outreach effort or row
-            if (outreachEffort.variables) {
-              Object.entries(outreachEffort.variables).forEach(
-                ([key, value]) => {
-                  dynamicVariables[key] = ensureStringValue(value);
-                },
-              );
-            }
-
-            if (rowData?.variables) {
-              Object.entries(rowData.variables).forEach(([key, value]) => {
-                dynamicVariables[key] = ensureStringValue(value);
-              });
-            }
-          }
-        } else {
-          console.log(
-            `[INBOUND WEBHOOK] No open outreach efforts found for patient, will find organization's default inbound agent`,
-          );
-
-          // Use helper function to find the default inbound agent
-          const defaultAgent = await findDefaultInboundAgent(orgId);
-          overrideAgentId = defaultAgent.agentId;
-
-          // Update metadata with campaign info if available
-          if (defaultAgent.campaignId) {
-            metadata.campaignId = defaultAgent.campaignId;
-            metadata.usingDefaultInboundCampaign = true;
-          }
-
-          // We'll still set the patient context if available
-          if (patient) {
-            // Update the dynamic variables that will be used later
-            dynamicVariables = {
-              organization_name: organization.name || "Our organization",
-              inbound_call: true,
-              is_return_call: false,
-              patient_exists: true,
-              patient_id: patient.id,
-              patient_first_name: patient.firstName || "Unknown",
-              patient_last_name: patient.lastName || "Unknown",
-              patient_phone: patient.primaryPhone || cleanPhone,
-              first_name: patient.firstName || "Unknown",
-              last_name: patient.lastName || "Unknown",
-              phone: patient.primaryPhone || cleanPhone,
-              campaign_name:
-                defaultAgent.campaignName || "Inbound Call Service",
-            };
-          }
-        }
-      } catch (error) {
-        console.error(
-          "[INBOUND WEBHOOK] Error handling callback or default agent selection:",
-          error,
-        );
-
-        // Fallback to default agent if there's an error
-        overrideAgentId = "default-inbound-agent";
-      }
-    } else {
-      // No patient ID available, find the default inbound agent
-      console.log(
-        `[INBOUND WEBHOOK] No patient found, finding default inbound agent`,
-      );
-
-      // Use helper function to find the default inbound agent
-      const defaultAgent = await findDefaultInboundAgent(orgId);
-      overrideAgentId = defaultAgent.agentId;
-
-      // Update metadata with campaign info if available
-      if (defaultAgent.campaignId) {
-        metadata.campaignId = defaultAgent.campaignId;
-        metadata.usingDefaultInboundCampaign = true;
-      }
-    }
-
-    // Create inbound call record with better error handling
-    try {
-      // Ensure we have valid values for required fields
-      const agent_id =
-        payload.agent_id || overrideAgentId || "default-inbound-agent";
-
-      // Create a new call record
-      const [newCall] = await db
-        .insert(calls)
-        .values({
-          orgId,
-          fromNumber: payload.from_number,
-          toNumber: payload.to_number,
-          direction: "inbound",
-          retellCallId: createId(),
-          status: "in-progress",
-          agentId: agent_id, // This will be overridden in the webhook response
-          campaignId: metadata.campaignId || null,
-          patientId: patientId || null,
-          rowId: metadata.rowId || null,
-          runId: metadata.runId || null,
-          outreachEffortId: metadata.outreachEffortId || null,
-          relatedOutboundCallId: metadata.previousCallId || null,
-          metadata: {
-            webhook_received: true,
-            webhook_time: new Date().toISOString(),
-            ...metadata,
-          },
-        } as any)
-        .returning();
-
-      // Add the new call ID to metadata
-      metadata.callId = newCall.id;
-
-      // If this relates to an outreach effort, update it
-      if (metadata.outreachEffortId) {
-        try {
-          await db
-            .update(outreachEfforts)
-            .set({
-              lastCallId: newCall.id,
-              callbackCount: sql`${outreachEfforts.callbackCount} + 1`,
-              resolutionStatus: "callback", // Mark as callback initially, post-call handler will update further
-              updatedAt: new Date(),
-            } as any)
-            .where(eq(outreachEfforts.id, metadata.outreachEffortId));
-
-          console.log(
-            `[INBOUND WEBHOOK] Updated outreach effort ${metadata.outreachEffortId} with callback data`,
-          );
-        } catch (updateError) {
-          console.error(
-            `[INBOUND WEBHOOK] Error updating outreach effort with callback data:`,
-            updateError,
-          );
-          // Continue processing even if update fails
-        }
-      }
-
-      // If this is a return call and we have row data, update the row to indicate a callback
-      if (metadata.isReturnCall && rowData) {
-        try {
-          // Get the original status from the outreach effort (for UI display)
-          const originalStatus = outreachEffort?.resolutionStatus || "unknown";
-
-          // Get effective time of the last outbound call for context
-          const lastOutboundTime = mostRecentOutboundCall?.startTime
-            ? new Date(mostRecentOutboundCall.startTime).toISOString()
-            : new Date().toISOString();
-
-          await db
-            .update(rows)
-            .set({
-              metadata: {
-                ...rowData.metadata,
-                returnCall: true,
-                returnCallId: newCall.id,
-                returnCallTime: new Date().toISOString(),
-                isCallback: true, // Add a clear flag to indicate this was a callback
-                wasCallback: true, // Alternative naming for UI filtering
-                callbackReason: originalStatus, // Track the original reason for the callback
-                callbackAfterStatus: originalStatus, // Clearer naming
-                previousOutboundTime: lastOutboundTime,
-                outreachEffortId: outreachEffort?.id,
-              },
-              status: "callback", // Update status to reflect callback
-              updatedAt: new Date(),
-            } as any)
-            .where(eq(rows.id, rowData.id));
-
-          console.log(
-            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data (callback after ${originalStatus}) and set status to 'callback'`,
-          );
-
-          // Update run statistics for inbound calls if we have a runId
-          if (metadata.runId) {
-            // Fetch current run data
-            const [run] = await db
-              .select()
-              .from(runs)
-              .where(eq(runs.id, metadata.runId));
-
-            if (run) {
-              // Create a deep copy of metadata
-              const updatedMetadata = JSON.parse(
-                JSON.stringify(run.metadata || {}),
-              ) as Record<string, any>;
-
-              // Initialize callback metrics if they don't exist
-              if (!updatedMetadata.callbacks) {
-                updatedMetadata.callbacks = {
-                  count: 0,
-                  ids: [],
-                };
-              }
-
-              // Update callback metrics
-              updatedMetadata.callbacks.count++;
-              updatedMetadata.callbacks.ids.push(newCall.id);
-              updatedMetadata.lastCallbackTime = new Date().toISOString();
-
-              try {
-                await db
-                  .update(runs)
-                  .set({
-                    metadata: updatedMetadata,
-                    updatedAt: new Date(),
-                  } as any)
-                  .where(eq(runs.id, metadata.runId));
-
-                console.log(
-                  `[INBOUND WEBHOOK] Updated run ${metadata.runId} with callback statistics`,
-                );
-              } catch (runUpdateError) {
-                console.error(
-                  `[INBOUND WEBHOOK] Error updating run with callback statistics:`,
-                  runUpdateError,
-                );
-              }
-            }
-          }
-        } catch (error) {
-          console.error(
-            `[INBOUND WEBHOOK] Error updating row with return call data:`,
-            error,
-          );
-        }
-      }
-
-      // Return the success response with hot-swapping information
-      console.log(
-        `[INBOUND WEBHOOK] Inbound call webhook processed successfully`,
-      );
-      console.log(
-        `[INBOUND WEBHOOK] Returning agent override: ${overrideAgentId}`,
-      );
-      console.log(`[INBOUND WEBHOOK] Returning metadata:`, metadata);
-
-      // Emit event for inbound call (for real-time UI updates)
-      try {
-        await triggerEvent(`org-${orgId}`, "inbound-call", {
-          callId: newCall.id,
-          patientId,
-          fromNumber: payload.from_number,
-          toNumber: payload.to_number || "unknown",
-          retellCallId: newCall.retellCallId || "",
-          isReturnCall: !!metadata.isReturnCall,
-          campaignId: metadata.campaignId,
-          outreachEffortId: metadata.outreachEffortId,
-          hotSwapPerformed: metadata.hotSwapPerformed || false,
-          time: new Date().toISOString(),
-        } as CallLogEntry);
-        console.log(`[INBOUND WEBHOOK] Sent event for inbound call`);
-      } catch (error) {
-        console.error(`[INBOUND WEBHOOK] Error sending pusher event:`, error);
-      }
-
-      // Convert dynamic variables to strings for Retell
-      const stringifiedVariables: Record<string, string> = {};
-      Object.entries(dynamicVariables).forEach(([key, value]) => {
-        stringifiedVariables[key] = ensureStringValue(value);
-      });
-
-      // Convert metadata to strings for Retell
-      const stringifiedMetadata: Record<string, string> = {};
-      Object.entries(metadata).forEach(([key, value]) => {
-        stringifiedMetadata[key] =
-          typeof value === "object" ? JSON.stringify(value) : String(value);
-      });
-
-      return {
-        status: "success",
-        message: "Inbound call processed",
-        call_inbound: {
-          override_agent_id: overrideAgentId,
-          dynamic_variables: stringifiedVariables,
-          metadata: stringifiedMetadata,
-        },
-      };
-    } catch (error) {
-      console.error(`[INBOUND WEBHOOK] Error creating inbound call:`, error);
-    }
-
-    // Fallback response
-    return {
-      status: "error",
-      message: "Error processing inbound call",
-      error: "Internal server error",
-      call_inbound: {
-        override_agent_id: null,
-        dynamic_variables: {
-          error_occurred: true,
-          error_message: "Error processing call",
-        },
-        metadata: {},
-      },
-    };
-  } catch (error) {
-    console.error("[INBOUND WEBHOOK] Error processing inbound webhook:", error);
-
-    // Return a fallback error response
-    return {
-      status: "error",
-      message: "Error processing webhook",
-      error: String(error),
-      call_inbound: {
-        override_agent_id: null,
-        dynamic_variables: {
-          error_occurred: true,
-          error_message: "Error processing call",
-        },
-        metadata: {},
-      },
-    };
-  }
-}
+import { and, eq, or, sql } from "drizzle-orm";
+import {
+  extractCallInsights,
+  getStatus,
+  RetellCallStatus,
+  RetellPostCallObjectRaw,
+} from "./utils";
 
 /**
  * Handler for Retell post-call webhook
@@ -755,7 +67,8 @@ export async function handlePostCallWebhook(
       metadata = payload.metadata || ({} as Record<string, any>),
       to_number: toNumber = payload.to_number || "",
       from_number: fromNumber = payload.from_number || "",
-      call_status: callStatus = payload.call_status || "completed",
+      call_status: callStatus = payload.call_status ||
+        ("completed" as RetellCallStatus),
       recording_url: recordingUrl = payload.recording_url || null,
       disconnection_reason:
         disconnectionReason = payload.disconnection_reason || null,
@@ -973,9 +286,15 @@ export async function handlePostCallWebhook(
       // Start with the custom analysis data if available
       processedAnalysis = call_analysis?.custom_analysis_data || {};
 
-      // If voicemail was detected, mark it
-      if (call_analysis?.in_voicemail === true) {
+      // IMPROVED: Explicitly check and set voicemail flag
+      const isVoicemail =
+        callStatus === "voicemail" || call_analysis?.in_voicemail === true;
+
+      if (isVoicemail) {
         processedAnalysis.voicemail_detected = true;
+        processedAnalysis.left_voicemail = true; // Add additional flags for consistency
+        processedAnalysis.in_voicemail = true;
+        console.log(`[WEBHOOK] Voicemail detected for call ${retellCallId}`);
       }
 
       // If call summary is available, add it to the analysis
@@ -1520,11 +839,17 @@ export async function handlePostCallWebhook(
               metadata.calls.connected = (metadata.calls.connected || 0) + 1;
             }
 
-            // Check if voicemail was left
+            // IMPROVED: More robust check for voicemail
             if (
+              payload.call_status === "voicemail" ||
               call_analysis?.in_voicemail === true ||
-              processedAnalysis.voicemail_detected === true
+              processedAnalysis.voicemail_detected === true ||
+              processedAnalysis.left_voicemail === true ||
+              processedAnalysis.voicemail_left === true
             ) {
+              console.log(
+                `[WEBHOOK] Incrementing voicemail count for run ${runId}`,
+              );
               metadata.calls.voicemail = (metadata.calls.voicemail || 0) + 1;
             }
 
@@ -1694,6 +1019,10 @@ export async function handlePostCallWebhook(
         direction: callDirection as "inbound" | "outbound",
         metadata: {
           campaignId: originalCampaignId || null,
+          wasVoicemail:
+            callStatus === "voicemail" ||
+            call_analysis?.in_voicemail === true ||
+            processedAnalysis.voicemail_detected === true,
         },
         analysis: processedAnalysis,
         insights,
@@ -1714,14 +1043,21 @@ export async function handlePostCallWebhook(
 
       // Run-specific notification
       if (runId) {
+        // Map the status to our internal status before sending the event
+        const mappedStatus = getStatus("call", callStatus as RetellCallStatus);
+
         await triggerEvent(`run-${runId}`, "call-completed", {
           callId: call.id,
-          status: callStatus,
+          status: mappedStatus, // Use the mapped status
           rowId,
           outreachEffortId: call.outreachEffortId || null,
           direction: callDirection as "inbound" | "outbound",
           metadata: {
             campaignId: originalCampaignId || null,
+            wasVoicemail:
+              callStatus === "voicemail" ||
+              call_analysis?.in_voicemail === true ||
+              processedAnalysis.voicemail_detected === true,
           },
           analysis: processedAnalysis,
           insights,
@@ -1758,238 +1094,4 @@ export async function handlePostCallWebhook(
       processed: false,
     };
   }
-}
-
-/**
- * Extract insights from a call transcript using pattern matching and NLP
- */
-export function extractCallInsights(payload: {
-  transcript?: string;
-  analysis?: Record<string, any>;
-}): {
-  sentiment: "positive" | "negative" | "neutral";
-  followUpNeeded: boolean;
-  followUpReason?: string;
-  patientReached: boolean;
-  voicemailLeft: boolean;
-} {
-  try {
-    const { transcript, analysis } = payload;
-    const processedAnalysis = analysis || {};
-
-    // Determine sentiment - check multiple possible field names
-    let sentiment: "positive" | "negative" | "neutral" = "neutral";
-    const possibleSentimentFields = [
-      "sentiment",
-      "user_sentiment",
-      "patient_sentiment",
-      "call_sentiment",
-    ];
-
-    for (const field of possibleSentimentFields) {
-      if (field in processedAnalysis) {
-        const value = processedAnalysis[field];
-        if (typeof value === "string") {
-          if (value.toLowerCase().includes("positive")) {
-            sentiment = "positive";
-            break;
-          } else if (value.toLowerCase().includes("negative")) {
-            sentiment = "negative";
-            break;
-          }
-        }
-      }
-    }
-
-    // Check if patient was reached - normalize different field names
-    const patientReachedValue =
-      processedAnalysis.patient_reached !== undefined
-        ? processedAnalysis.patient_reached
-        : processedAnalysis.patientReached;
-
-    const patientReached =
-      patientReachedValue === true ||
-      patientReachedValue === "true" ||
-      patientReachedValue === "yes";
-
-    // Check if voicemail was left
-    const voicemailLeft =
-      processedAnalysis.voicemail_left === true ||
-      processedAnalysis.voicemailLeft === true ||
-      processedAnalysis.left_voicemail === true ||
-      processedAnalysis.leftVoicemail === true ||
-      processedAnalysis.voicemail === true ||
-      processedAnalysis.in_voicemail === true ||
-      processedAnalysis.voicemail_detected === true;
-
-    // Determine if follow-up is needed - check multiple possible conditions
-    const scheduleFollowUp =
-      processedAnalysis.callback_requested === true ||
-      processedAnalysis.callbackRequested === true ||
-      processedAnalysis.callback_requested === "true" ||
-      processedAnalysis.callbackRequested === "true";
-
-    const patientHadQuestions =
-      processedAnalysis.patient_questions === true ||
-      processedAnalysis.patientQuestion === true ||
-      processedAnalysis.has_questions === true ||
-      processedAnalysis.hasQuestions === true ||
-      processedAnalysis.patient_question === "true" ||
-      processedAnalysis.patientQuestion === "true";
-
-    let followUpNeeded =
-      scheduleFollowUp ||
-      patientHadQuestions ||
-      !patientReached ||
-      sentiment === "negative";
-
-    // Determine reason for follow-up
-    let followUpReason;
-    if (followUpNeeded) {
-      if (scheduleFollowUp) {
-        followUpReason = "Patient requested follow-up";
-      } else if (patientHadQuestions) {
-        followUpReason = "Patient had unanswered questions";
-      } else if (!patientReached) {
-        followUpReason = "Unable to reach patient";
-      } else if (sentiment === "negative") {
-        followUpReason = "Negative sentiment detected";
-      }
-    }
-
-    // Use transcript to enhance insights if available
-    if (transcript && typeof transcript === "string") {
-      // Check for callback requests in transcript
-      if (
-        !followUpNeeded &&
-        (transcript.toLowerCase().includes("call me back") ||
-          transcript.toLowerCase().includes("callback") ||
-          transcript.toLowerCase().includes("call me tomorrow"))
-      ) {
-        followUpNeeded = true;
-        followUpReason = "Callback request detected in transcript";
-      }
-
-      // Detect sentiment from transcript if not already determined
-      if (sentiment === "neutral") {
-        const positiveWords = [
-          "great",
-          "good",
-          "excellent",
-          "happy",
-          "pleased",
-          "thank you",
-          "appreciate",
-        ];
-        const negativeWords = [
-          "bad",
-          "unhappy",
-          "disappointed",
-          "frustrated",
-          "upset",
-          "angry",
-          "not right",
-        ];
-
-        let positiveCount = 0;
-        let negativeCount = 0;
-
-        const transcriptLower = transcript.toLowerCase();
-
-        positiveWords.forEach((word) => {
-          if (transcriptLower.includes(word)) positiveCount++;
-        });
-
-        negativeWords.forEach((word) => {
-          if (transcriptLower.includes(word)) negativeCount++;
-        });
-
-        if (positiveCount > negativeCount + 1) {
-          sentiment = "positive";
-        } else if (negativeCount > positiveCount) {
-          sentiment = "negative";
-        }
-      }
-    }
-
-    return {
-      sentiment,
-      followUpNeeded,
-      followUpReason,
-      patientReached,
-      voicemailLeft,
-    };
-  } catch (error) {
-    console.error("Error extracting call insights:", error);
-
-    // Return default values on error
-    return {
-      sentiment: "neutral",
-      followUpNeeded: false,
-      patientReached: false,
-      voicemailLeft: false,
-    };
-  }
-}
-
-// Add a helper function to find the default inbound agent for an organization
-async function findDefaultInboundAgent(orgId: string): Promise<{
-  agentId: string | null;
-  campaignId: string | null;
-  campaignName: string | null;
-}> {
-  try {
-    // Look for campaigns with direction "inbound" for this organization
-    const inboundCampaigns = await db
-      .select({
-        campaign: campaigns,
-        template: campaignTemplates,
-      })
-      .from(campaigns)
-      .leftJoin(
-        campaignTemplates,
-        eq(campaigns.templateId, campaignTemplates.id),
-      )
-      .where(
-        and(eq(campaigns.orgId, orgId), eq(campaigns.direction, "inbound")),
-      )
-      .orderBy(desc(campaigns.updatedAt));
-
-    if (inboundCampaigns.length > 0) {
-      // Use the most recently updated inbound campaign
-      const inboundCampaign = inboundCampaigns[0];
-
-      if (inboundCampaign.template && inboundCampaign.template.agentId) {
-        console.log(
-          `[INBOUND WEBHOOK] Found organization's default inbound agent (${inboundCampaign.template.agentId}) from campaign "${inboundCampaign.campaign.name}"`,
-        );
-
-        return {
-          agentId: inboundCampaign.template.agentId,
-          campaignId: inboundCampaign.campaign.id,
-          campaignName: inboundCampaign.campaign.name,
-        };
-      } else {
-        console.warn(
-          `[INBOUND WEBHOOK] Inbound campaign found but has no agent ID, using fallback`,
-        );
-      }
-    } else {
-      console.warn(
-        `[INBOUND WEBHOOK] No inbound campaigns found for organization ${orgId}, using fallback agent`,
-      );
-    }
-  } catch (error) {
-    console.error(
-      `[INBOUND WEBHOOK] Error finding default inbound agent:`,
-      error,
-    );
-  }
-
-  // Return fallback if no inbound campaign found or error occurred
-  return {
-    agentId: "default-inbound-agent", // Fallback agent ID
-    campaignId: null,
-    campaignName: null,
-  };
 }

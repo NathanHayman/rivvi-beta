@@ -155,6 +155,29 @@ export async function getCall(id: string) {
 }
 
 /**
+ * Server action to fetch a single call by retellCallId
+ */
+export async function getRetellCall(retellCallId: string) {
+  try {
+    const { orgId } = await requireOrg();
+
+    const result = await callService.getByRetellCallId(retellCallId, orgId);
+
+    if (isError(result)) {
+      if (result.error.code === "NOT_FOUND") {
+        return null;
+      }
+      throw new Error(result.error.message);
+    }
+
+    return result.data;
+  } catch (error) {
+    console.error("Error in getRetellCall:", error);
+    throw new Error("Failed to fetch call");
+  }
+}
+
+/**
  * Server action to fetch calls for a specific patient
  */
 export async function getPatientCalls(patientId: string, limit = 10) {

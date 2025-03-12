@@ -226,6 +226,93 @@ export function createCallService(dbInstance = db) {
         return createError("INTERNAL_ERROR", "Failed to fetch call", error);
       }
     },
+    /**
+     * Get a call by retellCallId
+     */
+    async getByRetellCallId(
+      retellCallId: string,
+      orgId: string,
+    ): Promise<ServiceResult<CallWithRelations>> {
+      try {
+        // Get call with organization check
+        const [call] = await dbInstance
+          .select()
+          .from(calls)
+          .where(
+            and(eq(calls.retellCallId, retellCallId), eq(calls.orgId, orgId)),
+          );
+
+        if (!call) {
+          return createError("NOT_FOUND", "Call not found");
+        }
+
+        // Get all related data in parallel
+        const [patient, campaignData, run, row] = await Promise.all([
+          call.patientId
+            ? dbInstance.query.patients.findFirst({
+                where: eq(patients.id, call.patientId),
+              })
+            : null,
+
+          call.campaignId
+            ? dbInstance
+                .select({
+                  campaign: campaigns,
+                  template: campaignTemplates,
+                })
+                .from(campaigns)
+                .leftJoin(
+                  campaignTemplates,
+                  eq(campaigns.templateId, campaignTemplates.id),
+                )
+                .where(eq(campaigns.id, call.campaignId))
+                .then((results) => (results.length > 0 ? results[0] : null))
+            : null,
+
+          call.runId
+            ? dbInstance.query.runs.findFirst({
+                where: eq(runs.id, call.runId),
+              })
+            : null,
+
+          call.rowId
+            ? dbInstance.query.rows.findFirst({
+                where: eq(rows.id, call.rowId),
+              })
+            : null,
+        ]);
+
+        // Format dates to ISO strings
+        const formattedCall = this.formatDates(call);
+
+        // Properly structure campaign data
+        const campaign = campaignData
+          ? {
+              ...campaignData.campaign,
+              template: campaignData.template,
+              config: campaignData.template
+                ? {
+                    analysis: campaignData.template.analysisConfig,
+                    variables: campaignData.template.variablesConfig,
+                    basePrompt: campaignData.template.basePrompt,
+                    voicemailMessage: campaignData.template.voicemailMessage,
+                  }
+                : undefined,
+            }
+          : null;
+
+        return createSuccess({
+          ...formattedCall,
+          patient,
+          campaign,
+          run,
+          row,
+        });
+      } catch (error) {
+        console.error("Error fetching call:", error);
+        return createError("INTERNAL_ERROR", "Failed to fetch call", error);
+      }
+    },
 
     /**
      * Get patient calls with pagination
