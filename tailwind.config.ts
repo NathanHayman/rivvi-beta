@@ -20,6 +20,13 @@ const config = {
     "./src/hooks/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  safelist: [
+    // Add color classes that might be used dynamically
+    {
+      pattern:
+        /(bg|text|border|fill|stroke|ring|from|via|to|shadow)-(rivvi-purple|rivvi-orange|rivvi-lavender|rivvi-neutral|rivvi-cream|rivvi-peach|rivvi-teal|rivvi-light|rivvi-dark)-(50|100|200|300|400|500|600|700|800|900|950)/,
+    },
+  ],
   prefix: "",
   theme: {
     container: {
@@ -89,6 +96,141 @@ const config = {
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
+        },
+        // Rivvi Brand Colors
+        // Purple/Blue scale (11 shades from the SVG)
+        "rivvi-purple": {
+          50: "#EEF1FF",
+          100: "#DFE6FF",
+          200: "#C6CEFF",
+          300: "#A3AFFE",
+          400: "#7E83FB",
+          500: "#5955F4",
+          600: "#5342E9",
+          700: "#4734CE",
+          800: "#3A2DA6",
+          900: "#332C83",
+          950: "#1F1A4C",
+        },
+
+        // Orange/Coral scale (11 shades from the SVG)
+        "rivvi-orange": {
+          50: "#FFF3ED",
+          100: "#FFE5D5",
+          200: "#FFE5D5", // Duplicate in SVG, kept as is
+          300: "#FEC6AA",
+          400: "#FD9F74",
+          500: "#FB7649",
+          600: "#FB7649", // Duplicate in SVG, kept as is
+          700: "#FB7649", // Duplicate in SVG, kept as is
+          800: "#FB7649", // Duplicate in SVG, kept as is
+          900: "#FB7649", // Duplicate in SVG, kept as is
+          950: "#FB7649", // Duplicate in SVG, kept as is
+        },
+
+        // Lavender/Purple accent
+        "rivvi-lavender": {
+          50: "#F9F5FC",
+          100: "#F4EBF9",
+          200: "#E8D5F3",
+          300: "#D9BBE9",
+          400: "#C597E2",
+          500: "#B173D8",
+          600: "#9D4FCF",
+          700: "#8A3BBD",
+          800: "#7730A0",
+          900: "#632883",
+          950: "#4F1F6A",
+        },
+
+        // Neutral/Gray
+        "rivvi-neutral": {
+          50: "#F4EFF6",
+          100: "#EDE6F0",
+          200: "#E6DDE9",
+          300: "#D6CEDD",
+          400: "#C6BED1",
+          500: "#B6AEC5",
+          600: "#A69EB9",
+          700: "#968EAD",
+          800: "#867EA1",
+          900: "#766E95",
+          950: "#5D5675",
+        },
+
+        // Cream/Beige
+        "rivvi-cream": {
+          50: "#FDFCF7",
+          100: "#F9F7EF",
+          200: "#F6F4E8",
+          300: "#F3F0E0",
+          400: "#F0ECD8",
+          500: "#F0E8D3",
+          600: "#E8DCBA",
+          700: "#DFD0A1",
+          800: "#D6C488",
+          900: "#CDB86F",
+          950: "#BFA64F",
+        },
+
+        // Peach/Skin
+        "rivvi-peach": {
+          50: "#FEF3ED",
+          100: "#FBE7E0",
+          200: "#F8DBD3",
+          300: "#F2CFC6",
+          400: "#E5CBCA",
+          500: "#D8B7B6",
+          600: "#CBA3A2",
+          700: "#BE8F8E",
+          800: "#B17B7A",
+          900: "#A46766",
+          950: "#8A5352",
+        },
+
+        // Blue/Teal
+        "rivvi-teal": {
+          50: "#F0F7FA",
+          100: "#E1F0F5",
+          200: "#D1E5EC",
+          300: "#B3D6E2",
+          400: "#95C7D8",
+          500: "#77B8CE",
+          600: "#59A9C4",
+          700: "#3B9ABA",
+          800: "#2D7A94",
+          900: "#1F5A6E",
+          950: "#11394A",
+        },
+
+        // Light (white-ish)
+        "rivvi-light": {
+          50: "#FFFFFF",
+          100: "#FAFAFA",
+          200: "#F5F5F5",
+          300: "#F0F0F0",
+          400: "#E8E8E8",
+          500: "#E0E0E0",
+          600: "#D0D0D0",
+          700: "#C0C0C0",
+          800: "#B0B0B0",
+          900: "#A0A0A0",
+          950: "#909090",
+        },
+
+        // Dark (black-ish)
+        "rivvi-dark": {
+          50: "#808080",
+          100: "#707070",
+          200: "#606060",
+          300: "#505050",
+          400: "#404040",
+          500: "#303030",
+          600: "#252525",
+          700: "#1A1A1A",
+          800: "#121212",
+          900: "#0A0A0A",
+          950: "#000000",
         },
       },
       borderRadius: {
