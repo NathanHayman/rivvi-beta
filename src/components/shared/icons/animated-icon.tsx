@@ -45,9 +45,10 @@ export const createAnimatedIcon = ({
     return (
       <div
         className={cn(
-          "cursor-pointer select-none hover:bg-zinc-200/20 dark:hover:bg-zinc-800 p-2.5 py-3.5 rounded-md transition-colors duration-300 ease-in-out flex items-center justify-start gap-2 w-full",
-          "group-data-[collapsible=icon]:p-4 group-data-[collapsible=icon]:py-4 group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:hover:bg-transparent",
-          className
+          "flex w-full cursor-pointer select-none items-center justify-center gap-2",
+          "group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:py-2",
+          "group-data-[collapsible=icon]:gap-0",
+          className,
         )}
         onClick={onClick}
         onMouseEnter={
@@ -72,8 +73,8 @@ export const createAnimatedIcon = ({
           strokeLinecap="round"
           strokeLinejoin="round"
           className={cn(
-            "transition-colors duration-300 ease-in-out fill-zinc-500/10 dark:fill-zinc-200/10",
-            iconClassName
+            "transition-colors duration-300 ease-in-out",
+            iconClassName,
           )}
           variants={svgVariants}
           animate={controls}

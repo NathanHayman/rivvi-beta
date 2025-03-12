@@ -36,11 +36,7 @@ export const metadata: Metadata = {
 async function GetDashboardStats({ orgId }: { orgId: string }) {
   try {
     // Use the server action directly
-    return (
-      <>
-        <DashboardStats orgId={orgId} />
-      </>
-    );
+    return <DashboardStats orgId={orgId} />;
   } catch (error) {
     // Fallback to simple stats if there's an error
     try {
@@ -123,9 +119,41 @@ async function GetRecentCampaigns() {
       throw new Error(campaignsResult.error.message);
     }
 
-    // Get only the first 3 campaigns
+    // Get only the first 3 campaigns and transform them into the expected structure
     const recentCampaigns = {
-      campaigns: campaignsResult.data.slice(0, 3),
+      campaigns: campaignsResult.data.slice(0, 3).map((campaignData, index) => {
+        // Create a proper ZCampaignWithTemplate structure
+        return {
+          // Include the campaign data directly in a campaign property
+          campaign: {
+            ...campaignData,
+            id: campaignData.id || `temp-id-${index}`,
+            createdAt: campaignData.createdAt
+              ? new Date(campaignData.createdAt)
+              : new Date(),
+            updatedAt: campaignData.updatedAt
+              ? new Date(campaignData.updatedAt)
+              : null,
+          },
+          // Create a minimal template object with required properties
+          template: {
+            id: campaignData.templateId || `temp-template-id-${index}`,
+            basePrompt: "",
+            description: "",
+            voicemailMessage: "",
+            variablesConfig: {},
+            analysisConfig: {},
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            // Add other required template properties
+            name: "",
+            orgId: campaignData.orgId || "",
+            agentId: "",
+            llmId: "",
+            createdBy: "",
+          },
+        };
+      }),
     };
 
     return <RecentCampaignsCard campaigns={recentCampaigns.campaigns as any} />;
@@ -153,7 +181,6 @@ async function GetRecentCalls() {
     // Use the server action directly with minimal parameters to avoid UUID issues
     const recentCalls = await getCalls({
       limit: 5,
-      // Explicitly avoid passing any UUID parameters
     });
 
     // Check if we have valid data

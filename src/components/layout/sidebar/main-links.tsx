@@ -19,7 +19,7 @@ export function MainLinks({ links }: { links: TNavLinkItem[] }) {
 
   return (
     <SidebarGroup>
-      <SidebarMenu className="space-y-0.5 relative ">
+      <SidebarMenu className="relative space-y-1">
         {links.map((link) => {
           let isActive =
             pathname === link.href || pathname.startsWith(`${link.href}/`);
@@ -45,37 +45,46 @@ export function MainLinks({ links }: { links: TNavLinkItem[] }) {
                   width: isActive ? 5 : 0,
                 }}
                 transition={{ duration: 0.3, ease: "circInOut" }}
-                className="w-1 h-12 rotate-90 inset-0 z-[999] bg-primary absolute top-0 -left-1 bottom-0 self-start rounded-lg"
+                className="absolute inset-0 -left-1 bottom-0 top-0 z-[999] h-12 w-1 rotate-90 self-start rounded-lg bg-primary"
               />
               <SidebarMenuButton
                 asChild
                 className={cn(
-                  "py-0 border border-transparent transition-all duration-300 ease-in-out",
-                  "focus:outline-1 focus:outline-accent-foreground/5 focus:outline-offset-0 ",
+                  "h-full w-full border border-transparent py-0 transition-all duration-300 ease-in-out",
+                  "focus:outline-1 focus:outline-offset-0 focus:outline-accent-foreground/5 group-data-[collapsible=icon]:p-0",
                   isActive
                     ? "bg-accent-foreground/[0.05] text-accent-foreground hover:bg-accent-foreground/5 hover:text-accent-foreground"
-                    : ""
+                    : "",
                 )}
               >
                 <Link
                   prefetch={false}
                   href={link.href ?? "/"}
-                  className="flex items-center gap-2 relative transition-all duration-300 ease-in-out w-full h-full px-2.5"
+                  className="relative w-fit group-data-[collapsible=icon]:p-0"
                 >
                   {link.icon && (
                     <link.icon.icon
-                      className={cn(
-                        "group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-[1.0625rem]",
+                      iconClassName={cn(
+                        "size-[1.15rem]",
+                        "group-data-[collapsible=icon]:mx-auto",
                         isActive
                           ? "text-accent-foreground"
-                          : "text-accent-foreground/50"
+                          : "text-accent-foreground/50",
                       )}
-                    />
+                      className={cn(
+                        "flex h-9 w-full items-center justify-start p-0 transition-all duration-300 ease-in-out",
+                        "group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-8",
+                        isActive
+                          ? "text-accent-foreground"
+                          : "text-accent-foreground/50",
+                      )}
+                    >
+                      <span className="text-sm leading-9 group-data-[collapsible=icon]:hidden">
+                        {link.title}
+                      </span>
+                    </link.icon.icon>
                   )}
                   <span className="sr-only">{link.icon?.iconTitle}</span>
-                  <span className="group-data-[collapsible=icon]:hidden text-sm leading-9">
-                    {link.title}
-                  </span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

@@ -54,36 +54,41 @@ export function RecentCampaignsCard({ campaigns }: RecentCampaignsCardProps) {
         <CardContent className="px-2">
           {campaigns.length > 0 ? (
             <div className="space-y-2">
-              {campaigns.map((campaign) => (
+              {campaigns.map((campaign, index) => (
                 <div
-                  key={campaign.campaign?.id}
+                  key={campaign.campaign?.id || `campaign-${index}`}
                   className="rounded-md border p-3"
                 >
                   <div className="mb-2 flex items-center justify-between">
-                    <div className="font-medium">{campaign.campaign?.name}</div>
+                    <div className="font-medium">
+                      {campaign.campaign?.name || "Unnamed Campaign"}
+                    </div>
                     <Badge
                       variant="outline"
                       className={getCampaignTypeColor(
-                        campaign.campaign?.direction,
+                        campaign.campaign?.direction || "unknown",
                       )}
                     >
-                      {campaign.campaign?.direction}
+                      {campaign.campaign?.direction || "unknown"}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted-foreground">
                       Created{" "}
-                      {formatDistance(
-                        new Date(campaign.campaign?.createdAt),
-                        new Date(),
-                        { addSuffix: true },
-                      )}
+                      {campaign.campaign?.createdAt
+                        ? formatDistance(
+                            new Date(campaign.campaign.createdAt),
+                            new Date(),
+                            { addSuffix: true },
+                          )
+                        : "Unknown date"}
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleCreateRun(campaign)}
                       className="h-7 gap-1 rounded-full px-2 text-xs"
+                      disabled={!campaign.campaign?.id}
                     >
                       <CalendarIcon className="h-3.5 w-3.5" />
                       Create Run

@@ -1,13 +1,11 @@
-import {
-  Building,
-  CircleHelp,
-  Code,
-  Home,
-  List,
-  Phone,
-  Settings,
-  Users,
-} from "lucide-react";
+import { ActivityIcon } from "@/components/shared/icons/activity";
+import { AudioLinesIcon } from "@/components/shared/icons/audio-lines";
+import { ChartPieIcon } from "@/components/shared/icons/chart-pie";
+import { CircleHelpIcon } from "@/components/shared/icons/circle-help";
+import { HomeIcon } from "@/components/shared/icons/home";
+import { RouteIcon } from "@/components/shared/icons/route";
+import { SettingsGearIcon } from "@/components/shared/icons/settings-gear";
+import { UsersIcon } from "@/components/shared/icons/users";
 import { TSidebarContent } from "./types";
 
 export const SIDEBAR_CONTENT: TSidebarContent = {
@@ -16,7 +14,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Overview",
       href: "/admin",
       icon: {
-        icon: Home,
+        icon: HomeIcon,
         iconTitle: "Overview",
       },
     },
@@ -24,7 +22,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Organizations",
       href: "/admin/organizations",
       icon: {
-        icon: Building,
+        icon: UsersIcon,
         iconTitle: "Organizations",
       },
     },
@@ -32,7 +30,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Campaigns",
       href: "/admin/campaigns",
       icon: {
-        icon: List,
+        icon: RouteIcon,
         iconTitle: "Campaigns",
       },
     },
@@ -40,7 +38,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Campaign Requests",
       href: "/admin/campaign-requests",
       icon: {
-        icon: List,
+        icon: ActivityIcon,
         iconTitle: "Campaign Requests",
       },
     },
@@ -48,7 +46,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Playground",
       href: "/admin/playground",
       icon: {
-        icon: Code,
+        icon: HomeIcon,
         iconTitle: "Playground",
       },
     },
@@ -58,7 +56,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Dashboard",
       href: "/",
       icon: {
-        icon: Home,
+        icon: ChartPieIcon,
         iconTitle: "Dashboard",
       },
     },
@@ -66,7 +64,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Campaigns",
       href: "/campaigns",
       icon: {
-        icon: List,
+        icon: RouteIcon,
         iconTitle: "Activity",
       },
     },
@@ -74,7 +72,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Patients",
       href: "/patients",
       icon: {
-        icon: Users,
+        icon: UsersIcon,
         iconTitle: "Patients",
       },
     },
@@ -82,7 +80,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Call Logs",
       href: "/calls",
       icon: {
-        icon: Phone,
+        icon: AudioLinesIcon,
         iconTitle: "Phone Call",
       },
     },
@@ -92,7 +90,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Settings",
       href: "/settings",
       icon: {
-        icon: Settings,
+        icon: SettingsGearIcon,
         iconTitle: "Settings",
       },
     },
@@ -100,7 +98,7 @@ export const SIDEBAR_CONTENT: TSidebarContent = {
       title: "Support",
       href: "/#support",
       icon: {
-        icon: CircleHelp,
+        icon: CircleHelpIcon,
         iconTitle: "Support",
       },
     },
