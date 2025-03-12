@@ -83,7 +83,6 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
 
   return (
     <div className="space-y-6">
-      {patient.primaryPhone}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

@@ -1178,13 +1178,6 @@ export async function handlePostCallWebhook(
             // Determine resolution status based on processed analysis
             let resolutionStatus: OutreachResolutionStatus = "open";
 
-            // Extract patientReached flag from processed analysis
-            const patientReached =
-              processedAnalysis?.patient_reached === true ||
-              processedAnalysis?.patientReached === true;
-
-            console.log("processedAnalysis", processedAnalysis);
-
             if (processedAnalysis) {
               console.log("process analysis exists");
               if (

@@ -1,7 +1,20 @@
+"use client";
+
+import type React from "react";
+
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { CheckCircle, Info, Loader2 } from "lucide-react";
+import {
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Loader2,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 // Component to display the diff
 const DiffDisplay = ({
@@ -20,9 +33,11 @@ const DiffDisplay = ({
       {diff.map((segment, index) => {
         let className = "inline";
         if (segment.type === "added")
-          className = "bg-green-100 text-green-800 inline";
+          className =
+            "bg-green-100 text-green-800 dark:bg-green-950/30 dark:text-green-300 inline";
         if (segment.type === "removed")
-          className = "bg-red-100 text-red-800 line-through inline";
+          className =
+            "bg-red-100 text-red-800 dark:bg-red-950/30 dark:text-red-300 line-through inline";
 
         return (
           <span key={index} className={className}>
@@ -51,6 +66,21 @@ const StreamingGenerationUI = ({
 }: StreamingGenerationUIProps) => {
   // Helper functions for determining what to show
   const isLoaded = (data: any) => data !== undefined && data !== null;
+  const [autoScroll, setAutoScroll] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastScrollPosition = useRef(0);
+  const [expandedSections, setExpandedSections] = useState<
+    Record<string, boolean>
+  >({
+    summary: true,
+    categories: true,
+    keyChanges: true,
+    metrics: true,
+    prediction: true,
+    structural: true,
+    diff: true,
+    keyPhrases: true,
+  });
 
   // Extract data for easier access
   const metadata = streamedData?.metadata || {};
@@ -70,13 +100,111 @@ const StreamingGenerationUI = ({
   const hasDiff =
     isLoaded(diffData?.promptDiff) && diffData.promptDiff?.length > 0;
   const hasKeyPhrases = isLoaded(comparison?.keyPhrases);
+  const hasStructural =
+    isLoaded(comparison?.structuralChanges) &&
+    comparison.structuralChanges.length > 0;
 
-  // Calculate animation delays for progressive reveal
-  const getAnimationDelay = (index: number) => `${index * 0.1}s`;
+  // Toggle section expansion
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  // Handle scroll events to detect manual scrolling
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!scrollContainerRef.current) return;
+
+      const { scrollTop, scrollHeight, clientHeight } =
+        scrollContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 20;
+
+      // If user scrolled up, disable auto-scroll
+      if (scrollTop < lastScrollPosition.current && autoScroll) {
+        setAutoScroll(false);
+      }
+
+      // If user scrolled to bottom, enable auto-scroll
+      if (isAtBottom && !autoScroll) {
+        setAutoScroll(true);
+      }
+
+      lastScrollPosition.current = scrollTop;
+    };
+
+    const scrollContainer = scrollContainerRef.current;
+    if (scrollContainer) {
+      scrollContainer.addEventListener("scroll", handleScroll, {
+        passive: true,
+      });
+    }
+
+    return () => {
+      if (scrollContainer) {
+        scrollContainer.removeEventListener("scroll", handleScroll);
+      }
+    };
+  }, [autoScroll]);
+
+  // Auto-scroll to bottom when new content arrives
+  useEffect(() => {
+    if (autoScroll && scrollContainerRef.current && isGenerating) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [streamedData, isGenerating, autoScroll]);
+
+  // Function to render loading or content
+  const renderSection = (
+    condition: boolean,
+    content: React.ReactNode,
+    loadingHeight = "h-4",
+    sectionKey: string,
+  ) => {
+    if (condition) {
+      return (
+        <Card className="overflow-hidden border shadow-sm transition-all duration-200">
+          <div
+            className="flex cursor-pointer items-center justify-between border-b bg-muted/30 px-4 py-3"
+            onClick={() => toggleSection(sectionKey)}
+          >
+            <h3 className="text-sm font-medium">
+              {sectionKey.charAt(0).toUpperCase() + sectionKey.slice(1)}
+            </h3>
+            {expandedSections[sectionKey] ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+          <div
+            className={cn(
+              "transition-all duration-200 ease-in-out",
+              expandedSections[sectionKey]
+                ? "max-h-[500px] opacity-100"
+                : "max-h-0 overflow-hidden opacity-0",
+            )}
+          >
+            <CardContent className="p-4">{content}</CardContent>
+          </div>
+        </Card>
+      );
+    }
+    return isGenerating ? (
+      <div className="space-y-2">
+        <Skeleton className={`w-full ${loadingHeight}`} />
+        <Skeleton className={`w-3/4 ${loadingHeight}`} />
+      </div>
+    ) : null;
+  };
 
   return (
-    <div className="space-y-4 py-4">
-      {/* Generation Status Header */}
+    <div className="flex h-full flex-col">
+      {/* Generation Status Header - Fixed at top */}
       <div className="sticky top-0 z-10 rounded-md border bg-background/95 p-3 shadow-sm backdrop-blur-sm">
         <div className="flex items-center space-x-2">
           {isGenerating ? (
@@ -173,335 +301,325 @@ const StreamingGenerationUI = ({
         </div>
       </div>
 
-      {/* Generated Content with Progressive Animations */}
-      <div className="space-y-5 pb-4">
-        {/* Summary Section - Prominently Featured */}
-        {streamedData?.summary && (
-          <Card
-            className="overflow-hidden border-2 border-primary duration-500 animate-in fade-in-50 slide-in-from-left"
-            style={{ animationDelay: getAnimationDelay(0) }}
-            data-section="summary"
-          >
-            <CardHeader className="bg-primary/10 pb-2">
-              <CardTitle className="text-base">Summary of Changes</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-3">
-              <p className="text-sm">{streamedData.summary}</p>
-            </CardContent>
-          </Card>
-        )}
+      {/* Auto-scroll toggle */}
+      <div className="sticky top-[100px] z-10 mt-2 flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "h-8 gap-1 rounded-full border bg-background/80 px-3 text-xs backdrop-blur-sm",
+            autoScroll
+              ? "border-primary/50 text-primary"
+              : "text-muted-foreground",
+          )}
+          onClick={() => setAutoScroll(!autoScroll)}
+        >
+          {autoScroll ? (
+            <>
+              <CheckCircle className="h-3 w-3" /> Auto-scroll on
+            </>
+          ) : (
+            <>
+              <Info className="h-3 w-3" /> Auto-scroll off
+            </>
+          )}
+        </Button>
+      </div>
 
-        {/* Show summary loading placeholder */}
-        {isGenerating && !streamedData?.summary && progress >= 20 && (
-          <Card className="animate-pulse border-2 border-primary/50">
-            <CardHeader className="bg-primary/5 pb-2">
-              <div className="h-5 w-40 rounded bg-primary/20"></div>
-            </CardHeader>
-            <CardContent className="space-y-2 pt-3">
-              <div className="h-4 w-full rounded bg-muted"></div>
-              <div className="h-4 w-5/6 rounded bg-muted"></div>
-              <div className="h-4 w-4/6 rounded bg-muted"></div>
-            </CardContent>
-          </Card>
+      {/* Scrollable content area */}
+      <div
+        ref={scrollContainerRef}
+        className="mt-2 flex-1 space-y-3 overflow-y-auto pb-4 pr-1"
+      >
+        {/* Summary Section - Always at top */}
+        {isLoaded(streamedData?.summary) && (
+          <div className="rounded-lg border-2 border-primary bg-primary/5 p-4 shadow-sm">
+            <h3 className="mb-2 text-sm font-medium text-primary">
+              Summary of Changes
+            </h3>
+            <p className="text-sm">{streamedData?.summary}</p>
+          </div>
         )}
 
         {/* Categories & Tags */}
-        {(hasCategories || hasTags) && (
-          <Card
-            className="overflow-hidden duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(1) }}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Classification</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {hasCategories && (
-                <div>
-                  <span className="mb-1 block text-xs font-medium">
-                    Categories:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {metadata.categories.map((category: string, i: number) => (
+        {renderSection(
+          hasCategories || hasTags,
+          <div className="space-y-4">
+            {hasCategories && (
+              <div>
+                <span className="mb-2 block text-xs font-medium">
+                  Categories:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.isArray(metadata?.categories) &&
+                    metadata.categories.map((category: string, i: number) => (
                       <Badge
                         key={i}
                         variant="secondary"
-                        className="bg-blue-100 duration-300 animate-in fade-in slide-in-from-bottom-3 dark:bg-blue-900/30"
-                        style={{
-                          animationDelay: `${getAnimationDelay(i + 1)}`,
-                        }}
+                        className="bg-blue-100 dark:bg-blue-900/30"
                       >
                         {category}
                       </Badge>
                     ))}
-                  </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {hasTags && (
-                <div>
-                  <span className="mb-1 block text-xs font-medium">Tags:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {metadata.tags.map((tag: string, i: number) => (
-                      <Badge
-                        key={i}
-                        variant="outline"
-                        className="text-xs duration-300 animate-in fade-in slide-in-from-bottom-3"
-                        style={{
-                          animationDelay: `${getAnimationDelay(i + 1)}`,
-                        }}
-                      >
+            {hasTags && (
+              <div>
+                <span className="mb-2 block text-xs font-medium">Tags:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.isArray(metadata?.tags) &&
+                    metadata.tags.map((tag: string, i: number) => (
+                      <Badge key={i} variant="outline" className="text-xs">
                         {tag}
                       </Badge>
                     ))}
-                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+            )}
+          </div>,
+          "h-20",
+          "categories",
         )}
 
         {/* Key Changes */}
-        {hasKeyChanges && (
-          <Card
-            className="duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(2) }}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Key Changes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc space-y-1.5 pl-5 text-sm">
-                {metadata.keyChanges.map((change: string, i: number) => (
-                  <li
-                    key={i}
-                    className="duration-300 animate-in fade-in slide-in-from-right-3"
-                    style={{ animationDelay: `${getAnimationDelay(i)}` }}
-                  >
-                    {change}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+        {renderSection(
+          hasKeyChanges,
+          <ul className="list-disc space-y-1.5 pl-5 text-sm">
+            {Array.isArray(metadata?.keyChanges) &&
+              metadata.keyChanges.map((change: string, i: number) => (
+                <li key={i}>{change}</li>
+              ))}
+          </ul>,
+          "h-24",
+          "keyChanges",
         )}
 
         {/* Metrics */}
-        {hasMetrics && (
-          <Card
-            className="duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(3) }}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Metrics</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {isLoaded(metadata.promptLength) && (
-                <div className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3">
-                  <span className="font-medium">Length Change:</span>
-                  <span>
-                    {metadata.promptLength.before} →{" "}
-                    {metadata.promptLength.after} (
-                    {metadata.promptLength.difference > 0 ? "+" : ""}
-                    {metadata.promptLength.difference} chars)
-                  </span>
-                </div>
-              )}
+        {renderSection(
+          hasMetrics,
+          <div className="space-y-2 text-sm">
+            {isLoaded(metadata.promptLength) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Length Change:</span>
+                <span>
+                  {metadata?.promptLength?.before} →{" "}
+                  {metadata?.promptLength?.after} (
+                  {metadata?.promptLength?.difference > 0 ? "+" : ""}
+                  {metadata?.promptLength?.difference} chars)
+                </span>
+              </div>
+            )}
 
-              {isLoaded(metadata.sentimentShift) && (
-                <div
-                  className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3"
-                  style={{ animationDelay: "0.1s" }}
-                >
-                  <span className="font-medium">Sentiment:</span>
-                  <span>
-                    {metadata.sentimentShift.before} →{" "}
-                    {metadata.sentimentShift.after}
-                  </span>
-                </div>
-              )}
+            {isLoaded(metadata.sentimentShift) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Sentiment:</span>
+                <span>
+                  {metadata?.sentimentShift?.before} →{" "}
+                  {metadata?.sentimentShift?.after}
+                </span>
+              </div>
+            )}
 
-              {isLoaded(metadata.formalityLevel) && (
-                <div
-                  className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3"
-                  style={{ animationDelay: "0.2s" }}
-                >
-                  <span className="font-medium">Formality (1-10):</span>
-                  <span>
-                    {metadata.formalityLevel.before} →{" "}
-                    {metadata.formalityLevel.after}
-                  </span>
-                </div>
-              )}
+            {isLoaded(metadata.formalityLevel) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Formality (1-10):</span>
+                <span>
+                  {metadata?.formalityLevel?.before} →{" "}
+                  {metadata?.formalityLevel?.after}
+                </span>
+              </div>
+            )}
 
-              {isLoaded(metadata.complexityScore) && (
-                <div
-                  className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3"
-                  style={{ animationDelay: "0.3s" }}
-                >
-                  <span className="font-medium">Complexity (1-10):</span>
-                  <span>
-                    {metadata.complexityScore.before} →{" "}
-                    {metadata.complexityScore.after}
-                  </span>
-                </div>
-              )}
+            {isLoaded(metadata.complexityScore) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Complexity (1-10):</span>
+                <span>
+                  {metadata?.complexityScore?.before} →{" "}
+                  {metadata?.complexityScore?.after}
+                </span>
+              </div>
+            )}
 
-              {isLoaded(metadata.toneShift) && (
-                <div
-                  className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3"
-                  style={{ animationDelay: "0.4s" }}
-                >
-                  <span className="font-medium">Tone:</span>
-                  <span>{metadata.toneShift}</span>
-                </div>
-              )}
+            {isLoaded(metadata.toneShift) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Tone:</span>
+                <span>{metadata.toneShift}</span>
+              </div>
+            )}
 
-              {isLoaded(metadata.focusArea) && (
-                <div
-                  className="flex items-center justify-between duration-300 animate-in fade-in-50 slide-in-from-left-3"
-                  style={{ animationDelay: "0.5s" }}
-                >
-                  <span className="font-medium">Focus Area:</span>
-                  <span>{metadata.focusArea}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            {isLoaded(metadata.focusArea) && (
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Focus Area:</span>
+                <span>{metadata.focusArea}</span>
+              </div>
+            )}
+          </div>,
+          "h-24",
+          "metrics",
         )}
 
         {/* Prediction */}
-        {hasPrediction && (
-          <Card
-            className="duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(4) }}
-            data-section="prediction"
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Performance Prediction</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">Expected Impact:</span>
-                <Badge
-                  className={cn({
-                    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
-                      comparison.performancePrediction.expectedImpact ===
-                      "positive",
-                    "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
-                      comparison.performancePrediction.expectedImpact ===
-                      "negative",
-                    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300":
-                      comparison.performancePrediction.expectedImpact ===
-                        "neutral" ||
-                      comparison.performancePrediction.expectedImpact ===
-                        "uncertain",
-                  })}
-                >
-                  {comparison.performancePrediction.expectedImpact}
-                </Badge>
-                <span className="text-xs">
-                  (Confidence:{" "}
-                  {comparison.performancePrediction.confidenceLevel}/10)
-                </span>
-              </div>
-              {comparison.performancePrediction.rationale && (
-                <p className="text-sm duration-300 animate-in fade-in slide-in-from-bottom-3">
-                  {comparison.performancePrediction.rationale}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {renderSection(
+          hasPrediction,
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Expected Impact:</span>
+              <Badge
+                className={cn({
+                  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
+                    comparison?.performancePrediction?.expectedImpact ===
+                    "positive",
+                  "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
+                    comparison?.performancePrediction?.expectedImpact ===
+                    "negative",
+                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300":
+                    comparison?.performancePrediction?.expectedImpact ===
+                      "neutral" ||
+                    comparison?.performancePrediction?.expectedImpact ===
+                      "uncertain",
+                })}
+              >
+                {comparison?.performancePrediction?.expectedImpact || "unknown"}
+              </Badge>
+              <span className="text-xs">
+                (Confidence:{" "}
+                {comparison?.performancePrediction?.confidenceLevel || "?"}
+                /10)
+              </span>
+            </div>
+            {comparison?.performancePrediction?.rationale && (
+              <p className="text-sm">
+                {comparison?.performancePrediction?.rationale}
+              </p>
+            )}
+          </div>,
+          "h-20",
+          "prediction",
+        )}
+
+        {/* Structural Changes */}
+        {renderSection(
+          hasStructural,
+          <div className="space-y-2 text-sm">
+            {Array.isArray(comparison?.structuralChanges) &&
+              comparison.structuralChanges.map((change: any, i: number) => (
+                <div key={i} className="flex items-start gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn({
+                      "border-green-200 text-green-600":
+                        change.changeType === "added",
+                      "border-red-200 text-red-600":
+                        change.changeType === "removed",
+                      "border-amber-200 text-amber-600":
+                        change.changeType === "modified",
+                      "text-gray-600 border-gray-200":
+                        !change.changeType ||
+                        (change.changeType !== "added" &&
+                          change.changeType !== "removed" &&
+                          change.changeType !== "modified"),
+                    })}
+                  >
+                    {change.changeType || "neutral"}
+                  </Badge>
+                  <div>
+                    <span className="font-medium">{change.section}:</span>{" "}
+                    {change.description}
+                  </div>
+                </div>
+              ))}
+          </div>,
+          "h-20",
+          "structural",
         )}
 
         {/* Diff Visualization */}
-        {hasDiff && (
-          <Card
-            className="duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(5) }}
-            data-section="diff"
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Text Changes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="max-h-40 overflow-auto rounded-md bg-muted/20 p-2">
-                <DiffDisplay diff={diffData?.promptDiff} />
-              </div>
-            </CardContent>
-          </Card>
+        {renderSection(
+          hasDiff,
+          <div>
+            <div className="max-h-60 overflow-auto rounded-md bg-muted/20 p-2">
+              <DiffDisplay diff={diffData?.promptDiff} />
+            </div>
+
+            {isLoaded(diffData?.voicemailDiff) &&
+              diffData.voicemailDiff.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="mb-1 text-xs font-semibold">Voicemail:</h4>
+                  <div className="max-h-40 overflow-auto rounded-md bg-muted/20 p-2">
+                    <DiffDisplay diff={diffData?.voicemailDiff} />
+                  </div>
+                </div>
+              )}
+          </div>,
+          "h-24",
+          "diff",
         )}
 
         {/* Key Phrases */}
-        {hasKeyPhrases && comparison.keyPhrases && (
-          <Card
-            className="duration-500 animate-in fade-in-50 slide-in-from-bottom-5"
-            style={{ animationDelay: getAnimationDelay(6) }}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Key Phrases</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {comparison.keyPhrases.added &&
-                comparison.keyPhrases.added.length > 0 && (
-                  <div className="duration-300 animate-in fade-in slide-in-from-right-3">
-                    <span className="text-xs font-medium text-green-600">
-                      Added:
-                    </span>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
-                      {comparison.keyPhrases.added.map(
-                        (phrase: string, i: number) => (
-                          <li key={i}>{phrase}</li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
+        {renderSection(
+          hasKeyPhrases,
+          <div className="space-y-3">
+            {comparison?.keyPhrases?.added &&
+              Array.isArray(comparison.keyPhrases.added) &&
+              comparison.keyPhrases.added.length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-green-600">
+                    Added:
+                  </span>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+                    {comparison.keyPhrases.added.map(
+                      (phrase: string, i: number) => (
+                        <li key={i}>{phrase}</li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              )}
 
-              {comparison.keyPhrases.removed &&
-                comparison.keyPhrases.removed.length > 0 && (
-                  <div
-                    className="duration-300 animate-in fade-in slide-in-from-right-3"
-                    style={{ animationDelay: "0.1s" }}
-                  >
-                    <span className="text-xs font-medium text-red-600">
-                      Removed:
-                    </span>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
-                      {comparison.keyPhrases.removed.map(
-                        (phrase: string, i: number) => (
-                          <li key={i}>{phrase}</li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
+            {comparison?.keyPhrases?.removed &&
+              Array.isArray(comparison.keyPhrases.removed) &&
+              comparison.keyPhrases.removed.length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-red-600">
+                    Removed:
+                  </span>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+                    {comparison.keyPhrases.removed.map(
+                      (phrase: string, i: number) => (
+                        <li key={i}>{phrase}</li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              )}
 
-              {comparison.keyPhrases.modified &&
-                comparison.keyPhrases.modified.length > 0 && (
-                  <div
-                    className="duration-300 animate-in fade-in slide-in-from-right-3"
-                    style={{ animationDelay: "0.2s" }}
-                  >
-                    <span className="text-xs font-medium text-amber-600">
-                      Modified:
-                    </span>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
-                      {comparison.keyPhrases.modified.map(
-                        (mod: any, i: number) => (
-                          <li key={i}>
-                            &quot;{mod.before}&quot; → &quot;{mod.after}&quot;
-                          </li>
-                        ),
-                      )}
-                    </ul>
-                  </div>
-                )}
-            </CardContent>
-          </Card>
+            {comparison?.keyPhrases?.modified &&
+              Array.isArray(comparison.keyPhrases.modified) &&
+              comparison.keyPhrases.modified.length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-amber-600">
+                    Modified:
+                  </span>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+                    {comparison.keyPhrases.modified.map(
+                      (mod: any, i: number) => (
+                        <li key={i}>
+                          &quot;{mod.before}&quot; → &quot;{mod.after}&quot;
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              )}
+          </div>,
+          "h-20",
+          "keyPhrases",
         )}
 
         {/* Show loading placeholders during generation */}
-        {isGenerating && progress < 100 && !streamedData?.summary && (
+        {isGenerating && progress < 25 && !streamedData?.summary && (
           <div className="animate-pulse space-y-4">
             <div className="h-24 rounded-md bg-muted"></div>
             <div className="space-y-2">

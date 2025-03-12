@@ -209,7 +209,9 @@ export function RunCreateForm({
 
   // Improved effect to track AI generation status with more detailed messages
   useEffect(() => {
-    if (isAIGenerating) {
+    // Only update states if they're not already matching the isAIGenerating value
+    // This prevents the infinite loop caused by updating the same state multiple times
+    if (isAIGenerating && !isGeneratingPrompt) {
       setIsGeneratingPrompt(true);
       setIsStreamingComplete(false);
 
@@ -272,13 +274,14 @@ export function RunCreateForm({
       }
 
       // Apply time-based progress increment
-      const elapsed = Date.now() - generationStartTime;
+      const elapsed = Date.now() - (generationStartTime || Date.now());
       const timeBasedMinimumProgress = Math.min(90, (elapsed / 30000) * 100);
       progress = Math.max(progress, timeBasedMinimumProgress);
 
       setCurrentTask(currentStage);
       setPreviousProgress(progress);
-    } else if (aiResponse) {
+    } else if (!isAIGenerating && isGeneratingPrompt && aiResponse) {
+      // Only update states if they're not already correct
       // Reset progress timers and set to complete
       setGenerationStartTime(null);
       setIsGeneratingPrompt(false);
@@ -300,7 +303,14 @@ export function RunCreateForm({
         form.setValue("customVoicemailMessage", aiResponse.newVoicemailMessage);
       }
     }
-  }, [isAIGenerating, aiResponse, generationStartTime, form, previousProgress]);
+  }, [
+    isAIGenerating,
+    aiResponse,
+    generationStartTime,
+    form,
+    isGeneratingPrompt,
+    isStreamingComplete,
+  ]);
 
   const createRunMutation = useCreateRun(campaignId);
   const uploadFileMutation = useUploadFile();

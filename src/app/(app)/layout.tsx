@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/layout/sidebar";
-import SuperAdminWidget from "@/components/super-admin-widget";
+import SuperAdminWidget from "@/components/shared/super-admin-widget";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
