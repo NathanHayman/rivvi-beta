@@ -1121,12 +1121,6 @@ export async function handlePostCallWebhook(
             console.log(
               `[WEBHOOK] Setting row status to 'callback' for inbound callback`,
             );
-          } else if (
-            processedAnalysis?.voicemail_detected === true ||
-            payload.call_analysis?.in_voicemail === true ||
-            payload.call_status === "voicemail"
-          ) {
-            rowStatus = "voicemail";
           } else {
             // For non-callback calls, use the standard status mapping
             rowStatus = getStatus("row", callStatus as RetellCallStatus);
@@ -1193,16 +1187,9 @@ export async function handlePostCallWebhook(
                 processedAnalysis?.agreed_to_schedule === true ||
                 processedAnalysis?.agreed_to_reschedule === true ||
                 processedAnalysis?.transferred === true ||
-                (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.in_voicemail === false) ||
-                (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.left_voicemail === false) ||
-                (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.voicemail_left === false) ||
-                (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.patient_reached === true) ||
-                (processedAnalysis?.callback_requested === false &&
-                  processedAnalysis?.voicemail_detected === true)
+                processedAnalysis?.callback_requested === false
+                // ||
+                // patientReached // Also mark as resolved if patient was reached
               ) {
                 resolutionStatus = "resolved";
               } else {
@@ -1344,10 +1331,7 @@ export async function handlePostCallWebhook(
           const voicemailLeft =
             processedAnalysis?.voicemail_left === true ||
             processedAnalysis?.left_voicemail === true ||
-            payload.call_analysis?.in_voicemail === true ||
-            payload.call_status === "voicemail" ||
-            processedAnalysis.voicemail_detected === true ||
-            processedAnalysis.voicemail_detected === true;
+            call_analysis?.in_voicemail === true;
 
           let resolutionStatus: string;
           if (callStatus === "failed" || callStatus === "no-answer") {
@@ -1405,9 +1389,7 @@ export async function handlePostCallWebhook(
           const voicemailLeft =
             processedAnalysis?.voicemail_left === true ||
             processedAnalysis?.left_voicemail === true ||
-            payload.call_analysis?.in_voicemail === true ||
-            payload.call_status === "voicemail" ||
-            processedAnalysis.voicemail_detected === true;
+            call_analysis?.in_voicemail === true;
 
           let resolutionStatus: string;
           if (callStatus === "failed" || callStatus === "no-answer") {
