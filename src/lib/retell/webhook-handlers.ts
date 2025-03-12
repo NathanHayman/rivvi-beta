@@ -1179,13 +1179,22 @@ export async function handlePostCallWebhook(
             let resolutionStatus: OutreachResolutionStatus = "open";
 
             // Extract patientReached flag from processed analysis
-            const patientReached = processedAnalysis?.patientReached === true;
+            const patientReached =
+              processedAnalysis?.patient_reached === true ||
+              processedAnalysis?.patientReached === true;
+
+            console.log("processedAnalysis", processedAnalysis);
 
             if (processedAnalysis) {
+              console.log("process analysis exists");
               if (
                 processedAnalysis?.appointment_confirmed === true ||
                 processedAnalysis?.medication_confirmed === true ||
                 processedAnalysis?.issue_resolved === true ||
+                processedAnalysis?.agreed_to_schedule === true ||
+                processedAnalysis?.agreed_to_reschedule === true ||
+                processedAnalysis?.transferred === true ||
+                processedAnalysis?.callback_requested === false ||
                 patientReached // Also mark as resolved if patient was reached
               ) {
                 resolutionStatus = "resolved";
