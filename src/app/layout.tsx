@@ -5,6 +5,7 @@ import { type Metadata } from "next";
 import Providers from "@/components/providers/global";
 import { Toaster } from "@/components/ui/sonner";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from "@vercel/analytics/react";
 import { DM_Sans, Inter } from "next/font/google";
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default function RootLayout({
           <Providers>
             {children}
             <Toaster richColors position="top-center" />
+            <Analytics />
           </Providers>
         </body>
       </html>
