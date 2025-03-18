@@ -1,7 +1,7 @@
 // src/services/runs/file-service.ts
 import { ErrorCode, ServiceResult } from "@/lib/service-result";
 import { type ProcessedFileData } from "@/types/api/runs";
-import { processExcelFile } from "./excel-processor";
+import { processExcelFile } from "../../lib/excel-processor";
 
 export const FileService = {
   async processFile(

@@ -1,5 +1,3 @@
-// src/lib/retell/inbound-webhook.ts
-
 import { triggerEvent } from "@/lib/pusher-server";
 import { isError } from "@/lib/service-result";
 import { db } from "@/server/db";
@@ -30,11 +28,6 @@ export async function handleInboundWebhook(
   orgId: string,
   payload: RetellInboundWebhookPayload,
 ): Promise<RetellInboundWebhookResponse> {
-  console.log(
-    `[INBOUND WEBHOOK] Inbound call received for org ${orgId}:`,
-    JSON.stringify(payload),
-  );
-
   try {
     // Initialize variables at the beginning to fix linter errors
     let overrideAgentId = null;
@@ -47,9 +40,6 @@ export async function handleInboundWebhook(
 
     // Validate required fields with better error handling
     if (!payload.from_number) {
-      console.error(
-        `[INBOUND WEBHOOK] Missing from_number in inbound webhook payload`,
-      );
       return {
         status: "error",
         message: "Missing caller phone number",
@@ -67,9 +57,6 @@ export async function handleInboundWebhook(
     }
 
     if (!payload.to_number) {
-      console.warn(
-        `[INBOUND WEBHOOK] Missing to_number in inbound webhook payload, using fallback`,
-      );
       // Use a fallback to avoid disrupting call flow
       payload.to_number = payload.to_number || "unknown";
     }
@@ -81,7 +68,6 @@ export async function handleInboundWebhook(
       .where(eq(organizations.id, orgId));
 
     if (!organization) {
-      console.error(`[INBOUND WEBHOOK] Organization ${orgId} not found`);
       return {
         status: "error",
         message: "Organization not found",
@@ -100,7 +86,6 @@ export async function handleInboundWebhook(
 
     // Find patient by phone number
     const cleanPhone = payload.from_number;
-    console.log(`[INBOUND WEBHOOK] Looking up patient by phone: ${cleanPhone}`);
 
     // First try using the patient service
     const patient = await patientService.findByPhone(cleanPhone, orgId);
@@ -109,9 +94,6 @@ export async function handleInboundWebhook(
     let patientId: string | null = patient?.id || null;
     if (!patient) {
       try {
-        console.log(
-          `[INBOUND WEBHOOK] No existing patient found, creating minimal record`,
-        );
         // Create a basic patient record with today's date as a placeholder DOB
         const today = new Date().toISOString().split("T")[0]; // Format as YYYY-MM-DD
 
@@ -131,19 +113,11 @@ export async function handleInboundWebhook(
           patientId = null;
         } else {
           patientId = patientResult.data.id;
-          console.log(
-            `[INBOUND WEBHOOK] Created new patient with ID: ${patientId}`,
-          );
         }
       } catch (error) {
-        console.error("[INBOUND WEBHOOK] Error creating patient:", error);
         // Continue with a null patientId if patient creation fails
         patientId = null;
       }
-    } else {
-      console.log(
-        `[INBOUND WEBHOOK] Found existing patient: ${patient.firstName} ${patient.lastName} (ID: ${patient.id})`,
-      );
     }
 
     // Update metadata with patient ID
@@ -214,15 +188,8 @@ export async function handleInboundWebhook(
             // Use the template's agent ID for hot-swapping
             if (template && template.agentId) {
               overrideAgentId = template.agentId;
-              console.log(
-                `[INBOUND WEBHOOK] Found agent ID ${overrideAgentId} for hot-swapping`,
-              );
             }
           }
-
-          console.log(
-            `[INBOUND WEBHOOK] Found open outreach effort (${outreachEffort.id}) for campaign "${campaignData?.name || "unknown"}" with resolution status ${outreachEffort.resolutionStatus}`,
-          );
 
           // Update metadata for the call to link it to this outreach effort
           metadata.outreachEffortId = outreachEffort.id;
@@ -268,10 +235,6 @@ export async function handleInboundWebhook(
             }
           }
         } else {
-          console.log(
-            `[INBOUND WEBHOOK] No open outreach efforts found for patient, will find organization's default inbound agent`,
-          );
-
           // Use helper function to find the default inbound agent
           const defaultAgent = await findDefaultInboundAgent(orgId);
           overrideAgentId = defaultAgent.agentId;
@@ -303,20 +266,10 @@ export async function handleInboundWebhook(
           }
         }
       } catch (error) {
-        console.error(
-          "[INBOUND WEBHOOK] Error handling callback or default agent selection:",
-          error,
-        );
-
         // Fallback to default agent if there's an error
         overrideAgentId = "default-inbound-agent";
       }
     } else {
-      // No patient ID available, find the default inbound agent
-      console.log(
-        `[INBOUND WEBHOOK] No patient found, finding default inbound agent`,
-      );
-
       // Use helper function to find the default inbound agent
       const defaultAgent = await findDefaultInboundAgent(orgId);
       overrideAgentId = defaultAgent.agentId;
@@ -374,16 +327,11 @@ export async function handleInboundWebhook(
               updatedAt: new Date(),
             } as any)
             .where(eq(outreachEfforts.id, metadata.outreachEffortId));
-
-          console.log(
-            `[INBOUND WEBHOOK] Updated outreach effort ${metadata.outreachEffortId} with callback data`,
-          );
         } catch (updateError) {
           console.error(
             `[INBOUND WEBHOOK] Error updating outreach effort with callback data:`,
             updateError,
           );
-          // Continue processing even if update fails
         }
       }
 
@@ -417,10 +365,6 @@ export async function handleInboundWebhook(
               updatedAt: new Date(),
             } as any)
             .where(eq(rows.id, rowData.id));
-
-          console.log(
-            `[INBOUND WEBHOOK] Updated row ${rowData.id} with return call data (callback after ${originalStatus}) and set status to 'callback'`,
-          );
 
           // Update run statistics for inbound calls if we have a runId
           if (metadata.runId) {
@@ -457,10 +401,6 @@ export async function handleInboundWebhook(
                     updatedAt: new Date(),
                   } as any)
                   .where(eq(runs.id, metadata.runId));
-
-                console.log(
-                  `[INBOUND WEBHOOK] Updated run ${metadata.runId} with callback statistics`,
-                );
               } catch (runUpdateError) {
                 console.error(
                   `[INBOUND WEBHOOK] Error updating run with callback statistics:`,
@@ -491,7 +431,6 @@ export async function handleInboundWebhook(
           hotSwapPerformed: metadata.hotSwapPerformed || false,
           time: new Date().toISOString(),
         } as CallLogEntry);
-        console.log(`[INBOUND WEBHOOK] Sent event for inbound call`);
       } catch (error) {
         console.error(`[INBOUND WEBHOOK] Error sending pusher event:`, error);
       }
@@ -586,10 +525,6 @@ async function findDefaultInboundAgent(orgId: string): Promise<{
       const inboundCampaign = inboundCampaigns[0];
 
       if (inboundCampaign.template && inboundCampaign.template.agentId) {
-        console.log(
-          `[INBOUND WEBHOOK] Found organization's default inbound agent (${inboundCampaign.template.agentId}) from campaign "${inboundCampaign.campaign.name}"`,
-        );
-
         return {
           agentId: inboundCampaign.template.agentId,
           campaignId: inboundCampaign.campaign.id,

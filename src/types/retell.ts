@@ -20,16 +20,14 @@ export type RetellPostCallObjectRaw = {
     in_voicemail: boolean;
     user_sentiment: string;
     call_successful: boolean;
-    custom_analysis_data: Record<
-      string,
-      | string
-      | boolean
-      | number
-      | null
-      | Record<string, string>
-      | Record<string, boolean>
-      | Record<string, number>
-    >;
+    custom_analysis_data: {
+      notes: string;
+      questions: string;
+      transferred: boolean;
+      detected_ai: boolean;
+      // * Campaign Specific Variables (based on the campaign config)
+      [key: string]: string | boolean | number | null | undefined;
+    };
     agent_task_completion_rating: string;
     call_completion_rating: string;
   };

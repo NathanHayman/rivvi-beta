@@ -11,17 +11,8 @@ import {
 } from "@/components/ui/card";
 import { BarChart } from "@/components/ui/charts/bar-chart";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  useCampaignAnalytics,
-  useGenerateCampaignReport,
-} from "@/hooks/campaigns/use-campaign-analytics";
-import {
-  CheckCircle,
-  Download,
-  Loader2,
-  Phone,
-  VoicemailIcon,
-} from "lucide-react";
+import { useCampaignAnalytics } from "@/hooks/campaigns/use-campaign-analytics";
+import { CheckCircle, Loader2, Phone, VoicemailIcon } from "lucide-react";
 import { useState } from "react";
 
 interface CampaignAnalyticsProps {
@@ -35,90 +26,6 @@ export function CampaignAnalytics({ campaignId }: CampaignAnalyticsProps) {
 
   // Fetch campaign analytics data using the custom hook
   const { data, isLoading, error } = useCampaignAnalytics(campaignId);
-
-  // Generate report using the custom hook
-  const { mutate: generateReport, isPending: isGenerating } =
-    useGenerateCampaignReport();
-
-  // Handle report generation
-  const handleGenerateReport = () => {
-    generateReport(campaignId, {
-      onSuccess: (data) => {
-        // Convert to CSV
-        // Create headers from the data structure
-        const headers = ["Metric", "Value"];
-
-        // Create rows from the data
-        const rows = [
-          // Call metrics
-          { Metric: "Total Calls", Value: data.callMetrics.total },
-          { Metric: "Completed Calls", Value: data.callMetrics.completed },
-          { Metric: "Failed Calls", Value: data.callMetrics.failed },
-          { Metric: "Voicemail Calls", Value: data.callMetrics.voicemail },
-          { Metric: "In Progress Calls", Value: data.callMetrics.inProgress },
-          { Metric: "Pending Calls", Value: data.callMetrics.pending },
-          {
-            Metric: "Success Rate",
-            Value: `${(data.callMetrics.successRate * 100).toFixed(2)}%`,
-          },
-
-          // Add conversion metrics
-          ...data.conversionMetrics.flatMap((metric) =>
-            Object.entries(metric.values).map(([key, value]) => ({
-              Metric: `${metric.label} - ${key}`,
-              Value: value,
-            })),
-          ),
-
-          // Add run metrics
-          ...data.runMetrics.map((run) => ({
-            Metric: `Run: ${run.name}`,
-            Value: `${run.completedCalls}/${run.totalCalls} (${(run.conversionRate * 100).toFixed(2)}%)`,
-          })),
-        ];
-
-        // Convert to CSV
-        const csvContent = [
-          headers.join(","),
-          ...rows.map((row) =>
-            headers
-              .map((header) => {
-                const value = row[header as keyof typeof row];
-                // Handle values that need quotes (strings with commas)
-                return typeof value === "string" && value.includes(",")
-                  ? `"${value}"`
-                  : value;
-              })
-              .join(","),
-          ),
-        ].join("\n");
-
-        // Download as file
-        const blob = new Blob([csvContent], {
-          type: "text/csv;charset=utf-8;",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `campaign-${campaignId}-report.csv`);
-        link.style.visibility = "hidden";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      },
-    });
-  };
-
-  // Format days of week names
-  const dayNames = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
 
   if (isLoading) {
     return (
@@ -154,26 +61,6 @@ export function CampaignAnalytics({ campaignId }: CampaignAnalyticsProps) {
       <AppHeader
         title={`Campaign Analytics`}
         subtitle="Campaign performance metrics and insights"
-        buttons={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleGenerateReport}
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                Export Report
-              </>
-            )}
-          </Button>
-        }
       />
 
       <AppContent>

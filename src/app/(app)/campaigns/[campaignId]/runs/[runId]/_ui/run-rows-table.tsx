@@ -41,8 +41,8 @@ import {
 import { useRun } from "@/hooks/runs/use-runs";
 import { useRunEvents } from "@/hooks/use-run-events";
 import { cn } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/lib/utils/formatting";
 import { fetchRunRows } from "@/server/actions/runs/rows";
-import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import Link from "next/link";
 
 type RowStatus =

@@ -1,5 +1,3 @@
-// src/services/runs/run-processor.ts
-
 import { isProduction } from "@/lib/enviroment";
 import {
   triggerEvent,

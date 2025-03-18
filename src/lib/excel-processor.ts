@@ -1,13 +1,8 @@
-// src/lib/excel-processor.ts - Complete Fixed Version
 import { patientService } from "@/services/patients";
 import { nanoid } from "nanoid";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import {
-  formatDate,
-  formatPhoneNumber,
-  isValidDate,
-} from "../outdated/file/utils";
+import { formatDate, formatPhoneNumber, isValidDate } from "./utils/formatting";
 
 /**
  * Creates a safe field object with proper defaults and careful property access

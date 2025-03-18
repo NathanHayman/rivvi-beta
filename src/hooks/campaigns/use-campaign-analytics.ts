@@ -1,10 +1,7 @@
 "use client";
 
-import {
-  generateCampaignReport,
-  getCampaignAnalytics,
-} from "@/server/actions/dashboard";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { getCampaignAnalytics } from "@/server/actions/dashboard";
+import { useQuery } from "@tanstack/react-query";
 
 /**
  * Hook for fetching campaign analytics data
@@ -15,17 +12,6 @@ export function useCampaignAnalytics(campaignId: string) {
     queryKey: ["campaignAnalytics", campaignId],
     queryFn: async () => {
       return getCampaignAnalytics(campaignId);
-    },
-  });
-}
-
-/**
- * Hook for generating a campaign report
- */
-export function useGenerateCampaignReport() {
-  return useMutation({
-    mutationFn: async (campaignId: string) => {
-      return generateCampaignReport(campaignId);
     },
   });
 }

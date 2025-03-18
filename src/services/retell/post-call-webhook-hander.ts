@@ -1,5 +1,3 @@
-// src/lib/retell/post-call-webhook.ts
-
 import { triggerEvent } from "@/lib/pusher-server";
 import { db } from "@/server/db";
 import {
@@ -29,35 +27,6 @@ export async function handlePostCallWebhook(
   campaignId: string | null,
   payload: RetellPostCallObjectRaw,
 ) {
-  console.log(
-    `[WEBHOOK] Post-call webhook received for org ${orgId}, campaign ${campaignId || "unknown"}`,
-  );
-
-  // Add detailed logging of the call data
-  console.log(
-    `[WEBHOOK] Call details - ID: ${payload.call_id}, Status: ${payload.call_status}`,
-  );
-  if (payload.metadata) {
-    console.log(
-      `[WEBHOOK] Call metadata:`,
-      JSON.stringify(payload.metadata, null, 2),
-    );
-    if (payload.metadata.rowId) {
-      console.log(`[WEBHOOK] Associated row ID: ${payload.metadata.rowId}`);
-    }
-    if (payload.metadata.runId) {
-      console.log(`[WEBHOOK] Associated run ID: ${payload.metadata.runId}`);
-    }
-    if (payload.metadata.outreachEffortId) {
-      console.log(
-        `[WEBHOOK] Associated outreach effort ID: ${payload.metadata.outreachEffortId}`,
-      );
-    }
-  }
-  console.log(
-    `[WEBHOOK] Call direction: ${payload.direction}, Duration: ${payload.duration_ms}ms`,
-  );
-
   try {
     // Extract key fields with fallbacks
     const {
@@ -98,10 +67,6 @@ export async function handlePostCallWebhook(
       return { status: "error", error: "Missing call_id in webhook payload" };
     }
 
-    console.log(
-      `[WEBHOOK] Processing post-call webhook for call ${retellCallId}`,
-    );
-
     // Check if this call exists in our database
     const [existingCall] = await db
       .select()
@@ -120,8 +85,6 @@ export async function handlePostCallWebhook(
     let originalCampaignId: string | null = campaignId;
 
     if (existingCall) {
-      console.log(`[WEBHOOK] Found existing call record ${existingCall.id}`);
-
       callId = existingCall.id;
       rowId = existingCall.rowId;
       runId = existingCall.runId;
@@ -138,24 +101,17 @@ export async function handlePostCallWebhook(
         // These would have been set by our inbound webhook handler
         if (existingCall.metadata.rowId && !rowId) {
           rowId = existingCall.metadata.rowId as string;
-          console.log(`[WEBHOOK] Using rowId from call metadata: ${rowId}`);
         }
 
         if (existingCall.metadata.runId && !runId) {
           runId = existingCall.metadata.runId as string;
-          console.log(`[WEBHOOK] Using runId from call metadata: ${runId}`);
         }
 
         if (existingCall.metadata.campaignId && !originalCampaignId) {
           originalCampaignId = existingCall.metadata.campaignId as string;
-          console.log(
-            `[WEBHOOK] Using campaignId from call metadata: ${originalCampaignId}`,
-          );
         }
       }
     } else {
-      console.log(`[WEBHOOK] No existing call found, creating new record`);
-
       // For inbound calls, try to extract IDs from metadata provided by Retell
       // These would have been set in our inbound webhook response
       if (direction === "inbound" && metadata) {
@@ -166,10 +122,6 @@ export async function handlePostCallWebhook(
         if (metadata.campaignId || metadata.campaign_id) {
           originalCampaignId = metadata.campaignId || metadata.campaign_id;
         }
-
-        console.log(
-          `[WEBHOOK] Extracted from inbound metadata - rowId: ${rowId}, runId: ${runId}, campaignId: ${originalCampaignId}`,
-        );
       }
       // For outbound calls, try to extract patient ID from metadata
       else if (direction === "outbound" && metadata) {
@@ -187,9 +139,6 @@ export async function handlePostCallWebhook(
 
             if (patient) {
               patientId = patient.id;
-              console.log(
-                `[WEBHOOK] Found patient ${patientId} by phone number ${cleanPhone}`,
-              );
             }
           }
         } catch (error) {
@@ -221,7 +170,6 @@ export async function handlePostCallWebhook(
         .returning();
 
       callId = newCall.id;
-      console.log(`[WEBHOOK] Created new call record ${callId}`);
     }
 
     // Fetch the complete call record again to make sure we have latest data
@@ -240,10 +188,6 @@ export async function handlePostCallWebhook(
     // Process campaign-specific configuration if available
     let campaignConfig = null;
     if (originalCampaignId) {
-      console.log(
-        `[WEBHOOK] Looking up campaign configuration for ${originalCampaignId}`,
-      );
-
       try {
         const [campaign] = await db
           .select()
@@ -268,10 +212,6 @@ export async function handlePostCallWebhook(
               direction: campaign.direction,
               analysisConfig: template.analysisConfig,
             };
-
-            console.log(
-              `[WEBHOOK] Found campaign config with ${template.analysisConfig?.standard?.fields?.length || 0} standard fields`,
-            );
           }
         }
       } catch (error) {
@@ -294,7 +234,6 @@ export async function handlePostCallWebhook(
         processedAnalysis.voicemail_detected = true;
         processedAnalysis.left_voicemail = true; // Add additional flags for consistency
         processedAnalysis.in_voicemail = true;
-        console.log(`[WEBHOOK] Voicemail detected for call ${retellCallId}`);
       }
 
       // If call summary is available, add it to the analysis
@@ -404,18 +343,12 @@ export async function handlePostCallWebhook(
           updatedAt: new Date(),
         } as any)
         .where(eq(calls.id, call.id));
-
-      console.log(
-        `[WEBHOOK] Updated call record ${call.id} with analysis and transcript data`,
-      );
     } catch (error) {
       console.error("[WEBHOOK] Error updating call record:", error);
     }
 
     // If this is a call associated with a row, update the row status
     if (rowId) {
-      console.log(`[WEBHOOK] Updating associated row ${rowId}`);
-
       try {
         // Get the current row status before updating
         const [currentRow] = await db
@@ -424,9 +357,6 @@ export async function handlePostCallWebhook(
           .where(eq(rows.id, rowId));
 
         if (currentRow) {
-          console.log(
-            `[WEBHOOK] Current row status: ${currentRow.status}, updating to: ${getStatus("row", callStatus as RetellCallStatus)}`,
-          );
         }
 
         // Robust update with better error handling and diagnostics
@@ -437,9 +367,6 @@ export async function handlePostCallWebhook(
           // If this is an inbound callback, set status to "callback" regardless of call outcome
           if (direction === "inbound" && call.outreachEffortId) {
             rowStatus = "callback";
-            console.log(
-              `[WEBHOOK] Setting row status to 'callback' for inbound callback`,
-            );
           } else {
             // For non-callback calls, use the standard status mapping
             rowStatus = getStatus("row", callStatus as RetellCallStatus);
@@ -499,10 +426,6 @@ export async function handlePostCallWebhook(
             } as any) // Use type assertion to avoid linter errors
             .where(eq(rows.id, rowId));
 
-          console.log(
-            `[WEBHOOK] Row ${rowId} updated with call results ${callStatus}`,
-          );
-
           // Now, handle outreach effort tracking
           if (direction === "outbound" && patientId) {
             // For outbound calls, create or update an outreach effort
@@ -512,7 +435,6 @@ export async function handlePostCallWebhook(
             let resolutionStatus: OutreachResolutionStatus = "open";
 
             if (processedAnalysis) {
-              console.log("process analysis exists");
               if (
                 processedAnalysis?.appointment_confirmed === true ||
                 processedAnalysis?.medication_confirmed === true ||
@@ -546,18 +468,11 @@ export async function handlePostCallWebhook(
                     resolutionStatus === "resolved" ? new Date() : null,
                 } as any)
                 .where(eq(outreachEfforts.id, outreachEffortId));
-
-              console.log(
-                `[WEBHOOK] Updated outreach effort ${outreachEffortId} with status ${resolutionStatus}`,
-              );
             } else {
               // Create a new outreach effort
               // Note: This is a fallback case that should rarely happen now that
               // we create outreach efforts at call dispatch time in the run processor.
               // This handles legacy calls or edge cases where outreach creation failed during dispatch.
-              console.log(
-                `[WEBHOOK] No outreach effort found for call ${callId}, creating one as fallback`,
-              );
 
               const [newOutreachEffort] = await db
                 .insert(outreachEfforts)
@@ -588,10 +503,6 @@ export async function handlePostCallWebhook(
                   outreachEffortId: newOutreachEffort.id,
                 } as any)
                 .where(eq(calls.id, callId));
-
-              console.log(
-                `[WEBHOOK] Created new outreach effort ${newOutreachEffort.id} with status ${resolutionStatus}`,
-              );
             }
           } else if (direction === "inbound" && call.outreachEffortId) {
             // For inbound calls, update the associated outreach effort if there is one
@@ -634,10 +545,6 @@ export async function handlePostCallWebhook(
                 },
               } as any)
               .where(eq(outreachEfforts.id, call.outreachEffortId));
-
-            console.log(
-              `[WEBHOOK] Updated outreach effort ${call.outreachEffortId} from status "${originalStatus}" to resolved (inbound callback)`,
-            );
           }
         } catch (error) {
           console.error(
@@ -694,10 +601,6 @@ export async function handlePostCallWebhook(
               },
             } as any)
             .where(eq(outreachEfforts.id, call.outreachEffortId));
-
-          console.log(
-            `[WEBHOOK] Updated standalone outreach effort ${call.outreachEffortId} with status ${resolutionStatus}`,
-          );
         } catch (error) {
           console.error(
             "[WEBHOOK] Error updating standalone outreach effort:",
@@ -709,9 +612,6 @@ export async function handlePostCallWebhook(
         // Note: This is a fallback case that should rarely happen now that
         // we create outreach efforts at call dispatch time in the run processor.
         // This handles legacy calls or manually dialed calls without a row.
-        console.log(
-          `[WEBHOOK] No outreach effort found for standalone call ${callId}, creating one`,
-        );
 
         try {
           // Determine resolution status based on call outcome
@@ -764,10 +664,6 @@ export async function handlePostCallWebhook(
               outreachEffortId: newOutreachEffort.id,
             } as any)
             .where(eq(calls.id, callId));
-
-          console.log(
-            `[WEBHOOK] Created new standalone outreach effort ${newOutreachEffort.id} with status ${resolutionStatus}`,
-          );
         } catch (error) {
           console.error(
             "[WEBHOOK] Error creating standalone outreach effort:",
@@ -779,8 +675,6 @@ export async function handlePostCallWebhook(
 
     // If the call has a run ID, update run metrics
     if (runId) {
-      console.log(`[WEBHOOK] Updating metrics for run ${runId}`);
-
       try {
         // Get the run
         const [run] = await db.select().from(runs).where(eq(runs.id, runId));
@@ -847,9 +741,6 @@ export async function handlePostCallWebhook(
               processedAnalysis.left_voicemail === true ||
               processedAnalysis.voicemail_left === true
             ) {
-              console.log(
-                `[WEBHOOK] Incrementing voicemail count for run ${runId}`,
-              );
               metadata.calls.voicemail = (metadata.calls.voicemail || 0) + 1;
             }
 
@@ -920,8 +811,6 @@ export async function handlePostCallWebhook(
             } as any)
             .where(eq(runs.id, runId));
 
-          console.log(`[WEBHOOK] Updated run ${runId} metrics`);
-
           // Only check for run completion for outbound calls
           // (inbound calls shouldn't affect run completion status)
           if (direction === "outbound") {
@@ -937,10 +826,6 @@ export async function handlePostCallWebhook(
               );
 
             if (Number(pendingRows) === 0) {
-              console.log(
-                `[WEBHOOK] No pending rows left, marking run ${runId} as completed`,
-              );
-
               // Calculate duration if we have start time
               let duration: number | undefined;
               if (metadata.run?.startTime) {
@@ -982,8 +867,6 @@ export async function handlePostCallWebhook(
                   },
                 },
               });
-
-              console.log(`[WEBHOOK] Run ${runId} marked as completed`);
             }
           }
 
@@ -1063,15 +946,9 @@ export async function handlePostCallWebhook(
           insights,
         });
       }
-
-      console.log(`[WEBHOOK] Sent all real-time updates for call ${call.id}`);
     } catch (error) {
       console.error("[WEBHOOK] Error sending notifications:", error);
     }
-
-    console.log(
-      `[WEBHOOK] Post-call webhook processed successfully for call ${retellCallId}`,
-    );
 
     return {
       status: "success",

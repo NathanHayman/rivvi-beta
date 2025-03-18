@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { formatPhoneDisplay } from "@/lib/utils/formatting";
 import { searchPatients } from "@/server/actions/patients";
-import { formatPhoneDisplay } from "@/services/outdated/file/utils";
 import { format } from "date-fns";
 import {
   CheckCircle2,

@@ -11,11 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { calculateAge, formatPhoneDisplay } from "@/lib/utils/formatting";
 import { getPatient } from "@/server/actions/patients";
-import {
-  calculateAge,
-  formatPhoneDisplay,
-} from "@/services/outdated/file/utils";
 import { PatientWithMetadata } from "@/types/api/patients";
 import { format } from "date-fns";
 import {
